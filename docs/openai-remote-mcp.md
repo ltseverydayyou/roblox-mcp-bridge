@@ -54,6 +54,20 @@ This is the tested Windows path for connecting the local server to ChatGPT. It d
 - A `tunnel_id` created for the correct ChatGPT workspace
 - A restricted Platform Runtime API key with **Tunnels Read + Use**
 
+From the repository root, the included PowerShell installer downloads the latest official Windows release, selects `amd64` or `arm64`, verifies the published SHA-256 checksum, and installs it under `%LOCALAPPDATA%\OpenAI\tunnel-client`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-tunnel-client.ps1
+```
+
+To also add that directory to your user `PATH`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-tunnel-client.ps1 -AddToPath
+```
+
+You can override the destination with `-InstallDirectory` or force a specific build with `-Architecture amd64` or `-Architecture arm64`. The installer never requests or stores an API key.
+
 The tunnel ID and runtime API key are different values. The ID selects the tunnel; `CONTROL_PLANE_API_KEY` authenticates `doctor` and `run`. An OpenAI admin key is only needed for tunnel create/list/update/delete operations and should not be used for the runtime daemon.
 
 ### First-time profile setup

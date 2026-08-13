@@ -138,6 +138,12 @@ This project currently exposes MCP over local `stdio`. Port `16384` is the unaut
 
 See [OpenAI remote MCP and plugin connections](docs/openai-remote-mcp.md) for architecture, tunnel, authentication, and configuration examples.
 
+Windows users can download and checksum-verify the latest official OpenAI tunnel client from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-tunnel-client.ps1
+```
+
 ## Community
 
 Have a suggestion or need help? Join the [Discord server](https://discord.gg/FJcJMuze7S).
