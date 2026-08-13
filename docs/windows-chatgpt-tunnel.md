@@ -13,9 +13,25 @@ This guide reproduces the working Windows setup using the official OpenAI `tunne
 
 The tunnel ID is an identifier. The runtime API key is the credential used by `tunnel-client doctor` and `run`. Do not substitute an OpenAI admin key for the runtime key.
 
-## 1. Clone the repository
+## 1. Install Git
 
-Open PowerShell:
+Open PowerShell and check whether Git is available:
+
+```powershell
+git --version
+```
+
+If PowerShell says `git is not recognized`, install it with Windows Package Manager:
+
+```powershell
+winget install --id Git.Git -e --source winget
+```
+
+Close every PowerShell window after installation, open a new one, and run `git --version` again. If `winget` is unavailable, use the official [Git for Windows installer](https://git-scm.com/download/win).
+
+## 2. Clone the repository
+
+Run these commands only after `git --version` succeeds:
 
 ```powershell
 Set-Location $env:USERPROFILE
@@ -23,7 +39,9 @@ git clone https://github.com/ltseverydayyou/roblox-mcp-bridge.git
 Set-Location .\roblox-mcp-bridge
 ```
 
-## 2. Run the complete first-time setup
+If the clone command fails, the repository folder is not created. Do not run `cd`/`Set-Location .\roblox-mcp-bridge` until the clone finishes successfully.
+
+## 3. Run the complete first-time setup
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-chatgpt-tunnel.ps1
@@ -55,7 +73,7 @@ To redownload and verify the newest tunnel-client release:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-chatgpt-tunnel.ps1 -SkipProjectSetup -UpdateTunnelClient
 ```
 
-## 3. Roblox installer choices
+## 4. Roblox installer choices
 
 The repository installer is interactive. For the setup used by this guide:
 
@@ -67,7 +85,7 @@ The repository installer is interactive. For the setup used by this guide:
 
 The completed build is `dist\index.js`. The tunnel profile launches it automatically; do not separately run `node dist/index.js` while the same profile is active.
 
-## 4. Connect Roblox
+## 5. Connect Roblox
 
 Start Roblox, join a game, and inject the executor. If autoexec does not load the connector, run:
 
@@ -84,7 +102,7 @@ http://localhost:16384/
 
 It should show the connected Roblox client.
 
-## 5. Connect ChatGPT
+## 6. Connect ChatGPT
 
 Keep the PowerShell window running `tunnel-client` open.
 
@@ -105,7 +123,7 @@ Use Roblox MCP Bridge to list connected Roblox clients.
 
 Use a separate tunnel ID if Roblox Studio MCP and this executor MCP must remain available at the same time.
 
-## 6. Start it after restarting Windows
+## 7. Start it after restarting Windows
 
 From the repository folder:
 

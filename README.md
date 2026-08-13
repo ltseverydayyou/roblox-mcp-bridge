@@ -35,20 +35,40 @@ Use it to see connected Roblox clients, inspect scripts, run tools, view server 
 
 ## Prerequisites
 
+- **Git** for cloning and updating the repository
 - **Node.js** ≥ 18
 - **Bun** ≥ 1.3 for the interactive OpenTUI harness installer
 - **A Roblox executor** that supports `loadstring`, `request`, and (preferably) `WebSocket`
 
 ## Installation
 
-### 1. Clone the server
+### 1. Install Git on Windows
 
-```bash
-git clone https://github.com/ltseverydayyou/roblox-mcp-bridge.git
-cd roblox-mcp-bridge
+If PowerShell says `git is not recognized`, install Git first:
+
+```powershell
+winget install --id Git.Git -e --source winget
 ```
 
-### 2. Run the harness installer
+Close every PowerShell window, open a new one, and verify the installation:
+
+```powershell
+git --version
+```
+
+If `winget` is unavailable, download Git from [git-scm.com/download/win](https://git-scm.com/download/win), install it, and reopen PowerShell. Do not run the clone command until `git --version` works.
+
+### 2. Clone the server
+
+```powershell
+Set-Location $env:USERPROFILE
+git clone https://github.com/ltseverydayyou/roblox-mcp-bridge.git
+Set-Location .\roblox-mcp-bridge
+```
+
+If cloning fails, the `roblox-mcp-bridge` folder is not created, so the following `Set-Location`/`cd` command will also fail. Fix the clone error first.
+
+### 3. Run the harness installer
 
 The installer builds the server, lets you choose AI clients, writes supported MCP configs, and prints the Roblox loader script.
 
@@ -105,7 +125,7 @@ If you prefer to configure a client yourself, use the setup guide for your clien
 | Windsurf       | [Setup Guide](docs/setup-windsurf.md)       |
 | Antigravity    | [Setup Guide](docs/setup-antigravity.md)    |
 
-### 3. Connect from Roblox
+### 4. Connect from Roblox
 
 The installer prints this for you. Put it in your executor or Auto Execute:
 
