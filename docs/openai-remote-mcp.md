@@ -72,6 +72,14 @@ The tunnel ID and runtime API key are different values. The ID selects the tunne
 
 ### First-time profile setup
 
+For an automated Windows setup that also builds the project, downloads and verifies `tunnel-client.exe`, prompts securely for the runtime key, creates the profile, and runs diagnostics, use:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-chatgpt-tunnel.ps1
+```
+
+The complete walkthrough is in [Complete Windows and ChatGPT tunnel setup](windows-chatgpt-tunnel.md).
+
 Open PowerShell in the folder containing `tunnel-client.exe`. Read the runtime key without echoing it:
 
 ```powershell

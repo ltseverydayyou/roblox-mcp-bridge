@@ -144,6 +144,20 @@ Windows users can download and checksum-verify the latest official OpenAI tunnel
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-tunnel-client.ps1
 ```
 
+For the complete first-time setup—project build, autoexec installer, official tunnel-client download, profile creation, secure runtime-key prompt, diagnostics, and startup—run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-chatgpt-tunnel.ps1
+```
+
+After restarting Windows, start the saved profile with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-chatgpt-tunnel.ps1
+```
+
+See the [complete Windows and ChatGPT tunnel setup](docs/windows-chatgpt-tunnel.md) for the Roblox, ChatGPT, restart, and troubleshooting steps.
+
 ## Community
 
 Have a suggestion or need help? Join the [Discord server](https://discord.gg/FJcJMuze7S).
