@@ -133,8 +133,8 @@ http://localhost:16384/
 This project currently exposes MCP over local `stdio`. Port `16384` is the unauthenticated Roblox bridge and dashboard, **not** a remote MCP endpoint. Do not point a public tunnel at that port.
 
 - For another computer on the same trusted network, use a VPN, LAN address, or SSH tunnel as described in [Advanced Configuration](docs/advanced.md).
-- For Codex to connect to a remote MCP service, place an authenticated Streamable HTTP MCP gateway in front of the local server and keep bearer tokens in environment variables.
-- For a ChatGPT plugin, the public endpoint must use HTTPS and the supported MCP OAuth 2.1 flow. ChatGPT does not send arbitrary custom API keys to MCP servers.
+- For ChatGPT, OpenAI's `tunnel-client` can launch this local `stdio` MCP server and carry MCP traffic over an outbound-only tunnel without publicly exposing port `16384`.
+- For a direct remote MCP URL, place an authenticated Streamable HTTP MCP gateway in front of the local server and keep bearer tokens in environment variables. Public authenticated plugins should use the supported MCP OAuth 2.1 flow.
 
 See [OpenAI remote MCP and plugin connections](docs/openai-remote-mcp.md) for architecture, tunnel, authentication, and configuration examples.
 
