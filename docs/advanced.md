@@ -60,3 +60,7 @@ A live status dashboard is available at `http://localhost:16384/` when the serve
 - Use a **local network** or **VPN**
 - Use an **SSH tunnel**: `ssh -L 16384:localhost:16384 user@windows-machine`
 - **Never** forward the port through a public router or cloud firewall
+
+An SSH tunnel keeps the bridge bound to the remote machine while making it available at `localhost:16384` on the AI-client machine. This is for trusted cross-machine use; it does not convert the local `stdio` MCP server into a ChatGPT-compatible remote MCP endpoint.
+
+For remote OpenAI client and plugin requirements, see [OpenAI remote MCP and plugin connections](openai-remote-mcp.md).

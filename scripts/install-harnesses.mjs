@@ -17,7 +17,7 @@ import {
 } from "../src/shared/autoexec.mjs";
 
 const DEFAULT_SERVER_NAME = "roblox-mcp";
-const MAIN_REPO_URL = "https://github.com/notpoiu/roblox-executor-mcp.git";
+const MAIN_REPO_URL = "https://github.com/ltseverydayyou/roblox-mcp-bridge.git";
 const SERVER_NAME = normalizeServerName(getArgValue("--server-name") || process.env.ROBLOX_MCP_SERVER_NAME || DEFAULT_SERVER_NAME);
 const CURRENT_REPO_DIR = process.cwd();
 const PACKAGE_VERSION = readPackageVersion();

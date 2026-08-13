@@ -2,9 +2,11 @@
   <img src="docs/banner.svg" alt="Roblox Executor MCP" width="900"/>
 </p>
 
-# Roblox Executor MCP Server
+# Roblox MCP Bridge
 
 An MCP server that allows Agents to interact with a running Roblox game client — execute code, inspect scripts, spy on remotes, and more.
+
+> This repository is a maintained mirror of the original `notpoiu/roblox-executor-mcp` project. The original Git history and [MIT license](LICENSE) are preserved.
 
 ## Dashboard
 
@@ -37,13 +39,13 @@ Use it to see connected Roblox clients, inspect scripts, run tools, view server 
 - **Bun** ≥ 1.3 for the interactive OpenTUI harness installer
 - **A Roblox executor** that supports `loadstring`, `request`, and (preferably) `WebSocket`
 
-## Quick Start
+## Installation
 
 ### 1. Clone the server
 
 ```bash
-git clone https://github.com/notpoiu/roblox-executor-mcp.git
-cd roblox-executor-mcp
+git clone https://github.com/ltseverydayyou/roblox-mcp-bridge.git
+cd roblox-mcp-bridge
 ```
 
 ### 2. Run the harness installer
@@ -53,6 +55,8 @@ The installer builds the server, lets you choose AI clients, writes supported MC
 ```bash
 npm run install:harnesses
 ```
+
+This command installs dependencies, builds `dist/index.js`, lets you select supported AI clients, and writes their local MCP configuration. Bun is installed automatically if the interactive installer needs it.
 
 The picker is built with [OpenTUI](https://opentui.com/) and runs through Bun. `npm run install:harnesses` installs Bun first if it is not already available. It shows detected local clients by default; if none are detected, it warns you to install a harness first. Press `s` in the picker or pass `--show-all-harnesses` to reveal every supported config target. If your terminal has trouble with the interactive picker, use the plain numbered prompt:
 
@@ -82,6 +86,13 @@ npm run update
 The update command can stop currently running MCP server processes, optionally pull latest changes, and always rebuilds the server.
 
 ### Manual setup
+
+To install and build without the interactive installer:
+
+```bash
+npm install
+npm run build
+```
 
 If you prefer to configure a client yourself, use the setup guide for your client:
 
@@ -116,6 +127,16 @@ After the MCP server starts and Roblox connects, open the dashboard:
 ```text
 http://localhost:16384/
 ```
+
+## Remote access and ChatGPT plugins
+
+This project currently exposes MCP over local `stdio`. Port `16384` is the unauthenticated Roblox bridge and dashboard, **not** a remote MCP endpoint. Do not point a public tunnel at that port.
+
+- For another computer on the same trusted network, use a VPN, LAN address, or SSH tunnel as described in [Advanced Configuration](docs/advanced.md).
+- For Codex to connect to a remote MCP service, place an authenticated Streamable HTTP MCP gateway in front of the local server and keep bearer tokens in environment variables.
+- For a ChatGPT plugin, the public endpoint must use HTTPS and the supported MCP OAuth 2.1 flow. ChatGPT does not send arbitrary custom API keys to MCP servers.
+
+See [OpenAI remote MCP and plugin connections](docs/openai-remote-mcp.md) for architecture, tunnel, authentication, and configuration examples.
 
 ## Community
 
