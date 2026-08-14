@@ -130,6 +130,19 @@ While `tunnel-client run` is still active:
 
 Refreshing the connection updates its advertised tool metadata. Use a separate tunnel ID if Roblox Studio MCP and this executor MCP must remain available at the same time.
 
+### Transfer ChatGPT files through the tunnel
+
+A path such as `/mnt/data/generated.luau` belongs to ChatGPT's cloud sandbox and cannot be opened directly by the local MCP process launched by `tunnel-client`. Do not pass that path to `execute-file`.
+
+This server advertises native ChatGPT file parameters on two tools:
+
+- `execute-chatgpt-luau` receives one complete `.lua`, `.luau`, or UTF-8 `.txt` file and executes it in the active Roblox client.
+- `import-chatgpt-files` receives up to ten files, saves them in a dedicated local staging directory, and returns their local paths and SHA-256 hashes.
+
+ChatGPT resolves attached, selected, or generated files into file objects containing an authorized temporary `download_url` and `file_id`. The local MCP server downloads the bytes through that URL, so large source files no longer need to be reconstructed through repeated text tool calls. After upgrading, restart the tunnel runtime and refresh the plugin connection so ChatGPT sees the new file-parameter metadata.
+
+See the [official OpenAI plugin file-parameter reference](https://developers.openai.com/plugins/reference#file-apis) for the schema and runtime behavior.
+
 ### After restarting Windows
 
 Open PowerShell in the tunnel-client folder, set the runtime key again, and run the existing profile:

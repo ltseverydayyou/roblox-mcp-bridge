@@ -6,6 +6,8 @@ param(
 
     [string]$TunnelClientDirectory = (Join-Path $env:LOCALAPPDATA "OpenAI\tunnel-client"),
 
+    [string]$TunnelClientExecutable = "",
+
     [switch]$Doctor
 )
 
@@ -29,18 +31,26 @@ if ($ProfileName -notmatch '^[A-Za-z0-9._-]+$') {
     throw "ProfileName may only contain letters, numbers, periods, underscores, and hyphens."
 }
 
-$script:TunnelExecutable = Join-Path ([System.IO.Path]::GetFullPath($TunnelClientDirectory)) "tunnel-client.exe"
+$script:TunnelExecutable = if ($TunnelClientExecutable) {
+    [System.IO.Path]::GetFullPath($TunnelClientExecutable)
+}
+else {
+    Join-Path ([System.IO.Path]::GetFullPath($TunnelClientDirectory)) "tunnel-client.exe"
+}
 if (-not (Test-Path -LiteralPath $script:TunnelExecutable -PathType Leaf)) {
     throw "tunnel-client.exe was not found. Run scripts\setup-chatgpt-tunnel.ps1 first."
 }
 
-$secureKey = Read-Host "Paste the OpenAI Platform Runtime API key (input is hidden)" -AsSecureString
-try {
-    $runtimeKey = [System.Net.NetworkCredential]::new("", $secureKey).Password
-}
-finally {
-    if ($secureKey -is [System.IDisposable]) {
-        $secureKey.Dispose()
+$runtimeKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
+if ([string]::IsNullOrWhiteSpace($runtimeKey)) {
+    $secureKey = Read-Host "Paste the OpenAI Platform Runtime API key (input is hidden)" -AsSecureString
+    try {
+        $runtimeKey = [System.Net.NetworkCredential]::new("", $secureKey).Password
+    }
+    finally {
+        if ($secureKey -is [System.IDisposable]) {
+            $secureKey.Dispose()
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "roblox-mcp-server",
-  "version": "1.0.0",
+  "version": "2.3.0",
   "description": "An MCP server for interacting with Roblox Game Clients",
   "type": "module",
   "main": "dist/index.js",
@@ -21,6 +21,7 @@
     "install:harnesses": "node scripts/run-with-bun.mjs scripts/install-harnesses.mjs",
     "getscript": "bun scripts/install-harnesses.mjs --get-script",
     "start": "node dist/index.js",
+    "test": "node scripts/clean-dist.mjs && tsc && node scripts/copy-assets.mjs && node --test tests/*.test.mjs",
     "update": "bun scripts/install-harnesses.mjs --update",
     "prepare": "bun run build"
   },

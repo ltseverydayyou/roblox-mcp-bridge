@@ -5,6 +5,7 @@ import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_BRIDGE_URL,
   SERVER_PORT,
@@ -19,8 +20,12 @@ import {
 const DEFAULT_SERVER_NAME = "roblox-mcp";
 const MAIN_REPO_URL = "https://github.com/ltseverydayyou/roblox-mcp-bridge.git";
 const SERVER_NAME = normalizeServerName(getArgValue("--server-name") || process.env.ROBLOX_MCP_SERVER_NAME || DEFAULT_SERVER_NAME);
-const CURRENT_REPO_DIR = process.cwd();
-const PACKAGE_VERSION = readPackageVersion();
+const SCRIPT_REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const SERVER_ROOT_ARG = getArgValue("--server-root");
+let CURRENT_REPO_DIR = path.resolve(SERVER_ROOT_ARG || process.cwd());
+let PACKAGE_VERSION = readPackageVersion(CURRENT_REPO_DIR);
+let SERVER_LAUNCH_HOST = "127.0.0.1";
+let SERVER_LAUNCH_PORT = SERVER_PORT;
 
 const colors = {
   reset: "\x1b[0m",
@@ -137,6 +142,7 @@ const NO_OPENTUI = process.argv.includes("--no-opentui");
 let OPEN_TUI_DISABLED = false;
 const SHOW_ALL_HARNESSES = process.argv.includes("--show-all-harnesses") || process.argv.includes("--all-harnesses");
 const AUTOEXEC_MODE = process.argv.includes("--autoexec");
+const NO_MANAGER_MODE = process.argv.includes("--no-manager");
 installSafeTerminalWrites();
 const HARNESS_AVAILABILITY = detectAvailableHarnesses();
 if (PLAIN_MODE || process.env.NO_COLOR) {
@@ -161,6 +167,9 @@ async function main() {
     return;
   }
 
+  CURRENT_REPO_DIR = await chooseServerRoot(CURRENT_REPO_DIR);
+  PACKAGE_VERSION = readPackageVersion(CURRENT_REPO_DIR);
+
   const initial = new Set();
   const selected = NON_INTERACTIVE ? initial : await selectHarnesses(initial);
   if (!NON_INTERACTIVE) {
@@ -169,6 +178,7 @@ async function main() {
   const crossMachine = NON_INTERACTIVE
     ? null
     : await configureCrossMachineSetup();
+  applyBridgeLaunchSettings(crossMachine?.bridgeUrl || DEFAULT_BRIDGE_URL);
   const shouldPull =
     !NON_INTERACTIVE && canPullLatest(CURRENT_REPO_DIR)
       ? await askYesNo("Pull latest changes before install/build", false)
@@ -244,7 +254,159 @@ async function main() {
   if (!NON_INTERACTIVE || AUTOEXEC_MODE) {
     await maybeInstallAutoexec(loaderSnippet);
   }
+  if (!NON_INTERACTIVE && !NO_MANAGER_MODE) {
+    await maybeCreateWindowsManager(serverRoot, crossMachine?.bridgeUrl || DEFAULT_BRIDGE_URL);
+  }
   showCursor();
+}
+
+async function chooseServerRoot(initialDirectory) {
+  const initial = path.resolve(expandHome(initialDirectory));
+  if (SERVER_ROOT_ARG || NON_INTERACTIVE) {
+    validateServerRoot(initial);
+    return initial;
+  }
+
+  if (isRobloxMcpRoot(initial)) {
+    const useDetected = await askYesNo(`Use detected MCP folder ${shrinkHome(initial)}`, true);
+    if (useDetected) return initial;
+  } else {
+    log("warn", `The current folder is not a valid Roblox MCP checkout: ${initial}`);
+  }
+
+  while (true) {
+    let selected = null;
+    if (process.platform === "win32") {
+      selected = selectWindowsPath("folder", initial, "Select the Roblox MCP Bridge folder");
+    }
+    if (!selected) {
+      selected = await askInput("MCP folder path", initial);
+    }
+
+    const resolved = path.resolve(expandHome(String(selected || initial).replace(/^['"]|['"]$/g, "")));
+    if (isRobloxMcpRoot(resolved)) return resolved;
+    log("warn", `${resolved} is missing a package.json whose name is roblox-mcp-server.`);
+    const retry = await askYesNo("Choose another MCP folder", true);
+    if (!retry) throw new Error("A valid Roblox MCP folder is required.");
+  }
+}
+
+function validateServerRoot(directory) {
+  if (!isRobloxMcpRoot(directory)) {
+    throw new Error(`${directory} is not a Roblox MCP checkout. Choose a folder containing the roblox-mcp-server package.json.`);
+  }
+}
+
+function isRobloxMcpRoot(directory) {
+  const manifestPath = path.join(directory, "package.json");
+  if (!exists(manifestPath)) return false;
+  try {
+    return JSON.parse(fsSync.readFileSync(manifestPath, "utf8")).name === "roblox-mcp-server";
+  } catch {
+    return false;
+  }
+}
+
+function selectWindowsPath(kind, initialPath, title) {
+  if (process.platform !== "win32") return null;
+  const isFile = kind === "file";
+  const script = isFile
+    ? [
+        "Add-Type -AssemblyName System.Windows.Forms",
+        "$dialog = New-Object System.Windows.Forms.OpenFileDialog",
+        "$dialog.Title = $env:ROBLOX_MCP_PICKER_TITLE",
+        "$dialog.Filter = 'OpenAI tunnel client (tunnel-client.exe)|tunnel-client.exe|Executable files (*.exe)|*.exe'",
+        "$dialog.CheckFileExists = $true",
+        "if (Test-Path -LiteralPath $env:ROBLOX_MCP_PICKER_INITIAL -PathType Leaf) { $dialog.FileName = $env:ROBLOX_MCP_PICKER_INITIAL }",
+        "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.FileName) }",
+      ].join("; ")
+    : [
+        "Add-Type -AssemblyName System.Windows.Forms",
+        "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+        "$dialog.Description = $env:ROBLOX_MCP_PICKER_TITLE",
+        "$dialog.ShowNewFolderButton = $true",
+        "if (Test-Path -LiteralPath $env:ROBLOX_MCP_PICKER_INITIAL -PathType Container) { $dialog.SelectedPath = $env:ROBLOX_MCP_PICKER_INITIAL }",
+        "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }",
+      ].join("; ");
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-STA", "-EncodedCommand", encoded], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    shell: false,
+    windowsHide: true,
+    env: {
+      ...process.env,
+      ROBLOX_MCP_PICKER_INITIAL: String(initialPath || ""),
+      ROBLOX_MCP_PICKER_TITLE: String(title || "Select a path"),
+    },
+  });
+  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : null;
+}
+
+function applyBridgeLaunchSettings(bridgeAddress) {
+  const normalized = normalizeBridgeUrl(bridgeAddress);
+  try {
+    const url = new URL(`http://${normalized}`);
+    SERVER_LAUNCH_PORT = Number(url.port) || SERVER_PORT;
+    SERVER_LAUNCH_HOST = ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+      ? "127.0.0.1"
+      : "0.0.0.0";
+  } catch {
+    SERVER_LAUNCH_HOST = "127.0.0.1";
+    SERVER_LAUNCH_PORT = SERVER_PORT;
+  }
+}
+
+async function maybeCreateWindowsManager(serverRoot, bridgeAddress) {
+  if (process.platform !== "win32") return;
+  const shouldCreate = await askYesNo("Create the optional Roblox MCP Manager .exe", false);
+  if (!shouldCreate) return;
+
+  let tunnelExecutable = findOnPath("tunnel-client.exe") || path.join(
+    process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
+    "OpenAI",
+    "tunnel-client",
+    "tunnel-client.exe"
+  );
+  if (exists(tunnelExecutable)) {
+    const useDetected = await askYesNo(`Use detected ChatGPT tunnel client ${shrinkHome(tunnelExecutable)}`, true);
+    if (!useDetected) tunnelExecutable = "";
+  } else {
+    tunnelExecutable = "";
+  }
+
+  if (!tunnelExecutable) {
+    const browseTunnel = await askYesNo("Browse for an existing tunnel-client.exe (you can also set it later)", false);
+    if (browseTunnel) {
+      tunnelExecutable = selectWindowsPath("file", "", "Select OpenAI tunnel-client.exe") || "";
+    }
+  }
+
+  const profileName = await askInput("ChatGPT tunnel profile name", "roblox-executor");
+  const defaultOutput = path.join(os.homedir(), "Desktop", "Roblox MCP Manager");
+  let outputDirectory = selectWindowsPath("folder", path.dirname(defaultOutput), "Choose where to create Roblox MCP Manager");
+  if (!outputDirectory) outputDirectory = await askInput("Manager output folder", defaultOutput);
+
+  const generator = path.join(SCRIPT_REPO_DIR, "scripts", "create-windows-launcher.ps1");
+  if (!exists(generator)) {
+    log("warn", `Windows manager generator is missing: ${generator}`);
+    return;
+  }
+
+  const args = [
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", generator,
+    "-RepositoryDirectory", serverRoot,
+    "-BridgeAddress", normalizeBridgeUrl(bridgeAddress),
+    "-ProfileName", profileName,
+    "-OutputDirectory", path.resolve(expandHome(outputDirectory)),
+  ];
+  if (tunnelExecutable) args.push("-TunnelClientExecutable", tunnelExecutable);
+  try {
+    await runForeground("powershell.exe", args, { label: "Creating Roblox MCP Manager .exe", cwd: SCRIPT_REPO_DIR });
+    log("ok", `Windows manager created in ${path.resolve(expandHome(outputDirectory))}`);
+  } catch (error) {
+    log("warn", `Could not create Windows manager: ${error.message || error}`);
+  }
 }
 
 async function runGetScriptMode() {
@@ -678,6 +840,8 @@ async function promptForGetScriptBridgeUrl() {
 }
 
 async function runUpdateMode() {
+  CURRENT_REPO_DIR = await chooseServerRoot(CURRENT_REPO_DIR);
+  PACKAGE_VERSION = readPackageVersion(CURRENT_REPO_DIR);
   const serverRoot = path.resolve(CURRENT_REPO_DIR);
   const results = [];
 
@@ -1697,7 +1861,10 @@ function mcpServerConfig(serverEntry) {
 }
 
 function mcpServerArgs(serverEntry) {
-  return [serverEntry, "--server-name", SERVER_NAME];
+  const args = [serverEntry, "--server-name", SERVER_NAME];
+  if (SERVER_LAUNCH_HOST !== "127.0.0.1") args.push("--host", SERVER_LAUNCH_HOST);
+  if (SERVER_LAUNCH_PORT !== SERVER_PORT) args.push("--port", String(SERVER_LAUNCH_PORT));
+  return args;
 }
 
 function tomlArgs(serverEntry) {
@@ -3461,9 +3628,9 @@ function shrinkHome(value) {
   return String(value).startsWith(home) ? `~${String(value).slice(home.length)}` : String(value);
 }
 
-function readPackageVersion() {
+function readPackageVersion(repositoryDirectory = CURRENT_REPO_DIR) {
   try {
-    const packageJson = JSON.parse(fsSync.readFileSync(path.join(CURRENT_REPO_DIR, "package.json"), "utf8"));
+    const packageJson = JSON.parse(fsSync.readFileSync(path.join(repositoryDirectory, "package.json"), "utf8"));
     return typeof packageJson.version === "string" && packageJson.version ? packageJson.version : "1";
   } catch {
     return "1";

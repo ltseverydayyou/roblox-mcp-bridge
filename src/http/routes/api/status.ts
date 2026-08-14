@@ -4,6 +4,7 @@ import { getActiveClients } from "../../../bridge/handlers/shared/registry.js";
 import { getScriptSourceIndex } from "../../../bridge/handlers/shared/script-source-store.js";
 import { loadSemanticSettings, validateSemanticSettings } from "../../../semantic/settings.js";
 import { getSemanticIndexStats } from "../../../semantic/vector-index.js";
+import { getUpdateStatus } from "../../../update/checker.js";
 
 import { serverStartTime } from "../../../config.js";
 
@@ -22,6 +23,7 @@ export async function GET(_req: IncomingMessage, res: ServerResponse): Promise<v
       clientCount: active.length,
       role: "Primary",
       relayClients: relayClients.size,
+      update: getUpdateStatus(),
       clients: active.map((c) => {
         const scriptIndex = getScriptSourceIndex({
           clientId: c.clientId,

@@ -49,17 +49,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-chatgpt-tunn
 
 The script:
 
-1. Confirms Node.js 18 or newer is installed.
-2. Runs the repository's plain installer so you can build the MCP server and install the executor autoexec loader.
-3. Downloads the latest official Windows `tunnel-client` release.
-4. Selects AMD64 or ARM64 automatically.
-5. Verifies the ZIP against OpenAI's published `SHA256SUMS.txt`.
-6. Prompts for the tunnel ID.
-7. Prompts for the runtime API key with hidden input.
-8. Creates the `roblox-executor` profile and runs `doctor --explain`.
-9. Offers to start the foreground tunnel runtime.
+1. Validates the detected MCP repository and opens a folder picker if you want to use another checkout.
+2. Lets you choose `localhost:16384` or a trusted LAN/VPN IP and port.
+3. Confirms Node.js 18 or newer is installed.
+4. Runs the repository's plain installer so you can build the MCP server and install the executor autoexec loader.
+5. Lets you browse for an existing `tunnel-client.exe` or choose its installation folder.
+6. Downloads the latest official Windows `tunnel-client` release when needed, selects AMD64 or ARM64, and verifies OpenAI's published checksum.
+7. Prompts for the tunnel ID.
+8. Creates the `roblox-executor` profile and optionally generates Roblox MCP Manager `.exe`.
+9. Prompts for the runtime API key with hidden input, runs `doctor --explain`, and offers to start the tunnel runtime.
 
 The runtime API key is never passed on the command line, printed, or written to the repository/profile by these scripts. It exists only in the setup process environment long enough for `doctor` or `run` and is cleared or restored afterward.
+
+For the no-terminal path, download `RobloxMcpManager.exe` from the latest GitHub release and click **INSTALL ALL REQUIRED**. It can install Git/Node.js, clone and build the MCP, install the optional tunnel client, and display administrator/network failures. Its tunnel ID and runtime-key fields are optional; the runtime key is masked, memory-only, and never saved.
+
+OpenAI's documented connection path is ChatGPT **Settings → Security and login → Developer mode**, followed by **ChatGPT Plugins → + → Tunnel**. Plugin surfaces also exist in supported Codex experiences, so “ChatGPT Classic” is not a formal requirement. If a Codex/Worker view is confusing during connection creation, use the normal Chat/Plugins surface.
 
 If the repository is already built and the autoexec loader is installed:
 
@@ -71,6 +75,18 @@ To redownload and verify the newest tunnel-client release:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-chatgpt-tunnel.ps1 -SkipProjectSetup -UpdateTunnelClient
+```
+
+Known paths can be supplied without picker dialogs. This still prompts securely for the tunnel ID and runtime key:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-chatgpt-tunnel.ps1 `
+  -RepositoryDirectory "D:\MCP\roblox-mcp-bridge" `
+  -TunnelClientExecutable "D:\OpenAI Tunnel\tunnel-client.exe" `
+  -BridgeAddress "192.168.1.25:16384" `
+  -CreateManager `
+  -ManagerOutputDirectory "D:\Roblox MCP Manager" `
+  -NoPathPrompts
 ```
 
 ## 4. Roblox installer choices
@@ -135,6 +151,13 @@ The script prompts for the runtime API key with hidden input and keeps the tunne
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-chatgpt-tunnel.ps1 -Doctor
+```
+
+If the tunnel executable is stored outside the default folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-chatgpt-tunnel.ps1 `
+  -TunnelClientExecutable "D:\OpenAI Tunnel\tunnel-client.exe"
 ```
 
 Then open Roblox, join a game, and inject the executor.

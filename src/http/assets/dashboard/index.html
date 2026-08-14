@@ -73,6 +73,17 @@
 
         <!-- Main content -->
         <main class="main-content">
+            <div class="update-banner" id="updateBanner" hidden>
+                <div class="update-banner-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/><path d="M3 12A9 9 0 0 1 18.3 5.6L21 8"/><path d="M21 3v5h-5"/></svg>
+                </div>
+                <div class="update-banner-copy">
+                    <strong id="updateBannerTitle">Update available</strong>
+                    <span id="updateBannerMessage"></span>
+                </div>
+                <button class="update-banner-action" id="updateCopyBtn" type="button">Copy update command</button>
+                <button class="update-banner-dismiss" id="updateDismissBtn" type="button" aria-label="Dismiss update notification">×</button>
+            </div>
             <!-- ─── No client view (like Vercel project picker) ─── -->
             <div class="view view--no-client" id="viewClients">
                 <div class="no-client-wrapper">
@@ -507,6 +518,10 @@
                             <div class="tools-list-item" data-tool="search-instances">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
                                 <span>Search Instances</span>
+                            </div>
+                            <div class="tools-list-item" data-tool="inspect-instances">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M8 3v18"/><path d="M8 8h13"/></svg>
+                                <span>Inspect Instances</span>
                             </div>
                             <div class="tools-list-item" data-tool="get-console-output">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>

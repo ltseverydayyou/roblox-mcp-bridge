@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import { serverStartTime } from "../../../config.js";
 import { getActiveClients } from "../../../bridge/handlers/shared/registry.js";
+import { SERVER_VERSION } from "../../../version.js";
 
 
 export function GET(_req: IncomingMessage, res: ServerResponse): void {
@@ -9,7 +10,7 @@ export function GET(_req: IncomingMessage, res: ServerResponse): void {
     JSON.stringify({
       startTime: serverStartTime,
       clientCount: getActiveClients().length,
-      version: "1.0.0",
+      version: SERVER_VERSION,
     })
   );
 }

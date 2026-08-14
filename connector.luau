@@ -26,6 +26,7 @@ local ScriptContext: ScriptContext = cloneref(game:GetService("ScriptContext"))
 local HttpService: HttpService = cloneref(game:GetService("HttpService"))
 local LogService: LogService = cloneref(game:GetService("LogService"))
 local Players: Players = cloneref(game:GetService("Players"))
+local CollectionService: CollectionService = cloneref(game:GetService("CollectionService"))
 
 --// Libraries \\--
 
@@ -1486,17 +1487,180 @@ while true do
         }
     end)
 
+    Bridge:BindToType("inspect-instances", function(data)
+        local paths = data.paths
+        assert(typeof(paths) == "table" and #paths > 0, "paths must contain at least one instance path.")
+
+        local maxPaths = math.min(#paths, 25)
+        local maxChildren = math.max(0, math.min(tonumber(data.maxChildren) or 20, 100))
+        local includeAttributes = data.includeAttributes ~= false
+        local includeTags = data.includeTags ~= false
+        local includeChildren = data.includeChildren ~= false
+        local requestedProperties = data.properties
+
+        local function AddUnique(target, seen, values)
+            for _, propertyName in ipairs(values) do
+                if not seen[propertyName] then
+                    seen[propertyName] = true
+                    table.insert(target, propertyName)
+                end
+            end
+        end
+
+        local function GetDefaultProperties(instance)
+            local properties = {}
+            local seen = {}
+            AddUnique(properties, seen, { "Archivable" })
+
+            if instance:IsA("BasePart") then
+                AddUnique(properties, seen, {
+                    "Anchored", "CanCollide", "CanQuery", "CanTouch", "CastShadow",
+                    "CFrame", "Position", "Size", "Color", "Material", "Transparency",
+                    "AssemblyLinearVelocity", "AssemblyAngularVelocity",
+                })
+            end
+            if instance:IsA("Model") then
+                AddUnique(properties, seen, { "PrimaryPart", "WorldPivot" })
+            end
+            if instance:IsA("GuiObject") then
+                AddUnique(properties, seen, {
+                    "Visible", "Active", "Position", "Size", "AnchorPoint", "ZIndex",
+                    "BackgroundColor3", "BackgroundTransparency",
+                })
+            end
+            if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+                AddUnique(properties, seen, { "Text", "TextColor3", "TextSize", "TextTransparency" })
+            end
+            if instance:IsA("ValueBase") then
+                AddUnique(properties, seen, { "Value" })
+            end
+            if instance:IsA("Humanoid") then
+                AddUnique(properties, seen, {
+                    "Health", "MaxHealth", "WalkSpeed", "JumpPower", "AutoRotate", "RigType",
+                    "MoveDirection", "FloorMaterial",
+                })
+            end
+            if instance:IsA("BaseScript") then
+                AddUnique(properties, seen, { "Enabled", "RunContext" })
+            end
+            if instance:IsA("Sound") then
+                AddUnique(properties, seen, { "SoundId", "Volume", "PlaybackSpeed", "Playing", "TimePosition" })
+            end
+            if instance:IsA("Animation") then
+                AddUnique(properties, seen, { "AnimationId" })
+            end
+            if instance:IsA("Decal") or instance:IsA("Texture") then
+                AddUnique(properties, seen, { "Texture", "Color3", "Transparency" })
+            end
+            if instance:IsA("MeshPart") then
+                AddUnique(properties, seen, { "MeshId", "TextureID" })
+            end
+            if instance:IsA("ProximityPrompt") then
+                AddUnique(properties, seen, {
+                    "ActionText", "ObjectText", "Enabled", "HoldDuration",
+                    "KeyboardKeyCode", "MaxActivationDistance", "RequiresLineOfSight",
+                })
+            end
+
+            return properties
+        end
+
+        local function ReadProperties(instance, propertyNames)
+            local values = {}
+            local unreadable = {}
+
+            for index, propertyName in ipairs(propertyNames) do
+                if index > 50 then break end
+                if typeof(propertyName) ~= "string" or propertyName == "" then continue end
+
+                local ok, value = pcall(function()
+                    return instance[propertyName]
+                end)
+                if ok then
+                    values[propertyName] = value
+                else
+                    table.insert(unreadable, propertyName)
+                end
+            end
+
+            return values, unreadable
+        end
+
+        local results = {}
+        for index = 1, maxPaths do
+            local path = paths[index]
+            local ok, result = pcall(function()
+                assert(typeof(path) == "string" and path ~= "", "Instance path must be a non-empty string.")
+                local instance = loadstring("return " .. path)()
+                assert(typeof(instance) == "Instance", "Path did not resolve to an Instance.")
+
+                local propertyNames = requestedProperties
+                if typeof(propertyNames) ~= "table" or #propertyNames == 0 then
+                    propertyNames = GetDefaultProperties(instance)
+                end
+                local properties, unreadableProperties = ReadProperties(instance, propertyNames)
+
+                local children = nil
+                local childCount = #instance:GetChildren()
+                if includeChildren then
+                    children = {}
+                    for childIndex, child in ipairs(instance:GetChildren()) do
+                        if childIndex > maxChildren then break end
+                        table.insert(children, {
+                            Name = child.Name,
+                            ClassName = child.ClassName,
+                            Path = child:GetFullName(),
+                            DebugId = child:GetDebugId(),
+                            ChildCount = #child:GetChildren(),
+                        })
+                    end
+                end
+
+                return {
+                    Name = instance.Name,
+                    ClassName = instance.ClassName,
+                    Path = instance:GetFullName(),
+                    DebugId = instance:GetDebugId(),
+                    Parent = instance.Parent,
+                    ChildCount = childCount,
+                    ChildrenLimited = includeChildren and childCount > maxChildren or false,
+                    Properties = properties,
+                    UnreadableProperties = #unreadableProperties > 0 and unreadableProperties or nil,
+                    Attributes = includeAttributes and instance:GetAttributes() or nil,
+                    Tags = includeTags and CollectionService:GetTags(instance) or nil,
+                    Children = children,
+                }
+            end)
+
+            if ok then
+                table.insert(results, result)
+            else
+                table.insert(results, {
+                    RequestedPath = tostring(path),
+                    Error = tostring(result),
+                })
+            end
+        end
+
+        return {
+            count = #results,
+            results = results,
+        }
+    end)
+
     Bridge:BindToType("get-game-info", function(data)
         local productInfo = MarketplaceService:GetProductInfo(game.PlaceId)
 
         local info = {
-            PlaceId = game.PlaceId,
-            GameId = game.GameId,
+            -- IDs are strings so JSON/Lua encoders never render them in
+            -- scientific notation or lose integer precision downstream.
+            PlaceId = tostring(game.PlaceId),
+            GameId = tostring(game.GameId),
             PlaceVersion = game.PlaceVersion,
             PlaceName = productInfo.Name,
             Creator = productInfo.Creator.Name,
             CreatorType = tostring(productInfo.Creator.CreatorType),
-            CreatorId = productInfo.Creator.CreatorTargetId,
+            CreatorId = tostring(productInfo.Creator.CreatorTargetId),
             JobId = game.JobId,
             ServerType = RobloxReplicatedStorage.GetServerType:InvokeServer()
         }

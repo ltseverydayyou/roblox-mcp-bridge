@@ -26,6 +26,11 @@ const clientDropdown = $('clientDropdown');
 const clientDropdownSearch = $('clientDropdownSearch');
 const clientDropdownList = $('clientDropdownList');
 const uptimeChip = $('uptimeChip');
+const updateBanner = $('updateBanner');
+const updateBannerTitle = $('updateBannerTitle');
+const updateBannerMessage = $('updateBannerMessage');
+const updateCopyBtn = $('updateCopyBtn');
+const updateDismissBtn = $('updateDismissBtn');
 
 const viewClients = $('viewClients');
 const viewOverview = $('viewOverview');
@@ -1262,9 +1267,9 @@ const toolDefs = {
     },
     'execute': {
         name: 'Execute Code',
-        desc: 'Run Luau code in the Roblox client (fire-and-forget)',
+        desc: 'Run typed or locally loaded Luau code in the Roblox client (fire-and-forget)',
         fields: [
-            { key: 'code', label: 'Luau Code', type: 'textarea', placeholder: 'print("Hello from dashboard!")' },
+            { key: 'code', label: 'Luau Code', type: 'textarea', placeholder: 'print("Hello from dashboard!")', fileUpload: true },
         ],
         buildPayload(vals) { return { type: 'execute', code: vals.code }; }
     },
@@ -1278,6 +1283,21 @@ const toolDefs = {
         ],
         buildPayload(vals) {
             return { type: 'search-instances', selector: vals.selector, root: vals.root || 'game', limit: parseInt(vals.limit) || 50 };
+        }
+    },
+    'inspect-instances': {
+        name: 'Inspect Instances',
+        desc: 'Batch-read typed properties, attributes, tags, and immediate children',
+        fields: [
+            { key: 'paths', label: 'Instance Paths (one per line)', type: 'textarea', placeholder: 'game.Workspace.Baseplate\ngame.Players.LocalPlayer' },
+            { key: 'properties', label: 'Properties (optional, comma-separated)', type: 'text', placeholder: 'Anchored, Position, Size' },
+            { key: 'maxChildren', label: 'Max Children', type: 'text', placeholder: '20', default: '20' },
+        ],
+        buildPayload(vals) {
+            const paths = vals.paths.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+            const payload = { type: 'inspect-instances', paths, maxChildren: parseInt(vals.maxChildren) || 20 };
+            if (vals.properties) payload.properties = vals.properties.split(',').map(v => v.trim()).filter(Boolean);
+            return payload;
         }
     },
     'get-console-output': {
@@ -1316,6 +1336,85 @@ const toolDefs = {
 };
 
 let activeTool = null;
+const MAX_DASHBOARD_CODE_FILE_BYTES = 8 * 1024 * 1024;
+const DASHBOARD_CODE_EXTENSIONS = ['.lua', '.luau', '.txt'];
+
+function isSupportedCodeFile(file) {
+    const name = String(file?.name || '').toLowerCase();
+    return DASHBOARD_CODE_EXTENSIONS.some(extension => name.endsWith(extension));
+}
+
+function setupCodeFileInput() {
+    const textarea = $('tf_code');
+    const fileInput = $('tf_code_file');
+    const dropZone = $('tf_code_drop');
+    const fileStatus = $('tf_code_file_status');
+    if (!textarea || !fileInput || !dropZone || !fileStatus) return;
+
+    const setDragActive = active => dropZone.classList.toggle('drag-active', active);
+    const loadFile = async file => {
+        if (!file) return;
+        if (!isSupportedCodeFile(file)) {
+            showToast('Choose a .lua, .luau, or .txt code file.', 'error');
+            return;
+        }
+        if (file.size > MAX_DASHBOARD_CODE_FILE_BYTES) {
+            showToast('Code files must be 8 MiB or smaller.', 'error');
+            return;
+        }
+
+        fileStatus.textContent = `Loading ${file.name}…`;
+        try {
+            const bytes = await file.arrayBuffer();
+            const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\uFEFF/, '');
+            textarea.value = source;
+            textarea.focus();
+            textarea.setSelectionRange(0, 0);
+            textarea.scrollTop = 0;
+            fileStatus.textContent = `${file.name} · ${formatBytes(file.size)} · loaded, not executed`;
+            showToast(`${file.name} loaded. Review it, then click Send to execute.`, 'success');
+        } catch {
+            fileStatus.textContent = 'Could not read this file as UTF-8 text.';
+            showToast('The selected code file is not valid UTF-8 text.', 'error');
+        } finally {
+            fileInput.value = '';
+        }
+    };
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            fileInput.click();
+        }
+    });
+    fileInput.addEventListener('change', () => void loadFile(fileInput.files?.[0]));
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+            setDragActive(true);
+        });
+    });
+    ['dragleave', 'dragend'].forEach(eventName => {
+        dropZone.addEventListener(eventName, event => {
+            event.preventDefault();
+            event.stopPropagation();
+            setDragActive(false);
+        });
+    });
+    dropZone.addEventListener('drop', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        setDragActive(false);
+        const files = event.dataTransfer?.files;
+        if (!files?.length) return;
+        if (files.length > 1) showToast('Only the first dropped file will be loaded.', 'error');
+        void loadFile(files[0]);
+    });
+}
 
 function selectTool(toolKey) {
     if (toolKey === 'semantic-search' && semanticSearchEnabled === false) {
@@ -1352,7 +1451,16 @@ function selectTool(toolKey) {
         $('toolParamsBody').innerHTML = def.fields.map(f => {
             let input;
             if (f.type === 'textarea') {
-                input = `<textarea id="tf_${f.key}" placeholder="${f.placeholder || ''}">${f.default || ''}</textarea>`;
+                const textarea = `<textarea id="tf_${f.key}" placeholder="${f.placeholder || ''}">${f.default || ''}</textarea>`;
+                input = f.fileUpload ? `<div class="tool-code-input">
+                    ${textarea}
+                    <input id="tf_${f.key}_file" type="file" accept=".lua,.luau,.txt,text/plain" hidden>
+                    <div class="tool-file-drop" id="tf_${f.key}_drop" role="button" tabindex="0" aria-label="Load a Luau code file">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <span><strong>Drop a code file here</strong> or click to browse</span>
+                        <small id="tf_${f.key}_file_status">.lua, .luau, or .txt · UTF-8 · up to 8 MiB</small>
+                    </div>
+                </div>` : textarea;
             } else if (f.type === 'select') {
                 const opts = f.options.map(([v, l]) => `<option value="${v}"${v === f.default ? ' selected' : ''}>${l}</option>`).join('');
                 input = `<select id="tf_${f.key}">${opts}</select>`;
@@ -1362,6 +1470,8 @@ function selectTool(toolKey) {
             return `<tr><td>${f.label}</td><td>${input}</td></tr>`;
         }).join('');
     }
+
+    if (toolKey === 'execute') setupCodeFileInput();
 }
 
 // Sidebar listeners
@@ -3981,6 +4091,45 @@ $('settingsTestBtn').addEventListener('click', async () => {
 });
 
 /* ── Polling ─────────────────────────────────────────────── */
+let currentUpdateStatus = null;
+
+function renderUpdatePrompt(update) {
+    currentUpdateStatus = update || null;
+    if (!updateBanner) return;
+
+    const dismissedVersion = localStorage.getItem('roblox-mcp-dismissed-update');
+    const shouldShow = update?.state === 'update-available' && update.latestVersion !== dismissedVersion;
+    updateBanner.hidden = !shouldShow;
+    if (!shouldShow) return;
+
+    updateBannerTitle.textContent = `Roblox MCP Bridge ${update.latestVersion} is available`;
+    updateBannerMessage.textContent = `You are running ${update.currentVersion}. Updating requires an explicit restart.`;
+    updateCopyBtn.textContent = update.gitInstall ? 'Copy update command' : 'Open download page';
+}
+
+updateCopyBtn?.addEventListener('click', async () => {
+    if (!currentUpdateStatus) return;
+    if (!currentUpdateStatus.gitInstall) {
+        window.open(currentUpdateStatus.repositoryUrl, '_blank', 'noopener,noreferrer');
+        return;
+    }
+
+    const command = currentUpdateStatus.updateCommand || 'npm run update';
+    try {
+        await navigator.clipboard.writeText(command);
+        showToast('Update command copied. Run it in the repository folder.', 'success');
+    } catch {
+        showToast(`Run: ${command}`, 'success');
+    }
+});
+
+updateDismissBtn?.addEventListener('click', () => {
+    if (currentUpdateStatus?.latestVersion) {
+        localStorage.setItem('roblox-mcp-dismissed-update', currentUpdateStatus.latestVersion);
+    }
+    if (updateBanner) updateBanner.hidden = true;
+});
+
 async function updateStatus() {
     try {
         const res = await fetch('/api/status');
@@ -3989,6 +4138,7 @@ async function updateStatus() {
         currentRelays = data.relayClients || 0;
         currentConnected = !!data.connected;
         if (data.startedAt) startTime = data.startedAt;
+        renderUpdatePrompt(data.update);
 
         // Overview tiles
         const cb = $('connBadge'); if(cb) { cb.textContent = data.connected?'Active':'Inactive'; cb.className='status-tile-badge '+(data.connected?'status-tile-badge--green':''); }
