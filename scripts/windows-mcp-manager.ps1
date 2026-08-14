@@ -437,9 +437,35 @@ function Start-Bridge {
 function Start-InteractiveUpdate {
     Update-ConfigFromFields
     if (-not (Test-RepositoryDirectory $script:Config.RepositoryDirectory)) { throw "Choose or install the MCP repository first." }
+    $git = Find-Git
+    if (-not $git) { throw "Git is missing. Click Install Git first." }
+    $node = Find-Node
+    if (-not $node) { throw "Node.js is missing. Click Install Node.js first." }
+    $updater = Join-Path $script:Config.RepositoryDirectory "scripts\install-harnesses.mjs"
+    if (-not (Test-ExistingFile $updater)) { throw "The MCP updater script is missing. Choose a valid repository or reinstall the MCP." }
+
     $repoLiteral = $script:Config.RepositoryDirectory.Replace("'", "''")
-    $command = "Set-Location -LiteralPath '$repoLiteral'; npm run update"
+    $gitLiteral = $git.Replace("'", "''")
+    $nodeLiteral = $node.Replace("'", "''")
+    $updaterLiteral = $updater.Replace("'", "''")
+    $command = @"
+`$Host.UI.RawUI.WindowTitle = 'Roblox MCP Bridge Updater'
+Write-Host 'Pulling the latest Roblox MCP Bridge...' -ForegroundColor Cyan
+& '$gitLiteral' -C '$repoLiteral' pull --ff-only
+if (`$LASTEXITCODE -ne 0) {
+    Write-Host 'Update stopped because Git could not fast-forward this checkout. Review the message above.' -ForegroundColor Red
+    return
+}
+Write-Host 'Rebuilding with Node.js...' -ForegroundColor Cyan
+& '$nodeLiteral' '$updaterLiteral' --update --yes --plain --server-root '$repoLiteral'
+if (`$LASTEXITCODE -ne 0) {
+    Write-Host 'The updater failed. Review the message above.' -ForegroundColor Red
+} else {
+    Write-Host 'Update complete. Restart the bridge to load the new version.' -ForegroundColor Green
+}
+"@
     Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command)
+    Add-Log "Updater opened for $($script:Config.RepositoryDirectory). It will pull with Git and rebuild with Node.js." "OK"
 }
 
 function Configure-Tunnel {

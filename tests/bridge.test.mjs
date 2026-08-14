@@ -73,6 +73,14 @@ test("the MCP updater only requires the documented Node.js runtime", () => {
   assert.doesNotMatch(manifest.scripts.update, /^bun\s/);
 });
 
+test("the Windows manager bootstraps updates outside the checked-out package script", () => {
+  const manager = readFileSync(new URL("../scripts/windows-mcp-manager.ps1", import.meta.url), "utf8");
+  assert.doesNotMatch(manager, /npm run update/);
+  assert.match(manager, /pull --ff-only/);
+  assert.match(manager, /install-harnesses\.mjs/);
+  assert.match(manager, /--update --yes --plain --server-root/);
+});
+
 test("implicit routing sends a command to exactly one client", () => {
   const firstId = registerHttpClient("first");
   const secondId = registerHttpClient("second");
