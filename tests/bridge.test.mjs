@@ -67,6 +67,12 @@ test("server and package versions stay synchronized", () => {
   assert.equal(SERVER_VERSION, manifest.version);
 });
 
+test("the MCP updater only requires the documented Node.js runtime", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.match(manifest.scripts.update, /^node\s/);
+  assert.doesNotMatch(manifest.scripts.update, /^bun\s/);
+});
+
 test("implicit routing sends a command to exactly one client", () => {
   const firstId = registerHttpClient("first");
   const secondId = registerHttpClient("second");

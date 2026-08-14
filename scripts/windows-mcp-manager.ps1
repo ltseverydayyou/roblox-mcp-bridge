@@ -153,6 +153,16 @@ function Find-Winget {
     )
 }
 
+function Test-ExistingFile {
+    param([AllowEmptyString()][string]$Path)
+    return -not [string]::IsNullOrWhiteSpace($Path) -and (Test-Path -LiteralPath $Path -PathType Leaf)
+}
+
+function Test-ExistingDirectory {
+    param([AllowEmptyString()][string]$Path)
+    return -not [string]::IsNullOrWhiteSpace($Path) -and (Test-Path -LiteralPath $Path -PathType Container)
+}
+
 function Test-RepositoryDirectory {
     param([string]$Directory)
     if ([string]::IsNullOrWhiteSpace($Directory)) { return $false }
@@ -225,7 +235,7 @@ function Select-Folder {
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
     $dialog.Description = $Description
     $dialog.ShowNewFolderButton = $true
-    if (Test-Path -LiteralPath $InitialDirectory -PathType Container) { $dialog.SelectedPath = [IO.Path]::GetFullPath($InitialDirectory) }
+    if (Test-ExistingDirectory $InitialDirectory) { $dialog.SelectedPath = [IO.Path]::GetFullPath($InitialDirectory) }
     try {
         if ($dialog.ShowDialog() -eq [Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
         return $null
@@ -239,7 +249,7 @@ function Select-TunnelExecutable {
     $dialog.Title = "Select OpenAI tunnel-client.exe"
     $dialog.Filter = "OpenAI tunnel client (tunnel-client.exe)|tunnel-client.exe|Executable files (*.exe)|*.exe"
     $dialog.CheckFileExists = $true
-    if (Test-Path -LiteralPath $InitialPath -PathType Leaf) { $dialog.FileName = [IO.Path]::GetFullPath($InitialPath) }
+    if (Test-ExistingFile $InitialPath) { $dialog.FileName = [IO.Path]::GetFullPath($InitialPath) }
     try {
         if ($dialog.ShowDialog() -eq [Windows.Forms.DialogResult]::OK) { return $dialog.FileName }
         return $null
@@ -398,7 +408,7 @@ function Install-AllRequired {
     Install-OrSelectRepository
     Build-Repository
     if ($script:TunnelIdBox.Text.Trim() -or $script:RuntimeKeyBox.Text) {
-        if (-not (Test-Path -LiteralPath $script:TunnelBox.Text -PathType Leaf)) { Install-TunnelClient }
+        if (-not (Test-ExistingFile $script:TunnelBox.Text)) { Install-TunnelClient }
     }
     Add-Log "All required MCP components are ready." "OK"
 }
@@ -437,7 +447,7 @@ function Configure-Tunnel {
     if (-not $script:Config.TunnelId) { throw "Enter the optional tunnel ID first (tunnel_...)." }
     $runtimeKey = $script:RuntimeKeyBox.Text
     if (-not $runtimeKey) { throw "Enter the OpenAI Platform runtime API key. It is used only in memory and is never saved." }
-    if (-not (Test-Path -LiteralPath $script:Config.TunnelClientExecutable -PathType Leaf)) { Install-TunnelClient; Update-ConfigFromFields }
+    if (-not (Test-ExistingFile $script:Config.TunnelClientExecutable)) { Install-TunnelClient; Update-ConfigFromFields }
     if (-not (Test-Path -LiteralPath (Join-Path $script:Config.RepositoryDirectory "dist\index.js") -PathType Leaf)) { Build-Repository }
     $setup = Join-Path $script:Config.RepositoryDirectory "scripts\setup-chatgpt-tunnel.ps1"
     $arguments = @(
@@ -463,7 +473,7 @@ function Configure-Tunnel {
 
 function Start-Tunnel {
     Update-ConfigFromFields
-    if (-not (Test-Path -LiteralPath $script:Config.TunnelClientExecutable -PathType Leaf)) { throw "Install or browse to tunnel-client.exe first." }
+    if (-not (Test-ExistingFile $script:Config.TunnelClientExecutable)) { throw "Install or browse to tunnel-client.exe first." }
     $startup = Join-Path $script:Config.RepositoryDirectory "scripts\start-chatgpt-tunnel.ps1"
     if (-not (Test-Path -LiteralPath $startup -PathType Leaf)) { throw "The tunnel startup script is missing." }
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File " + (Quote-ProcessArgument $startup) +
@@ -510,7 +520,7 @@ function Refresh-Status {
     $npm = Find-Npm
     $repoReady = Test-RepositoryDirectory $script:RepoBox.Text
     $buildReady = $repoReady -and (Test-Path -LiteralPath (Join-Path $script:RepoBox.Text "dist\index.js") -PathType Leaf)
-    $tunnelReady = $script:TunnelBox.Text -and (Test-Path -LiteralPath $script:TunnelBox.Text -PathType Leaf)
+    $tunnelReady = Test-ExistingFile $script:TunnelBox.Text
     $bridgeRunning = Test-BridgeRunning $script:AddressBox.Text
     $localVersion = if ($repoReady) { Get-LocalVersion $script:RepoBox.Text } else { $null }
     $remoteVersion = if ($localVersion) { Get-RemoteVersion } else { $null }
@@ -682,7 +692,7 @@ $script:Form.ForeColor = $script:Colors.Text
 $script:Form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
 $script:Form.MaximizeBox = $false
 
-if ($IconPath -and (Test-Path -LiteralPath $IconPath -PathType Leaf)) {
+if (Test-ExistingFile $IconPath) {
     try { $script:Form.Icon = New-Object Drawing.Icon($IconPath) } catch { Add-Log "Window icon could not be loaded: $($_.Exception.Message)" "WARN" }
 }
 
@@ -692,7 +702,7 @@ $header.Size = New-Object Drawing.Size(1160, 96)
 $header.BackColor = $script:Colors.Surface
 $script:Form.Controls.Add($header)
 
-if ($IconPath -and (Test-Path -LiteralPath $IconPath -PathType Leaf)) {
+if (Test-ExistingFile $IconPath) {
     try {
         $logo = New-Object Windows.Forms.Panel
         $logo.Location = New-Object Drawing.Point(22, 19)
