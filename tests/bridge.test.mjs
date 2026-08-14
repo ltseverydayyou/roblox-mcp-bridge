@@ -79,6 +79,10 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(manager, /pull --ff-only/);
   assert.match(manager, /install-harnesses\.mjs/);
   assert.match(manager, /--update --yes --plain --server-root/);
+  assert.match(manager, /node_modules\\npm\\bin\\npm-cli\.js/);
+  assert.match(manager, /function Reload-Bridge/);
+  assert.match(manager, /Get-NetTCPConnection/);
+  assert.match(manager, /Reload bridge/);
 });
 
 test("the Node updater bypasses broken global npm shims before trying pnpm", () => {

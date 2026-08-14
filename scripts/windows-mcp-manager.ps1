@@ -137,12 +137,33 @@ function Find-Node {
 }
 
 function Find-Npm {
-    $npm = Find-Executable "npm.cmd"
-    if ($npm) { return $npm }
     $node = Find-Node
     if ($node) {
-        $candidate = Join-Path (Split-Path -Parent $node) "npm.cmd"
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+        $bundledCli = Join-Path (Split-Path -Parent $node) "node_modules\npm\bin\npm-cli.js"
+        if (Test-Path -LiteralPath $bundledCli -PathType Leaf) { return $bundledCli }
+    }
+    return Find-Executable "npm.cmd"
+}
+
+function Get-NpmRunner {
+    $node = Find-Node
+    if ($node) {
+        $bundledCli = Join-Path (Split-Path -Parent $node) "node_modules\npm\bin\npm-cli.js"
+        if (Test-ExistingFile $bundledCli) {
+            return [pscustomobject]@{
+                FilePath = $node
+                PrefixArguments = @($bundledCli)
+                DisplayName = "Node-bundled npm"
+            }
+        }
+    }
+    $npm = Find-Executable "npm.cmd"
+    if ($npm) {
+        return [pscustomobject]@{
+            FilePath = $npm
+            PrefixArguments = @()
+            DisplayName = "npm"
+        }
     }
     return $null
 }
@@ -297,6 +318,15 @@ function Invoke-ManagedProcess {
     return $stdout
 }
 
+function Invoke-NpmManaged {
+    param([string[]]$Arguments, [string]$WorkingDirectory)
+    $runner = Get-NpmRunner
+    if (-not $runner) { throw "npm is missing. Install or repair Node.js, then try again." }
+    Add-Log "Using $($runner.DisplayName) for this operation."
+    $allArguments = @($runner.PrefixArguments) + @($Arguments)
+    return Invoke-ManagedProcess $runner.FilePath $allArguments $WorkingDirectory
+}
+
 function Update-ConfigFromFields {
     $normalized = Normalize-BridgeAddress $script:AddressBox.Text
     $hostName = ([Uri]("http://$normalized")).Host
@@ -370,12 +400,11 @@ function Install-OrSelectRepository {
 function Build-Repository {
     Install-Node
     if (-not (Test-RepositoryDirectory $script:RepoBox.Text)) { Install-OrSelectRepository }
-    $npm = Find-Npm
     $repo = [IO.Path]::GetFullPath($script:RepoBox.Text)
     Set-Busy $true "Installing dependencies and building..."
     try {
-        Invoke-ManagedProcess $npm @("install", "--ignore-scripts") $repo
-        Invoke-ManagedProcess $npm @("run", "build") $repo
+        Invoke-NpmManaged @("install", "--ignore-scripts") $repo
+        Invoke-NpmManaged @("run", "build") $repo
         if (-not (Test-Path -LiteralPath (Join-Path $repo "dist\index.js") -PathType Leaf)) { throw "The build finished without creating dist\index.js." }
         Add-Log "MCP dependencies and build are ready." "OK"
     }
@@ -432,6 +461,48 @@ function Start-Bridge {
     Start-Sleep -Milliseconds 1000
     if (-not (Test-BridgeRunning $script:Config.BridgeAddress)) { throw "The bridge process started but its dashboard did not respond. Check the log or whether the port is already in use." }
     Add-Log "Bridge started at http://$($script:Config.BridgeAddress)/" "OK"
+}
+
+function Get-ListeningBridgeProcess {
+    param([string]$Address)
+    if (-not (Test-BridgeRunning $Address)) { return $null }
+    $port = Get-BridgePort $Address
+    try {
+        $connections = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)
+        foreach ($connection in $connections) {
+            $processId = [int]$connection.OwningProcess
+            $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+            if ($processInfo -and $processInfo.Name -eq "node.exe" -and $processInfo.CommandLine -match '(?i)dist[\\/]index\.js') {
+                return $processInfo
+            }
+        }
+    }
+    catch { Add-Log "Could not inspect the bridge port owner: $($_.Exception.Message)" "WARN" }
+    return $null
+}
+
+function Reload-Bridge {
+    Update-ConfigFromFields
+    if (-not (Test-RepositoryDirectory $script:Config.RepositoryDirectory)) { throw "Choose or install the MCP repository first." }
+    $entry = Join-Path $script:Config.RepositoryDirectory "dist\index.js"
+    if (-not (Test-ExistingFile $entry)) { Build-Repository; Update-ConfigFromFields }
+
+    if (Test-BridgeRunning $script:Config.BridgeAddress) {
+        $bridgeProcess = Get-ListeningBridgeProcess $script:Config.BridgeAddress
+        if (-not $bridgeProcess) {
+            throw "Port $(Get-BridgePort $script:Config.BridgeAddress) is serving the MCP dashboard, but its process could not be safely identified. Stop it manually rather than risking another Node process."
+        }
+        Add-Log "Stopping bridge process $($bridgeProcess.ProcessId) for reload..."
+        Stop-Process -Id ([int]$bridgeProcess.ProcessId) -Force -ErrorAction Stop
+        for ($attempt = 0; $attempt -lt 30 -and (Test-BridgeRunning $script:Config.BridgeAddress); $attempt++) {
+            Start-Sleep -Milliseconds 100
+            [Windows.Forms.Application]::DoEvents()
+        }
+        if (Test-BridgeRunning $script:Config.BridgeAddress) { throw "The old bridge process did not release the port." }
+    }
+
+    Start-Bridge
+    Add-Log "Bridge reloaded successfully." "OK"
 }
 
 function Start-InteractiveUpdate {
@@ -810,11 +881,12 @@ New-UiButton $chat "Open ChatGPT Plugins" 381 137 190 36 { Start-Process $script
 
 $actions = New-Card $script:Form 340 628 800 82
 New-UiLabel $actions "RUN THE BRIDGE" 22 13 145 18 8.5 $true $script:Colors.Muted | Out-Null
-New-UiButton $actions "Start bridge" 22 37 138 32 { Start-Bridge } "Bridge startup failed" $true | Out-Null
-New-UiButton $actions "Open dashboard" 170 37 138 32 { Start-Process ("http://" + (Normalize-BridgeAddress $script:AddressBox.Text) + "/") } "Dashboard failed" | Out-Null
-New-UiButton $actions "Update MCP" 318 37 130 32 { Start-InteractiveUpdate } "Updater failed" | Out-Null
-New-UiButton $actions "Copy loader" 458 37 130 32 { Copy-RobloxLoader } "Clipboard failed" | Out-Null
-New-UiButton $actions "Save + refresh" 598 37 176 32 { Update-ConfigFromFields } "Invalid settings" | Out-Null
+New-UiButton $actions "Start bridge" 22 37 110 32 { Start-Bridge } "Bridge startup failed" $true | Out-Null
+New-UiButton $actions "Reload bridge" 142 37 110 32 { Reload-Bridge } "Bridge reload failed" | Out-Null
+New-UiButton $actions "Dashboard" 262 37 116 32 { Start-Process ("http://" + (Normalize-BridgeAddress $script:AddressBox.Text) + "/") } "Dashboard failed" | Out-Null
+New-UiButton $actions "Update MCP" 388 37 110 32 { Start-InteractiveUpdate } "Updater failed" | Out-Null
+New-UiButton $actions "Copy loader" 508 37 110 32 { Copy-RobloxLoader } "Clipboard failed" | Out-Null
+New-UiButton $actions "Save + refresh" 628 37 146 32 { Update-ConfigFromFields } "Invalid settings" | Out-Null
 
 $logCard = New-Card $script:Form 340 726 800 74
 $script:LogBox = New-Object Windows.Forms.RichTextBox
