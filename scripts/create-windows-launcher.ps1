@@ -137,6 +137,8 @@ internal static class RobloxMcpManagerLauncher
             start.UseShellExecute = false;
             start.CreateNoWindow = true;
             start.EnvironmentVariables["ROBLOX_MCP_MANAGER_ICON"] = icon;
+            start.EnvironmentVariables["ROBLOX_MCP_MANAGER_EXE"] = Application.ExecutablePath;
+            start.EnvironmentVariables["ROBLOX_MCP_MANAGER_VERSION"] = "$managerVersion";
             Process.Start(start);
         }
         catch (Exception error)

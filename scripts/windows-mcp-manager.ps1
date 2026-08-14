@@ -18,9 +18,14 @@ Add-Type -AssemblyName System.Drawing
 
 $script:RepositoryUrl = "https://github.com/ltseverydayyou/roblox-mcp-bridge.git"
 $script:RemoteManifestUrl = "https://raw.githubusercontent.com/ltseverydayyou/roblox-mcp-bridge/main/package.json"
+$script:LatestReleaseApiUrl = "https://api.github.com/repos/ltseverydayyou/roblox-mcp-bridge/releases/latest"
 $script:ChatGptPluginsUrl = "https://chatgpt.com/plugins"
 $script:ConfigFile = [System.IO.Path]::GetFullPath($ConfigPath)
+$script:ManagerExecutable = [string]$env:ROBLOX_MCP_MANAGER_EXE
+$script:ManagerVersion = if ($env:ROBLOX_MCP_MANAGER_VERSION) { [string]$env:ROBLOX_MCP_MANAGER_VERSION } else { "source" }
 $script:PromptedForUpdate = $false
+$script:PromptedForManagerUpdate = $false
+$script:LatestManagerRelease = $null
 $script:Busy = $false
 
 function Add-Log {
@@ -643,9 +648,100 @@ function Copy-RobloxLoader {
     Add-Log "Roblox loader copied to the clipboard." "OK"
 }
 
+function Get-LatestManagerRelease {
+    param([bool]$Refresh = $false)
+    if ($script:LatestManagerRelease -and -not $Refresh) { return $script:LatestManagerRelease }
+
+    $release = Invoke-RestMethod -Uri $script:LatestReleaseApiUrl -TimeoutSec 10 -Headers @{
+        "User-Agent" = "roblox-mcp-manager/$($script:ManagerVersion)"
+        "Accept" = "application/vnd.github+json"
+    }
+    $version = ([string]$release.tag_name).Trim().TrimStart("v")
+    if (-not $version) { throw "The latest GitHub release did not include a version tag." }
+    $expectedName = "RobloxMcpManager-v$version.exe"
+    $asset = $release.assets | Where-Object { $_.name -eq $expectedName } | Select-Object -First 1
+    if (-not $asset) {
+        $asset = $release.assets | Where-Object { $_.name -like "RobloxMcpManager*.exe" } | Select-Object -First 1
+    }
+    if (-not $asset -or -not $asset.browser_download_url) { throw "Release v$version does not contain a Windows manager executable." }
+    $digest = [string]$asset.digest
+    if ($digest -notmatch '^sha256:(?<hash>[a-fA-F0-9]{64})$') {
+        throw "Release v$version is missing its GitHub SHA-256 digest; the manager will not install an unverified executable."
+    }
+    $script:LatestManagerRelease = [pscustomobject]@{
+        Version = $version
+        DownloadUrl = [string]$asset.browser_download_url
+        Sha256 = $Matches['hash'].ToLowerInvariant()
+        Size = [long]$asset.size
+        PageUrl = [string]$release.html_url
+    }
+    return $script:LatestManagerRelease
+}
+
+function Install-ManagerRelease {
+    param($Release)
+    if ([string]::IsNullOrWhiteSpace($script:ManagerExecutable) -or -not (Test-ExistingFile $script:ManagerExecutable)) {
+        throw "This manager was started from its PowerShell source, so there is no launcher EXE to replace. Generate or download RobloxMcpManager.exe first."
+    }
+
+    $target = [IO.Path]::GetFullPath($script:ManagerExecutable)
+    $directory = Split-Path -Parent $target
+    $download = Join-Path $directory ("." + [IO.Path]::GetFileName($target) + ".download-" + [Guid]::NewGuid().ToString("N") + ".exe")
+    $backup = $target + ".previous-v" + $script:ManagerVersion + "-" + [Guid]::NewGuid().ToString("N") + ".exe"
+    $restartAfterInstall = $false
+    Set-Busy $true "Downloading manager v$($Release.Version)..."
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $Release.DownloadUrl -OutFile $download -TimeoutSec 60 -Headers @{ "User-Agent" = "roblox-mcp-manager/$($script:ManagerVersion)" }
+        if (-not (Test-ExistingFile $download)) { throw "The manager download did not create a file." }
+        $downloadInfo = Get-Item -LiteralPath $download
+        if ($downloadInfo.Length -lt 50000) { throw "The downloaded manager is unexpectedly small ($($downloadInfo.Length) bytes)." }
+        if ($Release.Size -gt 0 -and $downloadInfo.Length -ne $Release.Size) { throw "The manager download size does not match GitHub's release metadata." }
+        $actualHash = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $Release.Sha256) { throw "The manager SHA-256 verification failed. Expected $($Release.Sha256), received $actualHash." }
+        $header = [IO.File]::ReadAllBytes($download)[0..1]
+        if ($header[0] -ne 0x4D -or $header[1] -ne 0x5A) { throw "The verified download is not a Windows executable." }
+
+        [IO.File]::Replace($download, $target, $backup, $true)
+        Add-Log "Manager updated to v$($Release.Version). Backup: $backup" "OK"
+        if ([Windows.Forms.MessageBox]::Show("Roblox MCP Manager v$($Release.Version) was installed and verified.`r`n`r`nRestart the manager now?", "Manager updated", 4, 64) -eq "Yes") {
+            $restartAfterInstall = $true
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $download -PathType Leaf) { Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue }
+        Set-Busy $false "Ready"
+    }
+    if ($restartAfterInstall) {
+        Start-Process -FilePath $target
+        $script:Form.Close()
+    }
+}
+
+function Check-ManagerUpdate {
+    param([bool]$Manual = $false)
+    if ($script:ManagerVersion -eq "source") {
+        if ($Manual) { throw "Self-update is available in the generated/downloaded manager EXE, not when running windows-mcp-manager.ps1 directly." }
+        return
+    }
+    $release = Get-LatestManagerRelease $Manual
+    $comparison = Compare-VersionText $script:ManagerVersion $release.Version
+    if ($comparison -ge 0) {
+        if ($Manual) {
+            [Windows.Forms.MessageBox]::Show("Roblox MCP Manager v$($script:ManagerVersion) is current.", "Manager is up to date", 0, 64) | Out-Null
+        }
+        return
+    }
+
+    $script:PromptedForManagerUpdate = $true
+    if ([Windows.Forms.MessageBox]::Show("Roblox MCP Manager v$($release.Version) is available (installed: v$($script:ManagerVersion)).`r`n`r`nDownload, verify, and install it now?", "Manager update available", 4, 64) -eq "Yes") {
+        Install-ManagerRelease $release
+    }
+}
+
 function Restart-AsAdministrator {
     Update-ConfigFromFields
-    $exe = Join-Path (Split-Path -Parent $script:ConfigFile) "RobloxMcpManager.exe"
+    $exe = $script:ManagerExecutable
+    if (-not (Test-ExistingFile $exe)) { $exe = Join-Path (Split-Path -Parent $script:ConfigFile) "RobloxMcpManager.exe" }
     if (Test-Path -LiteralPath $exe -PathType Leaf) {
         Start-Process -FilePath $exe -Verb RunAs
     }
@@ -929,7 +1025,9 @@ if (Test-ExistingFile $IconPath) {
 
 New-UiLabel $header "ROBLOX MCP MANAGER" 96 19 500 34 19 $true | Out-Null
 New-UiLabel $header "Install, update, connect, and run your bridge from one place." 98 55 570 24 9.5 $false $script:Colors.Muted | Out-Null
-New-UiButton $header "Restart as administrator" 922 31 210 36 { Restart-AsAdministrator } "Administrator restart failed" | Out-Null
+New-UiLabel $header $(if ($script:ManagerVersion -eq "source") { "SOURCE MODE" } else { "MANAGER v$($script:ManagerVersion)" }) 638 55 120 22 8 $true $script:Colors.Muted | Out-Null
+New-UiButton $header "Update manager" 760 31 150 36 { Check-ManagerUpdate $true } "Manager update failed" | Out-Null
+New-UiButton $header "Restart as administrator" 920 31 212 36 { Restart-AsAdministrator } "Administrator restart failed" | Out-Null
 
 $health = New-Card $script:Form 20 112 300 688
 New-UiLabel $health "SYSTEM HEALTH" 22 18 150 20 8.5 $true $script:Colors.Muted | Out-Null
@@ -1018,8 +1116,11 @@ $logCard.Controls.Add($script:LogBox)
 
 Add-Log "Manager started. Your OpenAI runtime key is memory-only and is never written to disk."
 $script:Form.Add_Shown({
-    if ($PreviewPath) { $script:PromptedForUpdate = $true }
+    if ($PreviewPath) { $script:PromptedForUpdate = $true; $script:PromptedForManagerUpdate = $true }
     Refresh-Status
+    if (-not $PreviewPath -and -not $script:PromptedForManagerUpdate) {
+        try { Check-ManagerUpdate $false } catch { Add-Log "Manager update check failed: $($_.Exception.Message)" "WARN" }
+    }
     if ($PreviewPath) {
         [Windows.Forms.Application]::DoEvents()
         $target = [IO.Path]::GetFullPath($PreviewPath)
