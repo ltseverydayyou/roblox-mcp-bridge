@@ -1,6 +1,6 @@
 {
   "name": "roblox-mcp-server",
-  "version": "2.3.6",
+  "version": "2.3.7",
   "description": "An MCP server for interacting with Roblox Game Clients",
   "type": "module",
   "main": "dist/index.js",

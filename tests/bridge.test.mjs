@@ -88,6 +88,8 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(manager, /Set-RoundedRegion/);
   assert.match(manager, /"Disconnect"/);
   assert.match(manager, /"Use local"/);
+  assert.match(manager, /NetIPv4Interface/);
+  assert.doesNotMatch(manager, /NetAdapter\.InterfaceMetric/);
   assert.match(manager, /function Check-ManagerUpdate/);
   assert.match(manager, /function Install-ManagerRelease/);
   assert.match(manager, /\[IO\.File\]::Replace/);
