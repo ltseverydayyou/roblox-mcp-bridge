@@ -88,6 +88,14 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(manager, /Set-RoundedRegion/);
   assert.match(manager, /"Disconnect"/);
   assert.match(manager, /"Use local"/);
+  assert.match(manager, /function Check-ManagerUpdate/);
+  assert.match(manager, /function Install-ManagerRelease/);
+  assert.match(manager, /\[IO\.File\]::Replace/);
+  assert.match(manager, /Get-FileHash.*SHA256/);
+  assert.match(manager, /"Update manager"/);
+  const launcher = readFileSync(new URL("../scripts/create-windows-launcher.ps1", import.meta.url), "utf8");
+  assert.match(launcher, /ROBLOX_MCP_MANAGER_EXE/);
+  assert.match(launcher, /ROBLOX_MCP_MANAGER_VERSION/);
 });
 
 test("the Node updater bypasses broken global npm shims before trying pnpm", () => {
