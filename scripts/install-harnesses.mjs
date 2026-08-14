@@ -890,15 +890,13 @@ async function installServer(serverRoot, results, options = {}) {
   if (options.announceRepo !== false) {
     log("info", `Using current repository: ${serverRoot}`);
   }
-  // Node.js ships with npm, so prefer it over an unrelated global pnpm install.
-  // pnpm rejects this Bun-declared package before it can perform an update.
-  const runner = commandExists("bun") ? "bun" : commandExists("npm") ? "npm" : "pnpm";
+  const runner = getPackageRunner();
   await run(
-    runner,
-    ["install", "--ignore-scripts"],
-    { cwd: serverRoot, label: `Installing dependencies with ${runner}` }
+    runner.command,
+    [...runner.prefixArgs, "install", "--ignore-scripts"],
+    { cwd: serverRoot, label: `Installing dependencies with ${runner.name}` }
   );
-  await run(runner, ["run", "build"], { cwd: serverRoot, label: "Building server" });
+  await run(runner.command, [...runner.prefixArgs, "run", "build"], { cwd: serverRoot, label: "Building server" });
   const serverEntry = path.join(serverRoot, "dist", "index.js");
   if (!exists(serverEntry)) {
     if (DRY_RUN) {
@@ -910,6 +908,26 @@ async function installServer(serverRoot, results, options = {}) {
   }
   results.push({ status: DRY_RUN ? "dry" : "ok", message: `${DRY_RUN ? "Would prepare" : "Server ready at"} ${serverRoot}` });
   results.push({ status: DRY_RUN ? "dry" : "ok", message: `${DRY_RUN ? "Would verify" : "Server entry verified at"} ${serverEntry}` });
+}
+
+function getPackageRunner() {
+  if (commandExists("bun")) {
+    return { name: "bun", command: "bun", prefixArgs: [] };
+  }
+
+  // npm.cmd can redirect into a broken user-level npm prefix. Running the npm
+  // CLI bundled beside the active Node executable bypasses those global shims.
+  const bundledNpmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  if (fsSync.existsSync(bundledNpmCli)) {
+    return { name: "npm", command: process.execPath, prefixArgs: [bundledNpmCli] };
+  }
+  if (commandExists("npm")) {
+    return { name: "npm", command: "npm", prefixArgs: [] };
+  }
+  if (commandExists("pnpm")) {
+    return { name: "pnpm", command: "pnpm", prefixArgs: [] };
+  }
+  throw new Error("No supported package runner was found. Repair Node.js/npm, then try again.");
 }
 
 async function pullLatest(serverRoot, results) {
