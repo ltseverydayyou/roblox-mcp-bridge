@@ -8,7 +8,7 @@ import type {
   RobloxResponse,
   ResponseResolver,
 } from "../../types.js";
-import { getActiveClients, resolveTargetClient } from "./registry.js";
+import { resolveTargetClient } from "./registry.js";
 
 const MAX_PENDING_HTTP_COMMANDS = 100;
 
@@ -143,18 +143,16 @@ export function SendArbitraryDataToClient(
     return requestId;
   }
 
-  // No clientId: broadcast to all active clients (most recent wins for routing)
-  const activeClients = getActiveClients();
-  if (activeClients.length === 0) return null;
+  // No clientId: choose exactly one deterministic target. Never broadcast an
+  // MCP operation implicitly; doing so can mutate multiple game sessions and
+  // makes the first/last response race nondeterministic.
+  const target = resolveTargetClient();
+  if (!target) return null;
 
   const requestId = id ?? crypto.randomUUID();
   const message = { id: requestId, ...data, type };
-
-  for (const target of activeClients) {
-    requestToClientId.set(requestId, target.clientId);
-    SendToClient(target, JSON.stringify(message));
-  }
-
+  requestToClientId.set(requestId, target.clientId);
+  SendToClient(target, JSON.stringify(message));
   return requestId;
 }
 

@@ -31,6 +31,7 @@ interface ToolRequest {
 
 const DEFAULT_SCRIPT_MAX_LINES = 80;
 const HARD_SCRIPT_MAX_LINES = 2000;
+const MAX_DASHBOARD_EXECUTE_CODE_BYTES = 8 * 1024 * 1024;
 
 function jsonOk(res: ServerResponse, data: unknown): void {
   res.writeHead(200, { "Content-Type": "application/json" });
@@ -356,6 +357,7 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
       "get-data-by-code": "get-data-by-code",
       "execute": "execute",
       "search-instances": "search-instances",
+      "inspect-instances": "inspect-instances",
       "get-console-output": "get-console-output",
       "get-descendants-tree": "get-descendants-tree",
       "get-game-info": "get-game-info",
@@ -394,6 +396,9 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
     if (type === "execute") {
       const code = params.code as string;
       if (!code) return jsonErr(res, "Missing 'code' parameter.");
+      if (Buffer.byteLength(code, "utf8") > MAX_DASHBOARD_EXECUTE_CODE_BYTES) {
+        return jsonErr(res, "Execute Code input exceeds the 8 MiB limit.");
+      }
       data.source = `setthreadidentity(8);${code}`;
       const callId = SendArbitraryDataToClient(robloxType, data, undefined, target.clientId);
       if (!callId) return jsonErr(res, "Failed to dispatch to client.");
@@ -407,6 +412,25 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
       data.selector = selector;
       data.root = params.root || "game";
       data.limit = numberParam(params.limit, 20, 1, 100);
+    } else if (type === "inspect-instances") {
+      if (!Array.isArray(params.paths) || params.paths.length === 0) {
+        return jsonErr(res, "Missing non-empty 'paths' array.");
+      }
+      data.paths = params.paths
+        .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+        .slice(0, 25);
+      if ((data.paths as string[]).length === 0) {
+        return jsonErr(res, "The 'paths' array contains no valid paths.");
+      }
+      if (Array.isArray(params.properties)) {
+        data.properties = params.properties
+          .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+          .slice(0, 50);
+      }
+      data.includeAttributes = params.includeAttributes !== false;
+      data.includeTags = params.includeTags !== false;
+      data.includeChildren = params.includeChildren !== false;
+      data.maxChildren = numberParam(params.maxChildren, 20, 0, 100);
     } else if (type === "get-console-output") {
       data.limit = numberParam(params.limit, 10, 1, 200);
       if (typeof params.logsOrder === "string") data.logsOrder = params.logsOrder;

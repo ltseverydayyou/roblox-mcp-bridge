@@ -8,7 +8,6 @@ import {
 import {
   formatActiveClientListForTool,
   resolveTargetClient,
-  setActiveClientId,
 } from "../../bridge/handlers/shared/registry.js";
 
 interface RelayMessage {
@@ -52,7 +51,6 @@ export function WS(ws: WebSocket): void {
           return;
         }
 
-        setActiveClientId(target.clientId);
         ws.send(
           JSON.stringify({
             id: message.id,

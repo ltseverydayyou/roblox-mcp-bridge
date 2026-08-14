@@ -2,7 +2,7 @@
 
 ## Primary / Secondary Mode
 
-By default, the server starts as a **primary** on port `16384`. If that port is already in use, it automatically becomes a **secondary** that relays all tool calls through the primary. When the primary disconnects, a secondary will promote itself automatically.
+By default, the server starts as a **primary** on `127.0.0.1:16384`. If that address and port are already in use, it automatically becomes a **secondary** that relays all tool calls through the primary. When the primary disconnects, a secondary will promote itself automatically.
 
 ### Remote primary (`--baseurl`)
 
@@ -43,6 +43,27 @@ Set these in Roblox **before** running the connector:
 | `getgenv().DisableWebSocket` | `false` | Force HTTP polling instead of WebSocket |
 | `getgenv().DisableInitialScriptDecompMapping` | `false` | Skip decompiling all scripts on connect |
 
+## Server environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `ROBLOX_MCP_HOST` | `127.0.0.1` | HTTP/WebSocket bind host. Use `0.0.0.0` only on a trusted LAN/VPN. Equivalent CLI option: `--host`. |
+| `ROBLOX_MCP_PORT` | `16384` | HTTP/WebSocket bridge and dashboard port. Equivalent CLI option: `--port`. |
+| `ROBLOX_MCP_MAX_BODY_BYTES` | `16777216` | Maximum accepted HTTP request body. The default accommodates batched script uploads and decompiler payloads while bounding memory use. |
+| `ROBLOX_MCP_UPLOAD_DIR` | OS temporary directory | Dedicated local directory for files transferred through `import-chatgpt-files`. |
+| `ROBLOX_MCP_MAX_FILE_BYTES` | `33554432` | Maximum bytes accepted for each imported ChatGPT file. |
+| `ROBLOX_MCP_UPDATE_CHECK` | `true` | Check the published package version after startup and every six hours. Set to `false` to disable network checks. |
+| `ROBLOX_MCP_UPDATE_MANIFEST_URL` | GitHub package manifest | Advanced override for the HTTPS JSON manifest used by the update checker. The document must contain a semantic `version` string. |
+
+For a Roblox client on another trusted machine:
+
+```powershell
+$env:ROBLOX_MCP_HOST = "0.0.0.0"
+npm start
+```
+
+Keep the machine firewall scoped to the trusted network and set `BridgeURL` to that machine's private address.
+
 The connector supports two transport modes:
 - **WebSocket** (preferred) — persistent connection, lower latency
 - **HTTP Polling** — fallback for executors that don't support WebSocket
@@ -50,6 +71,8 @@ The connector supports two transport modes:
 ## Dashboard
 
 A live status dashboard is available at `http://localhost:16384/` when the server is running. It shows connected clients, server role, and uptime.
+
+When an update is available, the dashboard shows a dismissible banner with the published version and a copyable update command. The MCP server also exposes `check-for-updates` for an on-demand read-only check. Neither path installs anything automatically; run `npm run update` from the repository and restart the bridge when you are ready.
 
 ## Security
 

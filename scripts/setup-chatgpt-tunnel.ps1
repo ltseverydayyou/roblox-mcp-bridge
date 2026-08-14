@@ -4,13 +4,27 @@
 param(
     [string]$ProfileName = "roblox-executor",
 
+    [string]$TunnelId = "",
+
     [string]$TunnelClientDirectory = (Join-Path $env:LOCALAPPDATA "OpenAI\tunnel-client"),
 
+    [string]$TunnelClientExecutable = "",
+
     [string]$RepositoryDirectory = (Split-Path -Parent $PSScriptRoot),
+
+    [string]$BridgeAddress = "localhost:16384",
+
+    [string]$ManagerOutputDirectory = ([Environment]::GetFolderPath("Desktop")),
 
     [switch]$SkipProjectSetup,
 
     [switch]$UpdateTunnelClient,
+
+    [switch]$NoPathPrompts,
+
+    [switch]$CreateManager,
+
+    [switch]$NoStartPrompt,
 
     [switch]$Start
 )
@@ -37,6 +51,10 @@ function Invoke-CheckedCommand {
 }
 
 function Read-RuntimeApiKey {
+    $existingKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
+    if (-not [string]::IsNullOrWhiteSpace($existingKey)) {
+        return $existingKey
+    }
     $secureKey = Read-Host "Paste the OpenAI Platform Runtime API key (input is hidden)" -AsSecureString
     try {
         $plainKey = [System.Net.NetworkCredential]::new("", $secureKey).Password
@@ -52,6 +70,66 @@ function Read-RuntimeApiKey {
     }
 }
 
+function Select-Directory {
+    param([string]$InitialDirectory, [string]$Description)
+
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dialog.Description = $Description
+    $dialog.ShowNewFolderButton = $true
+    if (Test-Path -LiteralPath $InitialDirectory -PathType Container) {
+        $dialog.SelectedPath = [System.IO.Path]::GetFullPath($InitialDirectory)
+    }
+    try {
+        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
+        return $null
+    }
+    finally {
+        $dialog.Dispose()
+    }
+}
+
+function Select-Executable {
+    param([string]$InitialPath)
+
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = "Select OpenAI tunnel-client.exe"
+    $dialog.Filter = "OpenAI tunnel client (tunnel-client.exe)|tunnel-client.exe|Executable files (*.exe)|*.exe"
+    $dialog.CheckFileExists = $true
+    if (Test-Path -LiteralPath $InitialPath -PathType Leaf) { $dialog.FileName = [System.IO.Path]::GetFullPath($InitialPath) }
+    try {
+        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.FileName }
+        return $null
+    }
+    finally {
+        $dialog.Dispose()
+    }
+}
+
+function Test-McpRepository {
+    param([string]$Directory)
+    $manifest = Join-Path $Directory "package.json"
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return $false }
+    try { return (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).name -eq "roblox-mcp-server" } catch { return $false }
+}
+
+function Normalize-BridgeAddress {
+    param([string]$Value)
+    $candidate = ([string]$Value).Trim().TrimEnd("/")
+    if (-not $candidate) { $candidate = "localhost:16384" }
+    if ($candidate -notmatch '^[a-z][a-z0-9+.-]*://') { $candidate = "http://$candidate" }
+    try { $uri = [Uri]$candidate } catch { throw "Enter a bridge address like localhost:16384 or 192.168.1.25:16384." }
+    if ($uri.Scheme -notin @("http", "https") -or -not $uri.Host -or $uri.AbsolutePath -ne "/" -or $uri.Query -or $uri.Fragment) {
+        throw "Enter only a host/IP and port, such as 192.168.1.25:16384."
+    }
+    $authority = $candidate -replace '^[a-z][a-z0-9+.-]*://', ''
+    $explicitPort = [regex]::Match($authority, ':(?<port>[0-9]+)$')
+    $port = if ($explicitPort.Success) { [int]$explicitPort.Groups['port'].Value } else { 16384 }
+    if ($port -lt 1 -or $port -gt 65535) { throw "The bridge port must be between 1 and 65535." }
+    return "$($uri.Host):$port"
+}
+
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw "This setup script is for Windows."
 }
@@ -60,13 +138,60 @@ if ($ProfileName -notmatch '^[A-Za-z0-9._-]+$') {
     throw "ProfileName may only contain letters, numbers, periods, underscores, and hyphens."
 }
 
+if (-not $NoPathPrompts) {
+    $useDetectedRepository = (Read-Host "Use detected MCP folder '$RepositoryDirectory'? [Y/n]").Trim()
+    if ($useDetectedRepository -match '^(n|no)$') {
+        $selectedRepository = Select-Directory $RepositoryDirectory "Select the Roblox MCP Bridge folder"
+        if ($selectedRepository) { $RepositoryDirectory = $selectedRepository }
+    }
+}
+
 $repositoryPath = [System.IO.Path]::GetFullPath($RepositoryDirectory)
+if (-not (Test-McpRepository $repositoryPath)) {
+    throw "$repositoryPath is not a Roblox MCP Bridge folder. Select the folder containing the roblox-mcp-server package.json."
+}
+
+if (-not $NoPathPrompts -and -not $PSBoundParameters.ContainsKey("BridgeAddress")) {
+    $selectedBridgeAddress = (Read-Host "Roblox/dashboard address [localhost:16384]").Trim()
+    if ($selectedBridgeAddress) { $BridgeAddress = $selectedBridgeAddress }
+}
+$BridgeAddress = Normalize-BridgeAddress $BridgeAddress
+
 $entryPoint = Join-Path $repositoryPath "dist\index.js"
 $runWithBun = Join-Path $repositoryPath "scripts\run-with-bun.mjs"
 $harnessInstaller = Join-Path $repositoryPath "scripts\install-harnesses.mjs"
 $tunnelInstaller = Join-Path $PSScriptRoot "install-tunnel-client.ps1"
 $tunnelDirectory = [System.IO.Path]::GetFullPath($TunnelClientDirectory)
-$tunnelExecutable = Join-Path $tunnelDirectory "tunnel-client.exe"
+$tunnelExecutable = if ($TunnelClientExecutable) {
+    [System.IO.Path]::GetFullPath($TunnelClientExecutable)
+}
+else {
+    Join-Path $tunnelDirectory "tunnel-client.exe"
+}
+
+if (-not $NoPathPrompts -and -not $PSBoundParameters.ContainsKey("TunnelClientExecutable")) {
+    if (Test-Path -LiteralPath $tunnelExecutable -PathType Leaf) {
+        $tunnelChoice = (Read-Host "Use tunnel client '$tunnelExecutable'? [Y/b browse]").Trim()
+        if ($tunnelChoice -match '^(b|browse)$') {
+            $selectedTunnel = Select-Executable $tunnelExecutable
+            if ($selectedTunnel) { $tunnelExecutable = $selectedTunnel }
+        }
+    }
+    else {
+        $browseExisting = (Read-Host "No tunnel client was found at '$tunnelExecutable'. Browse for an existing tunnel-client.exe? [y/N]").Trim()
+        if ($browseExisting -match '^(y|yes)$') {
+            $selectedTunnel = Select-Executable ""
+            if ($selectedTunnel) { $tunnelExecutable = $selectedTunnel }
+        }
+        else {
+            $selectedTunnelDirectory = Select-Directory $tunnelDirectory "Choose where to install OpenAI tunnel-client"
+            if ($selectedTunnelDirectory) {
+                $tunnelDirectory = [System.IO.Path]::GetFullPath($selectedTunnelDirectory)
+                $tunnelExecutable = Join-Path $tunnelDirectory "tunnel-client.exe"
+            }
+        }
+    }
+}
 
 foreach ($requiredFile in @($runWithBun, $harnessInstaller, $tunnelInstaller)) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -92,7 +217,7 @@ if (-not $SkipProjectSetup) {
     Write-Host "Use its prompts to select clients, build the server, and install the executor autoexec loader."
     $projectSetupCommand = @{
         FilePath = $node.Source
-        Arguments = @($runWithBun, $harnessInstaller, "--plain")
+        Arguments = @($runWithBun, $harnessInstaller, "--plain", "--server-root", $repositoryPath, "--no-manager")
         FailureMessage = "The Roblox MCP installer failed"
     }
     Invoke-CheckedCommand @projectSetupCommand
@@ -104,6 +229,7 @@ if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf)) {
 
 if ($UpdateTunnelClient -or -not (Test-Path -LiteralPath $tunnelExecutable -PathType Leaf)) {
     Write-Step "Installing the latest official OpenAI tunnel-client"
+    $tunnelDirectory = Split-Path -Parent $tunnelExecutable
     & $tunnelInstaller -InstallDirectory $tunnelDirectory
     if (-not $?) {
         throw "The tunnel-client installer failed."
@@ -117,12 +243,23 @@ if (-not (Test-Path -LiteralPath $tunnelExecutable -PathType Leaf)) {
     throw "tunnel-client.exe was not found at $tunnelExecutable."
 }
 
-do {
-    $tunnelId = (Read-Host "Paste the OpenAI tunnel ID (tunnel_...)").Trim()
-} while ($tunnelId -notmatch '^tunnel_[A-Za-z0-9]+$')
+if ($TunnelId -and $TunnelId -notmatch '^tunnel_[A-Za-z0-9]+$') {
+    throw "TunnelId must look like tunnel_ followed by letters and numbers."
+}
+while (-not $TunnelId) {
+    $TunnelId = (Read-Host "Paste the OpenAI tunnel ID (tunnel_...)").Trim()
+    if ($TunnelId -notmatch '^tunnel_[A-Za-z0-9]+$') { $TunnelId = "" }
+}
 
 $portableEntryPoint = $entryPoint.Replace("\", "/")
 $mcpCommand = 'node "' + $portableEntryPoint + '"'
+$bridgeUri = [Uri]("http://" + $BridgeAddress)
+if ($bridgeUri.Host -notin @("localhost", "127.0.0.1", "::1")) {
+    $mcpCommand += ' --host 0.0.0.0'
+}
+if ($bridgeUri.Port -ne 16384) {
+    $mcpCommand += ' --port ' + $bridgeUri.Port
+}
 
 Write-Step "Creating tunnel profile '$ProfileName'"
 $profileInitCommand = @{
@@ -131,12 +268,33 @@ $profileInitCommand = @{
         "init",
         "--sample", "sample_mcp_stdio_local",
         "--profile", $ProfileName,
-        "--tunnel-id", $tunnelId,
+        "--tunnel-id", $TunnelId,
         "--mcp-command", $mcpCommand
     )
     FailureMessage = "Could not create the tunnel profile. If it already exists, use start-chatgpt-tunnel.ps1 or choose another -ProfileName"
 }
 Invoke-CheckedCommand @profileInitCommand
+
+$shouldCreateManager = $CreateManager
+if (-not $NoPathPrompts -and -not $CreateManager) {
+    $managerAnswer = (Read-Host "Create a Roblox MCP Manager .exe for updates, startup, paths, and status? [y/N]").Trim()
+    $shouldCreateManager = $managerAnswer -match '^(y|yes)$'
+}
+if ($shouldCreateManager) {
+    if (-not $NoPathPrompts -and -not $PSBoundParameters.ContainsKey("ManagerOutputDirectory")) {
+        $selectedManagerDirectory = Select-Directory $ManagerOutputDirectory "Choose where to create Roblox MCP Manager"
+        if ($selectedManagerDirectory) { $ManagerOutputDirectory = $selectedManagerDirectory }
+    }
+    $managerGenerator = Join-Path $PSScriptRoot "create-windows-launcher.ps1"
+    Write-Step "Creating Roblox MCP Manager"
+    & $managerGenerator `
+        -RepositoryDirectory $repositoryPath `
+        -TunnelClientExecutable $tunnelExecutable `
+        -BridgeAddress $BridgeAddress `
+        -ProfileName $ProfileName `
+        -OutputDirectory $ManagerOutputDirectory
+    if (-not $?) { throw "The Roblox MCP Manager generator failed." }
+}
 
 $previousRuntimeKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
 $runtimeKey = Read-RuntimeApiKey
@@ -158,11 +316,11 @@ try {
     Write-Host "Keep tunnel-client running while ChatGPT uses the MCP tools."
     Write-Host "In ChatGPT, select Connection: Tunnel and choose the same tunnel ID."
     Write-Host "If MCP authentication is requested for this stdio profile, choose None."
-    Write-Host "After Roblox connects, verify the bridge at http://localhost:16384/."
+    Write-Host "After Roblox connects, verify the bridge at http://$BridgeAddress/."
     Write-Host ""
 
     $shouldStart = $Start
-    if (-not $Start) {
+    if (-not $Start -and -not $NoStartPrompt) {
         $answer = (Read-Host "Start the tunnel now? [Y/n]").Trim()
         $shouldStart = $answer -notmatch '^(n|no)$'
     }

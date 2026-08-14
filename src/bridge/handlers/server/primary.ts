@@ -1,6 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { WebSocketServer } from "ws";
-import { WS_PORT } from "../../../config.js";
+import { SERVER_HOST, WS_PORT } from "../../../config.js";
 import { dispatchHttp, dispatchWs, loadRoutes } from "../../../http/router.js";
 import {
   resetPrimaryState,
@@ -29,9 +29,9 @@ export async function startAsPrimary(): Promise<void> {
       }
     });
 
-    httpServer.listen(WS_PORT, () => {
+    httpServer.listen(WS_PORT, SERVER_HOST, () => {
       console.error(
-        `[Primary] MCP Bridge listening on port ${WS_PORT} (WebSocket + HTTP)`
+        `[Primary] MCP Bridge listening on ${SERVER_HOST}:${WS_PORT} (WebSocket + HTTP)`
       );
 
       const wss = new WebSocketServer({ server: httpServer });
