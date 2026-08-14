@@ -81,8 +81,13 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(manager, /--update --yes --plain --server-root/);
   assert.match(manager, /node_modules\\npm\\bin\\npm-cli\.js/);
   assert.match(manager, /function Reload-Bridge/);
+  assert.match(manager, /function Disconnect-Bridge/);
+  assert.match(manager, /Apply-LanBridgeAddress/);
+  assert.match(manager, /Apply-LocalBridgeAddress/);
   assert.match(manager, /Get-NetTCPConnection/);
-  assert.match(manager, /Reload bridge/);
+  assert.match(manager, /Set-RoundedRegion/);
+  assert.match(manager, /"Disconnect"/);
+  assert.match(manager, /"Use local"/);
 });
 
 test("the Node updater bypasses broken global npm shims before trying pnpm", () => {

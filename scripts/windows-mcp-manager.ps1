@@ -481,28 +481,73 @@ function Get-ListeningBridgeProcess {
     return $null
 }
 
+function Stop-Bridge {
+    param([bool]$ForReload = $false)
+    if (-not (Test-BridgeRunning $script:Config.BridgeAddress)) {
+        if (-not $ForReload) { Add-Log "Bridge is already disconnected." "OK" }
+        return
+    }
+
+    $bridgeProcess = Get-ListeningBridgeProcess $script:Config.BridgeAddress
+    if (-not $bridgeProcess) {
+        throw "Port $(Get-BridgePort $script:Config.BridgeAddress) is serving the MCP dashboard, but its process could not be safely identified. Stop it manually rather than risking another Node process."
+    }
+    Add-Log "Stopping bridge process $($bridgeProcess.ProcessId)..."
+    Stop-Process -Id ([int]$bridgeProcess.ProcessId) -Force -ErrorAction Stop
+    for ($attempt = 0; $attempt -lt 30 -and (Test-BridgeRunning $script:Config.BridgeAddress); $attempt++) {
+        Start-Sleep -Milliseconds 100
+        [Windows.Forms.Application]::DoEvents()
+    }
+    if (Test-BridgeRunning $script:Config.BridgeAddress) { throw "The old bridge process did not release the port." }
+    if (-not $ForReload) { Add-Log "Bridge disconnected successfully." "OK" }
+}
+
+function Disconnect-Bridge {
+    Update-ConfigFromFields
+    Stop-Bridge
+}
+
 function Reload-Bridge {
     Update-ConfigFromFields
     if (-not (Test-RepositoryDirectory $script:Config.RepositoryDirectory)) { throw "Choose or install the MCP repository first." }
     $entry = Join-Path $script:Config.RepositoryDirectory "dist\index.js"
     if (-not (Test-ExistingFile $entry)) { Build-Repository; Update-ConfigFromFields }
 
-    if (Test-BridgeRunning $script:Config.BridgeAddress) {
-        $bridgeProcess = Get-ListeningBridgeProcess $script:Config.BridgeAddress
-        if (-not $bridgeProcess) {
-            throw "Port $(Get-BridgePort $script:Config.BridgeAddress) is serving the MCP dashboard, but its process could not be safely identified. Stop it manually rather than risking another Node process."
-        }
-        Add-Log "Stopping bridge process $($bridgeProcess.ProcessId) for reload..."
-        Stop-Process -Id ([int]$bridgeProcess.ProcessId) -Force -ErrorAction Stop
-        for ($attempt = 0; $attempt -lt 30 -and (Test-BridgeRunning $script:Config.BridgeAddress); $attempt++) {
-            Start-Sleep -Milliseconds 100
-            [Windows.Forms.Application]::DoEvents()
-        }
-        if (Test-BridgeRunning $script:Config.BridgeAddress) { throw "The old bridge process did not release the port." }
-    }
+    Stop-Bridge $true
 
     Start-Bridge
     Add-Log "Bridge reloaded successfully." "OK"
+}
+
+function Get-PreferredLanAddress {
+    $configuration = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
+        Where-Object { $_.NetAdapter.Status -eq "Up" -and $_.IPv4DefaultGateway -and $_.IPv4Address } |
+        Sort-Object { $_.NetAdapter.InterfaceMetric } |
+        Select-Object -First 1
+    if ($configuration) { return [string]$configuration.IPv4Address.IPAddress }
+
+    $fallback = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } |
+        Sort-Object InterfaceMetric |
+        Select-Object -First 1
+    if ($fallback) { return [string]$fallback.IPAddress }
+    throw "No usable LAN IPv4 address was found. Connect this PC to the network, then try again."
+}
+
+function Apply-LanBridgeAddress {
+    $port = Get-BridgePort $script:AddressBox.Text
+    $script:AddressBox.Text = "$(Get-PreferredLanAddress):$port"
+    Update-ConfigFromFields
+    Reload-Bridge
+    Add-Log "Bridge is listening on the LAN at http://$($script:Config.BridgeAddress)/" "OK"
+}
+
+function Apply-LocalBridgeAddress {
+    $port = Get-BridgePort $script:AddressBox.Text
+    $script:AddressBox.Text = "localhost:$port"
+    Update-ConfigFromFields
+    Reload-Bridge
+    Add-Log "Bridge returned to local-only access at http://localhost:$port/" "OK"
 }
 
 function Start-InteractiveUpdate {
@@ -666,6 +711,43 @@ $script:Colors = @{
     Danger      = [Drawing.Color]::FromArgb(251, 113, 133)
 }
 
+function New-RoundedPath {
+    param([Drawing.Rectangle]$Rectangle, [int]$Radius)
+    $path = New-Object Drawing.Drawing2D.GraphicsPath
+    $diameter = [Math]::Min(($Radius * 2), [Math]::Min($Rectangle.Width, $Rectangle.Height))
+    if ($diameter -le 1) {
+        $path.AddRectangle($Rectangle)
+        return $path
+    }
+    $arc = New-Object Drawing.Rectangle($Rectangle.X, $Rectangle.Y, $diameter, $diameter)
+    $path.AddArc($arc, 180, 90)
+    $arc.X = $Rectangle.Right - $diameter
+    $path.AddArc($arc, 270, 90)
+    $arc.Y = $Rectangle.Bottom - $diameter
+    $path.AddArc($arc, 0, 90)
+    $arc.X = $Rectangle.Left
+    $path.AddArc($arc, 90, 90)
+    $path.CloseFigure()
+    return $path
+}
+
+function Set-RoundedRegion {
+    param($Control, [int]$Radius)
+    $applyRegion = {
+        param($Target)
+        if ($Target.Width -le 1 -or $Target.Height -le 1) { return }
+        $path = New-RoundedPath (New-Object Drawing.Rectangle(0, 0, $Target.Width, $Target.Height)) $Radius
+        try {
+            $oldRegion = $Target.Region
+            $Target.Region = New-Object Drawing.Region($path)
+            if ($oldRegion) { $oldRegion.Dispose() }
+        }
+        finally { $path.Dispose() }
+    }.GetNewClosure()
+    & $applyRegion $Control
+    $Control.Add_SizeChanged({ & $applyRegion $this }.GetNewClosure())
+}
+
 function New-UiLabel {
     param($Parent, [string]$Text, [int]$Left, [int]$Top, [int]$Width, [int]$Height = 22, [float]$Size = 9, [bool]$Bold = $false, $Color = $null)
     $label = New-Object Windows.Forms.Label
@@ -687,10 +769,13 @@ function New-Card {
     $panel.Size = New-Object Drawing.Size($Width, $Height)
     $panel.BackColor = $script:Colors.Surface
     $borderColor = $script:Colors.Border
+    Set-RoundedRegion $panel 12
     $panel.Add_Paint({
         param($sender, $eventArgs)
         $pen = New-Object Drawing.Pen($borderColor)
-        try { $eventArgs.Graphics.DrawRectangle($pen, 0, 0, ($sender.Width - 1), ($sender.Height - 1)) } finally { $pen.Dispose() }
+        $eventArgs.Graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $path = New-RoundedPath (New-Object Drawing.Rectangle(0, 0, ($sender.Width - 1), ($sender.Height - 1))) 12
+        try { $eventArgs.Graphics.DrawPath($pen, $path) } finally { $path.Dispose(); $pen.Dispose() }
     }.GetNewClosure())
     $Parent.Controls.Add($panel)
     return $panel
@@ -703,14 +788,24 @@ function New-UiButton {
     $button.Location = New-Object Drawing.Point($Left, $Top)
     $button.Size = New-Object Drawing.Size($Width, $Height)
     $button.FlatStyle = [Windows.Forms.FlatStyle]::Flat
-    $button.FlatAppearance.BorderSize = if ($Primary) { 0 } else { 1 }
-    $button.FlatAppearance.BorderColor = $script:Colors.Border
+    $button.FlatAppearance.BorderSize = 0
     $button.BackColor = if ($Primary) { $script:Colors.Accent } else { $script:Colors.SurfaceAlt }
     $button.ForeColor = $script:Colors.Text
     $button.Cursor = [Windows.Forms.Cursors]::Hand
     $button.Font = New-Object Drawing.Font("Segoe UI Semibold", 9)
     $hover = if ($Primary) { $script:Colors.AccentHover } else { [Drawing.Color]::FromArgb(31, 42, 61) }
     $normal = $button.BackColor
+    $buttonBorder = $script:Colors.Border
+    Set-RoundedRegion $button 8
+    if (-not $Primary) {
+        $button.Add_Paint({
+            param($sender, $eventArgs)
+            $eventArgs.Graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $pen = New-Object Drawing.Pen($buttonBorder)
+            $path = New-RoundedPath (New-Object Drawing.Rectangle(0, 0, ($sender.Width - 1), ($sender.Height - 1))) 8
+            try { $eventArgs.Graphics.DrawPath($pen, $path) } finally { $path.Dispose(); $pen.Dispose() }
+        }.GetNewClosure())
+    }
     $button.Add_MouseEnter({ $this.BackColor = $hover }.GetNewClosure())
     $button.Add_MouseLeave({ $this.BackColor = $normal }.GetNewClosure())
     $button.Add_Click({ Invoke-UiAction $Action $ErrorTitle }.GetNewClosure())
@@ -729,6 +824,7 @@ function New-UiTextBox {
     $box.ForeColor = $script:Colors.Text
     $box.Font = New-Object Drawing.Font("Segoe UI", 9.5)
     if ($Secret) { $box.UseSystemPasswordChar = $true }
+    Set-RoundedRegion $box 5
     $Parent.Controls.Add($box)
     return $box
 }
@@ -761,10 +857,27 @@ function Set-StatusValue {
 }
 
 function Add-PathField {
-    param($Parent, [string]$Label, [int]$Top, [string]$Value, [string]$ButtonText, [scriptblock]$Click)
+    param(
+        $Parent,
+        [string]$Label,
+        [int]$Top,
+        [string]$Value,
+        [string]$ButtonText,
+        [scriptblock]$Click,
+        [string]$SecondButtonText = "",
+        [scriptblock]$SecondClick = $null
+    )
     New-UiLabel $Parent $Label 22 $Top 730 19 8.5 $false $script:Colors.Muted | Out-Null
-    $box = New-UiTextBox $Parent $Value 22 ($Top + 22) 632
-    $button = New-UiButton $Parent $ButtonText 666 ($Top + 20) 108 30 ({ & $Click }.GetNewClosure()) "Selection failed"
+    $hasSecondButton = -not [string]::IsNullOrWhiteSpace($SecondButtonText) -and $null -ne $SecondClick
+    $boxWidth = if ($hasSecondButton) { 584 } else { 632 }
+    $box = New-UiTextBox $Parent $Value 22 ($Top + 22) $boxWidth
+    if ($hasSecondButton) {
+        New-UiButton $Parent $ButtonText 618 ($Top + 20) 76 30 ({ & $Click }.GetNewClosure()) "Address change failed" | Out-Null
+        New-UiButton $Parent $SecondButtonText 702 ($Top + 20) 72 30 ({ & $SecondClick }.GetNewClosure()) "Address change failed" | Out-Null
+    }
+    else {
+        New-UiButton $Parent $ButtonText 666 ($Top + 20) 108 30 ({ & $Click }.GetNewClosure()) "Selection failed" | Out-Null
+    }
     return $box
 }
 
@@ -822,6 +935,7 @@ $health = New-Card $script:Form 20 112 300 688
 New-UiLabel $health "SYSTEM HEALTH" 22 18 150 20 8.5 $true $script:Colors.Muted | Out-Null
 $script:ActionStatus = New-UiLabel $health "CHECKING" 178 16 100 25 8 $true $script:Colors.Warning
 $script:ActionStatus.TextAlign = [Drawing.ContentAlignment]::MiddleCenter
+Set-RoundedRegion $script:ActionStatus 6
 $script:HealthTitle = New-UiLabel $health "Checking your setup" 22 50 255 25 12 $true
 $script:HealthSubtitle = New-UiLabel $health "This only takes a moment." 22 76 255 35 8.5 $false $script:Colors.Muted
 
@@ -864,9 +978,10 @@ $script:TunnelBox = Add-PathField $paths "OpenAI tunnel-client.exe (optional)" 1
     $selected = Select-TunnelExecutable $script:TunnelBox.Text
     if ($selected) { $script:TunnelBox.Text = $selected }
 }
-$script:AddressBox = Add-PathField $paths "Dashboard / Roblox address" 208 $script:Config.BridgeAddress "Use LAN IP" {
-    $candidate = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } | Sort-Object InterfaceMetric | Select-Object -First 1
-    if ($candidate) { $script:AddressBox.Text = "$($candidate.IPAddress):16384" }
+$script:AddressBox = Add-PathField $paths "Dashboard / Roblox address (changes apply immediately)" 208 $script:Config.BridgeAddress "Use LAN" {
+    Apply-LanBridgeAddress
+} "Use local" {
+    Apply-LocalBridgeAddress
 }
 
 $chat = New-Card $script:Form 340 410 800 202
@@ -881,12 +996,13 @@ New-UiButton $chat "Open ChatGPT Plugins" 381 137 190 36 { Start-Process $script
 
 $actions = New-Card $script:Form 340 628 800 82
 New-UiLabel $actions "RUN THE BRIDGE" 22 13 145 18 8.5 $true $script:Colors.Muted | Out-Null
-New-UiButton $actions "Start bridge" 22 37 110 32 { Start-Bridge } "Bridge startup failed" $true | Out-Null
-New-UiButton $actions "Reload bridge" 142 37 110 32 { Reload-Bridge } "Bridge reload failed" | Out-Null
-New-UiButton $actions "Dashboard" 262 37 116 32 { Start-Process ("http://" + (Normalize-BridgeAddress $script:AddressBox.Text) + "/") } "Dashboard failed" | Out-Null
-New-UiButton $actions "Update MCP" 388 37 110 32 { Start-InteractiveUpdate } "Updater failed" | Out-Null
-New-UiButton $actions "Copy loader" 508 37 110 32 { Copy-RobloxLoader } "Clipboard failed" | Out-Null
-New-UiButton $actions "Save + refresh" 628 37 146 32 { Update-ConfigFromFields } "Invalid settings" | Out-Null
+New-UiButton $actions "Start" 22 37 92 32 { Start-Bridge } "Bridge startup failed" $true | Out-Null
+New-UiButton $actions "Reload" 124 37 92 32 { Reload-Bridge } "Bridge reload failed" | Out-Null
+New-UiButton $actions "Disconnect" 226 37 100 32 { Disconnect-Bridge } "Bridge disconnect failed" | Out-Null
+New-UiButton $actions "Dashboard" 336 37 100 32 { Start-Process ("http://" + (Normalize-BridgeAddress $script:AddressBox.Text) + "/") } "Dashboard failed" | Out-Null
+New-UiButton $actions "Update" 446 37 92 32 { Start-InteractiveUpdate } "Updater failed" | Out-Null
+New-UiButton $actions "Copy loader" 548 37 100 32 { Copy-RobloxLoader } "Clipboard failed" | Out-Null
+New-UiButton $actions "Save + refresh" 658 37 116 32 { Update-ConfigFromFields } "Invalid settings" | Out-Null
 
 $logCard = New-Card $script:Form 340 726 800 74
 $script:LogBox = New-Object Windows.Forms.RichTextBox
