@@ -1,1 +1,1 @@
-export const SERVER_VERSION = "2.3.3";
+export const SERVER_VERSION = "2.3.4";
