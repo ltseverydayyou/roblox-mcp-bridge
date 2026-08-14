@@ -525,9 +525,22 @@ function Reload-Bridge {
 }
 
 function Get-PreferredLanAddress {
+    $interfaceMetrics = @{}
+    Get-NetIPInterface -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object {
+        $interfaceMetrics[[int]$_.InterfaceIndex] = [int]$_.InterfaceMetric
+    }
+
     $configuration = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
         Where-Object { $_.NetAdapter.Status -eq "Up" -and $_.IPv4DefaultGateway -and $_.IPv4Address } |
-        Sort-Object { $_.NetAdapter.InterfaceMetric } |
+        Sort-Object {
+            $ipv4InterfaceProperty = $_.PSObject.Properties["NetIPv4Interface"]
+            $metricProperty = if ($ipv4InterfaceProperty -and $ipv4InterfaceProperty.Value) {
+                $ipv4InterfaceProperty.Value.PSObject.Properties["InterfaceMetric"]
+            } else { $null }
+            if ($metricProperty) { return [int]$metricProperty.Value }
+            if ($interfaceMetrics.ContainsKey([int]$_.InterfaceIndex)) { return $interfaceMetrics[[int]$_.InterfaceIndex] }
+            return [int]::MaxValue
+        } |
         Select-Object -First 1
     if ($configuration) { return [string]$configuration.IPv4Address.IPAddress }
 
