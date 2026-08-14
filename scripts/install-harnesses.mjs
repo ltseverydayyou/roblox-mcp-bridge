@@ -890,7 +890,9 @@ async function installServer(serverRoot, results, options = {}) {
   if (options.announceRepo !== false) {
     log("info", `Using current repository: ${serverRoot}`);
   }
-  const runner = commandExists("bun") ? "bun" : commandExists("pnpm") ? "pnpm" : "npm";
+  // Node.js ships with npm, so prefer it over an unrelated global pnpm install.
+  // pnpm rejects this Bun-declared package before it can perform an update.
+  const runner = commandExists("bun") ? "bun" : commandExists("npm") ? "npm" : "pnpm";
   await run(
     runner,
     ["install", "--ignore-scripts"],
