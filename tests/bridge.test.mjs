@@ -81,9 +81,10 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(manager, /--update --yes --plain --server-root/);
 });
 
-test("the Node updater prefers npm over an unrelated pnpm installation", () => {
+test("the Node updater bypasses broken global npm shims before trying pnpm", () => {
   const updater = readFileSync(new URL("../scripts/install-harnesses.mjs", import.meta.url), "utf8");
-  assert.match(updater, /commandExists\("bun"\).*commandExists\("npm"\).*"pnpm"/s);
+  assert.match(updater, /npm-cli\.js/);
+  assert.match(updater, /commandExists\("bun"\).*bundledNpmCli.*commandExists\("npm"\).*commandExists\("pnpm"\)/s);
 });
 
 test("implicit routing sends a command to exactly one client", () => {
