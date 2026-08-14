@@ -247,7 +247,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\create-windows-lau
   -OutputDirectory "D:\Roblox MCP Manager"
 ```
 
-The generated `.exe` now embeds its manager UI and works by itself. `RobloxMcpManager.config.json` is optional and only prefills non-secret paths/settings; if it is missing, the manager starts with safe defaults and can install or locate everything. No third-party EXE-builder module is downloaded.
+The generated `.exe` now embeds its manager UI and works by itself. It uses a modern dark control-panel layout and embeds the official Luau logo from the same [`luau-lang/site` source](https://github.com/luau-lang/site/blob/master/logo.svg) used by this project's author profile. `RobloxMcpManager.config.json` is optional and only prefills non-secret paths/settings; if it is missing, the manager starts with safe defaults and can install or locate everything. No third-party EXE-builder module is downloaded.
 
 ### Force-update recovery (Windows)
 
