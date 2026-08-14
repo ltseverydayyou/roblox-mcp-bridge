@@ -81,6 +81,11 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(manager, /--update --yes --plain --server-root/);
 });
 
+test("the Node updater prefers npm over an unrelated pnpm installation", () => {
+  const updater = readFileSync(new URL("../scripts/install-harnesses.mjs", import.meta.url), "utf8");
+  assert.match(updater, /commandExists\("bun"\).*commandExists\("npm"\).*"pnpm"/s);
+});
+
 test("implicit routing sends a command to exactly one client", () => {
   const firstId = registerHttpClient("first");
   const secondId = registerHttpClient("second");
