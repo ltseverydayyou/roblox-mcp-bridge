@@ -12,7 +12,9 @@ param(
 
     [string]$TunnelId = "",
 
-    [string]$OutputDirectory = ([Environment]::GetFolderPath("Desktop"))
+    [string]$OutputDirectory = ([Environment]::GetFolderPath("Desktop")),
+
+    [string]$LuauIconUrl = "https://raw.githubusercontent.com/luau-lang/site/master/logo.svg"
 )
 
 Set-StrictMode -Version Latest
@@ -72,13 +74,31 @@ if (-not (Test-Path -LiteralPath $managerSource -PathType Leaf)) {
     throw "Manager source was not found: $managerSource"
 }
 
+$iconBuilder = Join-Path $PSScriptRoot "get-luau-icon.ps1"
+if (-not (Test-Path -LiteralPath $iconBuilder -PathType Leaf)) {
+    throw "Luau icon builder was not found: $iconBuilder"
+}
+
+$manifestSource = Join-Path (Split-Path -Parent $PSScriptRoot) "package.json"
+$managerVersion = "0.0.0"
+if (Test-Path -LiteralPath $manifestSource -PathType Leaf) {
+    $managerVersion = [string](Get-Content -LiteralPath $manifestSource -Raw | ConvertFrom-Json).version
+}
+
 $configTarget = Join-Path $outputPath "RobloxMcpManager.config.json"
 $exeTarget = Join-Path $outputPath "RobloxMcpManager.exe"
 $temporaryExe = Join-Path ([System.IO.Path]::GetTempPath()) ("RobloxMcpManager-" + [Guid]::NewGuid().ToString("N") + ".exe")
+$temporaryIcon = Join-Path ([System.IO.Path]::GetTempPath()) ("RobloxMcpManager-" + [Guid]::NewGuid().ToString("N") + ".ico")
+
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $iconBuilder -OutputPath $temporaryIcon -SourceUrl $LuauIconUrl | Out-Null
+if (-not (Test-Path -LiteralPath $temporaryIcon -PathType Leaf)) {
+    throw "The Luau icon could not be generated."
+}
 
 $managerContent = [System.IO.File]::ReadAllText($managerSource)
 $managerBytes = [System.Text.Encoding]::UTF8.GetPreamble() + [System.Text.Encoding]::UTF8.GetBytes($managerContent)
 $managerBase64 = [Convert]::ToBase64String($managerBytes)
+$iconBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($temporaryIcon))
 
 $hostName = ([Uri]("http://" + $BridgeAddress)).Host
 $bindHost = if ($hostName -in @("localhost", "127.0.0.1", "::1")) { "127.0.0.1" } else { "0.0.0.0" }
@@ -105,15 +125,18 @@ internal static class RobloxMcpManagerLauncher
         try
         {
             string directory = AppDomain.CurrentDomain.BaseDirectory;
-            string script = Path.Combine(Path.GetTempPath(), "RobloxMcpManager-2.3.0.ps1");
+            string script = Path.Combine(Path.GetTempPath(), "RobloxMcpManager-$managerVersion.ps1");
+            string icon = Path.Combine(Path.GetTempPath(), "RobloxMcpManager-$managerVersion.ico");
             string config = Path.Combine(directory, "RobloxMcpManager.config.json");
             File.WriteAllBytes(script, Convert.FromBase64String("$managerBase64"));
+            File.WriteAllBytes(icon, Convert.FromBase64String("$iconBase64"));
 
             ProcessStartInfo start = new ProcessStartInfo();
             start.FileName = "powershell.exe";
             start.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + script + "\" -ConfigPath \"" + config + "\"";
             start.UseShellExecute = false;
             start.CreateNoWindow = true;
+            start.EnvironmentVariables["ROBLOX_MCP_MANAGER_ICON"] = icon;
             Process.Start(start);
         }
         catch (Exception error)
@@ -124,13 +147,31 @@ internal static class RobloxMcpManagerLauncher
 }
 "@
 
+$provider = $null
 try {
-    Add-Type -TypeDefinition $source -Language CSharp -ReferencedAssemblies @("System.dll", "System.Windows.Forms.dll") -OutputAssembly $temporaryExe -OutputType WindowsApplication
+    Add-Type -AssemblyName Microsoft.CSharp
+    $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+    $parameters = New-Object CodeDom.Compiler.CompilerParameters
+    $parameters.GenerateExecutable = $true
+    $parameters.GenerateInMemory = $false
+    $parameters.OutputAssembly = $temporaryExe
+    $parameters.CompilerOptions = "/target:winexe /optimize+ /win32icon:`"$temporaryIcon`""
+    $parameters.ReferencedAssemblies.Add("System.dll") | Out-Null
+    $parameters.ReferencedAssemblies.Add("System.Windows.Forms.dll") | Out-Null
+    $result = $provider.CompileAssemblyFromSource($parameters, $source)
+    if ($result.Errors.HasErrors) {
+        $messages = @($result.Errors | ForEach-Object { "line $($_.Line): $($_.ErrorText)" }) -join [Environment]::NewLine
+        throw "Windows launcher compilation failed:$([Environment]::NewLine)$messages"
+    }
     Move-Item -LiteralPath $temporaryExe -Destination $exeTarget -Force
 }
 finally {
+    if ($null -ne $provider) { $provider.Dispose() }
     if (Test-Path -LiteralPath $temporaryExe -PathType Leaf) {
         Remove-Item -LiteralPath $temporaryExe -Force
+    }
+    if (Test-Path -LiteralPath $temporaryIcon -PathType Leaf) {
+        Remove-Item -LiteralPath $temporaryIcon -Force
     }
 }
 

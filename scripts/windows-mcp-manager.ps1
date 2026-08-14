@@ -2,7 +2,11 @@
 
 [CmdletBinding()]
 param(
-    [string]$ConfigPath = (Join-Path $PSScriptRoot "RobloxMcpManager.config.json")
+    [string]$ConfigPath = (Join-Path $PSScriptRoot "RobloxMcpManager.config.json"),
+
+    [string]$IconPath = $env:ROBLOX_MCP_MANAGER_ICON,
+
+    [string]$PreviewPath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -511,18 +515,21 @@ function Refresh-Status {
     $localVersion = if ($repoReady) { Get-LocalVersion $script:RepoBox.Text } else { $null }
     $remoteVersion = if ($localVersion) { Get-RemoteVersion } else { $null }
     $updateText = if (-not $localVersion) { "not installed" } elseif (-not $remoteVersion) { "fetch failed" } elseif ((Compare-VersionText $localVersion $remoteVersion) -lt 0) { "v$remoteVersion available" } else { "current" }
-    $adminText = if (Test-IsAdministrator) { "Elevated" } else { "Normal user" }
-    $lines = @(
-        "Git: " + $(if ($git) { "installed" } else { "MISSING" }),
-        "Node.js/npm: " + $(if ($nodeVersion -and $nodeVersion.Major -ge 18 -and $npm) { "v$nodeVersion / installed" } else { "MISSING or too old" }),
-        "MCP repository/build: " + $(if ($repoReady -and $buildReady) { "ready (v$localVersion)" } elseif ($repoReady) { "build needed" } else { "MISSING" }),
-        "Update: $updateText",
-        "Bridge: " + $(if ($bridgeRunning) { "RUNNING" } else { "stopped" }),
-        "ChatGPT tunnel: " + $(if ($tunnelReady) { "client selected" } else { "optional / not installed" }),
-        "Windows access: $adminText"
-    )
-    $script:StatusBox.Text = $lines -join "`r`n"
-    $script:ActionStatus.Text = if ($repoReady -and $buildReady -and $git -and $nodeVersion) { "Ready" } else { "Setup needed - click Install all required" }
+    $nodeReady = $nodeVersion -and $nodeVersion.Major -ge 18 -and $npm
+    Set-StatusValue "Git" $(if ($git) { "Installed" } else { "Missing" }) $(if ($git) { "Good" } else { "Bad" })
+    Set-StatusValue "Node" $(if ($nodeReady) { "v$nodeVersion" } else { "Missing / old" }) $(if ($nodeReady) { "Good" } else { "Bad" })
+    Set-StatusValue "MCP" $(if ($repoReady -and $buildReady) { "Ready v$localVersion" } elseif ($repoReady) { "Build needed" } else { "Not installed" }) $(if ($repoReady -and $buildReady) { "Good" } elseif ($repoReady) { "Warn" } else { "Bad" })
+    Set-StatusValue "Update" $updateText $(if ($updateText -eq "current") { "Good" } elseif ($updateText -match "available|failed") { "Warn" } else { "Muted" })
+    Set-StatusValue "Bridge" $(if ($bridgeRunning) { "Running" } else { "Stopped" }) $(if ($bridgeRunning) { "Good" } else { "Muted" })
+    Set-StatusValue "Tunnel" $(if ($tunnelReady) { "Client ready" } else { "Optional" }) $(if ($tunnelReady) { "Good" } else { "Muted" })
+    Set-StatusValue "Access" $(if (Test-IsAdministrator) { "Administrator" } else { "Standard user" }) $(if (Test-IsAdministrator) { "Good" } else { "Muted" })
+
+    $ready = $repoReady -and $buildReady -and $git -and $nodeReady
+    $script:ActionStatus.Text = if ($ready) { "SYSTEM READY" } else { "SETUP NEEDED" }
+    $script:ActionStatus.BackColor = if ($ready) { $script:Colors.SuccessDark } else { $script:Colors.WarningDark }
+    $script:ActionStatus.ForeColor = if ($ready) { $script:Colors.Success } else { $script:Colors.Warning }
+    $script:HealthTitle.Text = if ($ready) { "Everything looks good" } else { "A few things need attention" }
+    $script:HealthSubtitle.Text = if ($ready) { "Start the bridge when you are ready." } else { "Use Quick setup below to finish installation." }
 
     if (-not $script:PromptedForUpdate -and $localVersion -and $remoteVersion -and (Compare-VersionText $localVersion $remoteVersion) -lt 0) {
         $script:PromptedForUpdate = $true
@@ -536,169 +543,271 @@ function Invoke-UiAction {
     try { & $Action; Refresh-Status } catch { Show-FriendlyError $_.Exception $Title } finally { if ($script:Busy) { Set-Busy $false "Ready" } }
 }
 
-$script:LogBox = $null
-$script:Config = Read-ManagerConfig
+$script:Colors = @{
+    Background  = [Drawing.Color]::FromArgb(10, 14, 22)
+    Surface     = [Drawing.Color]::FromArgb(18, 24, 36)
+    SurfaceAlt  = [Drawing.Color]::FromArgb(23, 31, 46)
+    Border      = [Drawing.Color]::FromArgb(42, 54, 75)
+    Text        = [Drawing.Color]::FromArgb(241, 245, 249)
+    Muted       = [Drawing.Color]::FromArgb(148, 163, 184)
+    Accent      = [Drawing.Color]::FromArgb(80, 113, 234)
+    AccentHover = [Drawing.Color]::FromArgb(99, 128, 239)
+    Success     = [Drawing.Color]::FromArgb(52, 211, 153)
+    SuccessDark = [Drawing.Color]::FromArgb(13, 55, 48)
+    Warning     = [Drawing.Color]::FromArgb(251, 191, 36)
+    WarningDark = [Drawing.Color]::FromArgb(61, 45, 13)
+    Danger      = [Drawing.Color]::FromArgb(251, 113, 133)
+}
 
-$script:Form = New-Object Windows.Forms.Form
-$script:Form.Text = "Roblox MCP Manager - Easy Setup"
-$script:Form.Size = New-Object Drawing.Size(980, 850)
-$script:Form.MinimumSize = New-Object Drawing.Size(980, 850)
-$script:Form.StartPosition = "CenterScreen"
-$script:Form.Font = New-Object Drawing.Font("Segoe UI", 9)
-$script:Form.AutoScroll = $true
+function New-UiLabel {
+    param($Parent, [string]$Text, [int]$Left, [int]$Top, [int]$Width, [int]$Height = 22, [float]$Size = 9, [bool]$Bold = $false, $Color = $null)
+    $label = New-Object Windows.Forms.Label
+    $label.Text = $Text
+    $label.Location = New-Object Drawing.Point($Left, $Top)
+    $label.Size = New-Object Drawing.Size($Width, $Height)
+    $style = if ($Bold) { [Drawing.FontStyle]::Bold } else { [Drawing.FontStyle]::Regular }
+    $label.Font = New-Object Drawing.Font("Segoe UI", $Size, $style)
+    $label.ForeColor = if ($null -ne $Color) { $Color } else { $script:Colors.Text }
+    $label.BackColor = [Drawing.Color]::Transparent
+    $Parent.Controls.Add($label)
+    return $label
+}
 
-$title = New-Object Windows.Forms.Label
-$title.Text = "Roblox MCP Bridge - Easy Setup"
-$title.Font = New-Object Drawing.Font("Segoe UI Semibold", 18)
-$title.Location = New-Object Drawing.Point(18, 12)
-$title.Size = New-Object Drawing.Size(600, 36)
-$script:Form.Controls.Add($title)
+function New-Card {
+    param($Parent, [int]$Left, [int]$Top, [int]$Width, [int]$Height)
+    $panel = New-Object Windows.Forms.Panel
+    $panel.Location = New-Object Drawing.Point($Left, $Top)
+    $panel.Size = New-Object Drawing.Size($Width, $Height)
+    $panel.BackColor = $script:Colors.Surface
+    $borderColor = $script:Colors.Border
+    $panel.Add_Paint({
+        param($sender, $eventArgs)
+        $pen = New-Object Drawing.Pen($borderColor)
+        try { $eventArgs.Graphics.DrawRectangle($pen, 0, 0, ($sender.Width - 1), ($sender.Height - 1)) } finally { $pen.Dispose() }
+    }.GetNewClosure())
+    $Parent.Controls.Add($panel)
+    return $panel
+}
 
-$adminButton = New-Object Windows.Forms.Button
-$adminButton.Text = "Restart as administrator"
-$adminButton.Location = New-Object Drawing.Point(745, 15)
-$adminButton.Size = New-Object Drawing.Size(190, 30)
-$adminButton.Add_Click({ Invoke-UiAction { Restart-AsAdministrator } "Administrator restart failed" })
-$script:Form.Controls.Add($adminButton)
-
-$script:StatusBox = New-Object Windows.Forms.TextBox
-$script:StatusBox.Multiline = $true
-$script:StatusBox.ReadOnly = $true
-$script:StatusBox.Location = New-Object Drawing.Point(20, 54)
-$script:StatusBox.Size = New-Object Drawing.Size(450, 140)
-$script:StatusBox.BackColor = [Drawing.Color]::White
-$script:Form.Controls.Add($script:StatusBox)
-
-$prereq = New-Object Windows.Forms.GroupBox
-$prereq.Text = "1. Install/check requirements"
-$prereq.Location = New-Object Drawing.Point(485, 50)
-$prereq.Size = New-Object Drawing.Size(450, 145)
-$script:Form.Controls.Add($prereq)
-
-function Add-SmallButton {
-    param($Parent, [string]$Text, [int]$Left, [int]$Top, [int]$Width, [scriptblock]$Action, [string]$ErrorTitle)
+function New-UiButton {
+    param($Parent, [string]$Text, [int]$Left, [int]$Top, [int]$Width, [int]$Height, [scriptblock]$Action, [string]$ErrorTitle, [bool]$Primary = $false)
     $button = New-Object Windows.Forms.Button
     $button.Text = $Text
     $button.Location = New-Object Drawing.Point($Left, $Top)
-    $button.Size = New-Object Drawing.Size($Width, 32)
+    $button.Size = New-Object Drawing.Size($Width, $Height)
+    $button.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $button.FlatAppearance.BorderSize = if ($Primary) { 0 } else { 1 }
+    $button.FlatAppearance.BorderColor = $script:Colors.Border
+    $button.BackColor = if ($Primary) { $script:Colors.Accent } else { $script:Colors.SurfaceAlt }
+    $button.ForeColor = $script:Colors.Text
+    $button.Cursor = [Windows.Forms.Cursors]::Hand
+    $button.Font = New-Object Drawing.Font("Segoe UI Semibold", 9)
+    $hover = if ($Primary) { $script:Colors.AccentHover } else { [Drawing.Color]::FromArgb(31, 42, 61) }
+    $normal = $button.BackColor
+    $button.Add_MouseEnter({ $this.BackColor = $hover }.GetNewClosure())
+    $button.Add_MouseLeave({ $this.BackColor = $normal }.GetNewClosure())
     $button.Add_Click({ Invoke-UiAction $Action $ErrorTitle }.GetNewClosure())
     $Parent.Controls.Add($button)
     return $button
 }
 
-Add-SmallButton $prereq "Install Git" 12 25 130 { Install-Git } "Git installation failed" | Out-Null
-Add-SmallButton $prereq "Install Node.js" 154 25 130 { Install-Node } "Node.js installation failed" | Out-Null
-Add-SmallButton $prereq "Install/choose MCP" 296 25 140 { Install-OrSelectRepository } "MCP installation failed" | Out-Null
-Add-SmallButton $prereq "Install tunnel client" 12 67 160 { Install-TunnelClient } "Tunnel installation failed" | Out-Null
-Add-SmallButton $prereq "Build/repair MCP" 184 67 140 { Build-Repository } "MCP build failed" | Out-Null
-Add-SmallButton $prereq "INSTALL ALL REQUIRED" 12 105 424 { Install-AllRequired } "Automatic setup failed" | Out-Null
-
-$paths = New-Object Windows.Forms.GroupBox
-$paths.Text = "2. Paths and local bridge address"
-$paths.Location = New-Object Drawing.Point(20, 207)
-$paths.Size = New-Object Drawing.Size(915, 180)
-$script:Form.Controls.Add($paths)
-
-function Add-PathRow {
-    param([string]$Label, [int]$Top, [string]$Value, [string]$ButtonText, [scriptblock]$Click)
-    $labelControl = New-Object Windows.Forms.Label
-    $labelControl.Text = $Label
-    $labelControl.Location = New-Object Drawing.Point(12, $Top)
-    $labelControl.Size = New-Object Drawing.Size(870, 18)
-    $paths.Controls.Add($labelControl)
+function New-UiTextBox {
+    param($Parent, [string]$Value, [int]$Left, [int]$Top, [int]$Width, [bool]$Secret = $false)
     $box = New-Object Windows.Forms.TextBox
     $box.Text = $Value
-    $box.Location = New-Object Drawing.Point(12, ($Top + 20))
-    $box.Size = New-Object Drawing.Size(755, 25)
-    $paths.Controls.Add($box)
-    $button = New-Object Windows.Forms.Button
-    $button.Text = $ButtonText
-    $button.Location = New-Object Drawing.Point(780, ($Top + 18))
-    $button.Size = New-Object Drawing.Size(110, 28)
-    $button.Add_Click($Click)
-    $paths.Controls.Add($button)
+    $box.Location = New-Object Drawing.Point($Left, $Top)
+    $box.Size = New-Object Drawing.Size($Width, 27)
+    $box.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+    $box.BackColor = $script:Colors.SurfaceAlt
+    $box.ForeColor = $script:Colors.Text
+    $box.Font = New-Object Drawing.Font("Segoe UI", 9.5)
+    if ($Secret) { $box.UseSystemPasswordChar = $true }
+    $Parent.Controls.Add($box)
     return $box
 }
 
-$script:RepoBox = Add-PathRow "MCP repository folder" 22 $script:Config.RepositoryDirectory "Browse..." {
+function Add-StatusRow {
+    param($Parent, [string]$Name, [string]$Caption, [int]$Top)
+    $indicator = New-Object Windows.Forms.Panel
+    $indicator.Location = New-Object Drawing.Point(22, ($Top + 6))
+    $indicator.Size = New-Object Drawing.Size(4, 20)
+    $indicator.BackColor = $script:Colors.Muted
+    $Parent.Controls.Add($indicator)
+    New-UiLabel $Parent $Caption 38 $Top 112 28 9 $false $script:Colors.Muted | Out-Null
+    $value = New-UiLabel $Parent "Checking" 145 $Top 125 28 9 $true $script:Colors.Text
+    $value.TextAlign = [Drawing.ContentAlignment]::MiddleRight
+    $script:StatusRows[$Name] = [pscustomobject]@{ Indicator = $indicator; Value = $value }
+}
+
+function Set-StatusValue {
+    param([string]$Name, [string]$Text, [string]$Kind)
+    if (-not $script:StatusRows.ContainsKey($Name)) { return }
+    $color = switch ($Kind) {
+        "Good" { $script:Colors.Success }
+        "Warn" { $script:Colors.Warning }
+        "Bad" { $script:Colors.Danger }
+        default { $script:Colors.Muted }
+    }
+    $script:StatusRows[$Name].Indicator.BackColor = $color
+    $script:StatusRows[$Name].Value.ForeColor = $color
+    $script:StatusRows[$Name].Value.Text = $Text
+}
+
+function Add-PathField {
+    param($Parent, [string]$Label, [int]$Top, [string]$Value, [string]$ButtonText, [scriptblock]$Click)
+    New-UiLabel $Parent $Label 22 $Top 730 19 8.5 $false $script:Colors.Muted | Out-Null
+    $box = New-UiTextBox $Parent $Value 22 ($Top + 22) 632
+    $button = New-UiButton $Parent $ButtonText 666 ($Top + 20) 108 30 ({ & $Click }.GetNewClosure()) "Selection failed"
+    return $box
+}
+
+function Add-ChatField {
+    param($Parent, [string]$Label, [int]$Left, [int]$Width, [string]$Value, [bool]$Secret)
+    New-UiLabel $Parent $Label $Left 66 $Width 18 8.2 $false $script:Colors.Muted | Out-Null
+    return New-UiTextBox $Parent $Value $Left 86 $Width $Secret
+}
+
+$script:LogBox = $null
+$script:StatusRows = @{}
+$script:Config = Read-ManagerConfig
+
+$script:Form = New-Object Windows.Forms.Form
+$script:Form.Text = "Roblox MCP Manager"
+$script:Form.ClientSize = New-Object Drawing.Size(1160, 820)
+$script:Form.MinimumSize = New-Object Drawing.Size(1176, 859)
+$script:Form.StartPosition = "CenterScreen"
+$script:Form.Font = New-Object Drawing.Font("Segoe UI", 9)
+$script:Form.BackColor = $script:Colors.Background
+$script:Form.ForeColor = $script:Colors.Text
+$script:Form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
+$script:Form.MaximizeBox = $false
+
+if ($IconPath -and (Test-Path -LiteralPath $IconPath -PathType Leaf)) {
+    try { $script:Form.Icon = New-Object Drawing.Icon($IconPath) } catch { Add-Log "Window icon could not be loaded: $($_.Exception.Message)" "WARN" }
+}
+
+$header = New-Object Windows.Forms.Panel
+$header.Location = New-Object Drawing.Point(0, 0)
+$header.Size = New-Object Drawing.Size(1160, 96)
+$header.BackColor = $script:Colors.Surface
+$script:Form.Controls.Add($header)
+
+if ($IconPath -and (Test-Path -LiteralPath $IconPath -PathType Leaf)) {
+    try {
+        $logo = New-Object Windows.Forms.Panel
+        $logo.Location = New-Object Drawing.Point(22, 19)
+        $logo.Size = New-Object Drawing.Size(58, 58)
+        $logo.BackColor = [Drawing.Color]::Transparent
+        $script:LogoIcon = New-Object Drawing.Icon($IconPath, 64, 64)
+        $logo.Add_Paint({
+            param($sender, $eventArgs)
+            $eventArgs.Graphics.DrawIcon($script:LogoIcon, (New-Object Drawing.Rectangle(1, 1, 56, 56)))
+        })
+        $header.Controls.Add($logo)
+    } catch { }
+}
+
+New-UiLabel $header "ROBLOX MCP MANAGER" 96 19 500 34 19 $true | Out-Null
+New-UiLabel $header "Install, update, connect, and run your bridge from one place." 98 55 570 24 9.5 $false $script:Colors.Muted | Out-Null
+New-UiButton $header "Restart as administrator" 922 31 210 36 { Restart-AsAdministrator } "Administrator restart failed" | Out-Null
+
+$health = New-Card $script:Form 20 112 300 688
+New-UiLabel $health "SYSTEM HEALTH" 22 18 150 20 8.5 $true $script:Colors.Muted | Out-Null
+$script:ActionStatus = New-UiLabel $health "CHECKING" 178 16 100 25 8 $true $script:Colors.Warning
+$script:ActionStatus.TextAlign = [Drawing.ContentAlignment]::MiddleCenter
+$script:HealthTitle = New-UiLabel $health "Checking your setup" 22 50 255 25 12 $true
+$script:HealthSubtitle = New-UiLabel $health "This only takes a moment." 22 76 255 35 8.5 $false $script:Colors.Muted
+
+Add-StatusRow $health "Git" "Git" 122
+Add-StatusRow $health "Node" "Node.js / npm" 158
+Add-StatusRow $health "MCP" "MCP build" 194
+Add-StatusRow $health "Update" "Updates" 230
+Add-StatusRow $health "Bridge" "Local bridge" 266
+Add-StatusRow $health "Tunnel" "ChatGPT tunnel" 302
+Add-StatusRow $health "Access" "Windows access" 338
+
+$divider = New-Object Windows.Forms.Panel
+$divider.Location = New-Object Drawing.Point(22, 382)
+$divider.Size = New-Object Drawing.Size(256, 1)
+$divider.BackColor = $script:Colors.Border
+$health.Controls.Add($divider)
+New-UiLabel $health "QUICK SETUP" 22 400 180 20 8.5 $true $script:Colors.Muted | Out-Null
+New-UiButton $health "Install Git" 22 430 123 34 { Install-Git } "Git installation failed" | Out-Null
+New-UiButton $health "Install Node.js" 155 430 123 34 { Install-Node } "Node.js installation failed" | Out-Null
+New-UiButton $health "Choose MCP" 22 474 123 34 { Install-OrSelectRepository } "MCP installation failed" | Out-Null
+New-UiButton $health "Repair build" 155 474 123 34 { Build-Repository } "MCP build failed" | Out-Null
+New-UiButton $health "Install tunnel" 22 518 123 34 { Install-TunnelClient } "Tunnel installation failed" | Out-Null
+New-UiButton $health "Refresh" 155 518 123 34 { Update-ConfigFromFields } "Refresh failed" | Out-Null
+New-UiButton $health "INSTALL EVERYTHING" 22 568 256 44 { Install-AllRequired } "Automatic setup failed" $true | Out-Null
+New-UiLabel $health "Installs only missing requirements." 22 620 256 18 8 $false $script:Colors.Muted | Out-Null
+$script:ProgressBar = New-Object Windows.Forms.ProgressBar
+$script:ProgressBar.Location = New-Object Drawing.Point(22, 651)
+$script:ProgressBar.Size = New-Object Drawing.Size(256, 8)
+$script:ProgressBar.Style = "Blocks"
+$health.Controls.Add($script:ProgressBar)
+
+$paths = New-Card $script:Form 340 112 800 282
+New-UiLabel $paths "CONFIGURATION" 22 17 240 20 8.5 $true $script:Colors.Muted | Out-Null
+New-UiLabel $paths "Paths and local bridge" 22 39 400 26 13 $true | Out-Null
+$script:RepoBox = Add-PathField $paths "MCP repository folder" 72 $script:Config.RepositoryDirectory "Browse" {
     $selected = Select-Folder $script:RepoBox.Text "Select the folder containing roblox-mcp-server package.json"
     if ($selected) { $script:RepoBox.Text = $selected }
 }
-$script:TunnelBox = Add-PathRow "OpenAI tunnel-client.exe (optional - only for ChatGPT Tunnel)" 78 $script:Config.TunnelClientExecutable "Browse..." {
+$script:TunnelBox = Add-PathField $paths "OpenAI tunnel-client.exe (optional)" 140 $script:Config.TunnelClientExecutable "Browse" {
     $selected = Select-TunnelExecutable $script:TunnelBox.Text
     if ($selected) { $script:TunnelBox.Text = $selected }
 }
-$script:AddressBox = Add-PathRow "Dashboard/Roblox address (localhost:16384 or trusted LAN/VPN IP:port)" 134 $script:Config.BridgeAddress "Use LAN IP" {
+$script:AddressBox = Add-PathField $paths "Dashboard / Roblox address" 208 $script:Config.BridgeAddress "Use LAN IP" {
     $candidate = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } | Sort-Object InterfaceMetric | Select-Object -First 1
     if ($candidate) { $script:AddressBox.Text = "$($candidate.IPAddress):16384" }
 }
 
-$chat = New-Object Windows.Forms.GroupBox
-$chat.Text = "3. Optional ChatGPT Tunnel setup"
-$chat.Location = New-Object Drawing.Point(20, 400)
-$chat.Size = New-Object Drawing.Size(915, 170)
-$script:Form.Controls.Add($chat)
+$chat = New-Card $script:Form 340 410 800 202
+New-UiLabel $chat "OPTIONAL CHATGPT TUNNEL" 22 16 260 20 8.5 $true $script:Colors.Muted | Out-Null
+New-UiLabel $chat "Use ChatGPT Plugins in the normal Chat interface. These fields are not needed for local MCP use." 22 38 750 22 8.5 $false $script:Colors.Muted | Out-Null
+$script:TunnelIdBox = Add-ChatField $chat "Tunnel ID" 22 190 $script:Config.TunnelId $false
+$script:RuntimeKeyBox = Add-ChatField $chat "Runtime API key (memory-only; never saved)" 224 330 "" $true
+$script:ProfileBox = Add-ChatField $chat "Profile name" 566 208 $script:Config.ProfileName $false
+New-UiButton $chat "Configure + validate" 22 137 190 36 { Configure-Tunnel } "Tunnel configuration failed" $true | Out-Null
+New-UiButton $chat "Start tunnel" 224 137 145 36 { Start-Tunnel } "Tunnel startup failed" | Out-Null
+New-UiButton $chat "Open ChatGPT Plugins" 381 137 190 36 { Start-Process $script:ChatGptPluginsUrl } "Could not open ChatGPT" | Out-Null
 
-$chatNotice = New-Object Windows.Forms.Label
-$chatNotice.Text = "Official route: ChatGPT Settings > Security and login > Developer mode, then ChatGPT Plugins (+) > Tunnel. If Codex/Worker is confusing, switch to the normal Chat/Plugins surface. Tunnel fields are optional for local MCP use."
-$chatNotice.Location = New-Object Drawing.Point(12, 20)
-$chatNotice.Size = New-Object Drawing.Size(875, 38)
-$chat.Controls.Add($chatNotice)
+$actions = New-Card $script:Form 340 628 800 82
+New-UiLabel $actions "RUN THE BRIDGE" 22 13 145 18 8.5 $true $script:Colors.Muted | Out-Null
+New-UiButton $actions "Start bridge" 22 37 138 32 { Start-Bridge } "Bridge startup failed" $true | Out-Null
+New-UiButton $actions "Open dashboard" 170 37 138 32 { Start-Process ("http://" + (Normalize-BridgeAddress $script:AddressBox.Text) + "/") } "Dashboard failed" | Out-Null
+New-UiButton $actions "Update MCP" 318 37 130 32 { Start-InteractiveUpdate } "Updater failed" | Out-Null
+New-UiButton $actions "Copy loader" 458 37 130 32 { Copy-RobloxLoader } "Clipboard failed" | Out-Null
+New-UiButton $actions "Save + refresh" 598 37 176 32 { Update-ConfigFromFields } "Invalid settings" | Out-Null
 
-function Add-ChatField {
-    param([string]$Label, [int]$Left, [int]$Top, [int]$Width, [string]$Value, [bool]$Secret)
-    $labelControl = New-Object Windows.Forms.Label
-    $labelControl.Text = $Label
-    $labelControl.Location = New-Object Drawing.Point($Left, $Top)
-    $labelControl.Size = New-Object Drawing.Size($Width, 18)
-    $chat.Controls.Add($labelControl)
-    $box = New-Object Windows.Forms.TextBox
-    $box.Text = $Value
-    $box.Location = New-Object Drawing.Point($Left, ($Top + 19))
-    $box.Size = New-Object Drawing.Size($Width, 25)
-    if ($Secret) { $box.UseSystemPasswordChar = $true }
-    $chat.Controls.Add($box)
-    return $box
-}
-
-$script:TunnelIdBox = Add-ChatField "Tunnel ID (tunnel_...)" 12 61 270 $script:Config.TunnelId $false
-$script:RuntimeKeyBox = Add-ChatField "OpenAI Platform runtime API key (memory-only; never saved)" 295 61 390 "" $true
-$script:ProfileBox = Add-ChatField "Profile name" 698 61 190 $script:Config.ProfileName $false
-Add-SmallButton $chat "Configure/validate tunnel" 12 119 210 { Configure-Tunnel } "Tunnel configuration failed" | Out-Null
-Add-SmallButton $chat "Start tunnel" 234 119 150 { Start-Tunnel } "Tunnel startup failed" | Out-Null
-Add-SmallButton $chat "Open ChatGPT Plugins" 396 119 190 { Start-Process $script:ChatGptPluginsUrl } "Could not open ChatGPT" | Out-Null
-
-$actions = New-Object Windows.Forms.GroupBox
-$actions.Text = "4. Run and use the bridge"
-$actions.Location = New-Object Drawing.Point(20, 582)
-$actions.Size = New-Object Drawing.Size(915, 78)
-$script:Form.Controls.Add($actions)
-Add-SmallButton $actions "Start bridge" 12 27 155 { Start-Bridge } "Bridge startup failed" | Out-Null
-Add-SmallButton $actions "Open dashboard" 179 27 155 { Start-Process ("http://" + (Normalize-BridgeAddress $script:AddressBox.Text) + "/") } "Dashboard failed" | Out-Null
-Add-SmallButton $actions "Update MCP" 346 27 155 { Start-InteractiveUpdate } "Updater failed" | Out-Null
-Add-SmallButton $actions "Copy Roblox loader" 513 27 175 { Copy-RobloxLoader } "Clipboard failed" | Out-Null
-Add-SmallButton $actions "Save + Refresh" 700 27 190 { Update-ConfigFromFields } "Invalid settings" | Out-Null
-
-$script:ActionStatus = New-Object Windows.Forms.Label
-$script:ActionStatus.Text = "Checking..."
-$script:ActionStatus.Location = New-Object Drawing.Point(22, 674)
-$script:ActionStatus.Size = New-Object Drawing.Size(600, 20)
-$script:Form.Controls.Add($script:ActionStatus)
-
-$script:ProgressBar = New-Object Windows.Forms.ProgressBar
-$script:ProgressBar.Location = New-Object Drawing.Point(650, 674)
-$script:ProgressBar.Size = New-Object Drawing.Size(285, 18)
-$script:Form.Controls.Add($script:ProgressBar)
-
+$logCard = New-Card $script:Form 340 726 800 74
 $script:LogBox = New-Object Windows.Forms.RichTextBox
 $script:LogBox.ReadOnly = $true
-$script:LogBox.Location = New-Object Drawing.Point(20, 701)
-$script:LogBox.Size = New-Object Drawing.Size(915, 90)
-$script:LogBox.BackColor = [Drawing.Color]::FromArgb(25, 25, 25)
-$script:LogBox.ForeColor = [Drawing.Color]::Gainsboro
-$script:LogBox.Font = New-Object Drawing.Font("Consolas", 8)
-$script:Form.Controls.Add($script:LogBox)
+$script:LogBox.BorderStyle = [Windows.Forms.BorderStyle]::None
+$script:LogBox.Location = New-Object Drawing.Point(10, 8)
+$script:LogBox.Size = New-Object Drawing.Size(780, 58)
+$script:LogBox.BackColor = $script:Colors.Surface
+$script:LogBox.ForeColor = $script:Colors.Muted
+$script:LogBox.Font = New-Object Drawing.Font("Cascadia Mono", 8)
+$script:LogBox.DetectUrls = $false
+$logCard.Controls.Add($script:LogBox)
 
-Add-Log "Manager started. The OpenAI runtime key field is never written to disk."
-$script:Form.Add_Shown({ Refresh-Status })
+Add-Log "Manager started. Your OpenAI runtime key is memory-only and is never written to disk."
+$script:Form.Add_Shown({
+    if ($PreviewPath) { $script:PromptedForUpdate = $true }
+    Refresh-Status
+    if ($PreviewPath) {
+        [Windows.Forms.Application]::DoEvents()
+        $target = [IO.Path]::GetFullPath($PreviewPath)
+        $parent = Split-Path -Parent $target
+        if (-not (Test-Path -LiteralPath $parent -PathType Container)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+        $bitmap = New-Object Drawing.Bitmap($script:Form.ClientSize.Width, $script:Form.ClientSize.Height)
+        try {
+            $script:Form.DrawToBitmap($bitmap, (New-Object Drawing.Rectangle(0, 0, $bitmap.Width, $bitmap.Height)))
+            $bitmap.Save($target, [Drawing.Imaging.ImageFormat]::Png)
+        }
+        finally { $bitmap.Dispose() }
+        $script:Form.Close()
+    }
+})
 [void]$script:Form.ShowDialog()
