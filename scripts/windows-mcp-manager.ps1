@@ -381,15 +381,37 @@ function Install-Node {
     if (-not (Find-Node) -or -not (Find-Npm)) { throw "Node.js installed, but node/npm are still unavailable. Restart Windows or the manager and check again." }
 }
 
+function Update-RepositoryCheckout {
+    param([string]$RepositoryDirectory)
+    if (-not (Test-RepositoryDirectory $RepositoryDirectory)) { throw "The selected MCP folder is not a valid Roblox MCP checkout." }
+    $git = Find-Git
+    if (-not $git) { throw "Git is missing. Install Git first." }
+    $repo = [IO.Path]::GetFullPath($RepositoryDirectory)
+    if (-not (Test-Path -LiteralPath (Join-Path $repo ".git"))) {
+        throw "$repo contains Roblox MCP files but is not a Git checkout. Re-clone it once so future INSTALL EVERYTHING runs can update it safely."
+    }
+    Set-Busy $true "Updating Roblox MCP Bridge..."
+    try {
+        Invoke-ManagedProcess $git @("-C", $repo, "pull", "--ff-only") $repo
+        Add-Log "MCP repository updated from GitHub." "OK"
+    }
+    finally { Set-Busy $false "Ready" }
+}
+
 function Install-OrSelectRepository {
-    if (Test-RepositoryDirectory $script:RepoBox.Text) { Add-Log "MCP repository is already valid." "OK"; return }
     Install-Git
+    if (Test-RepositoryDirectory $script:RepoBox.Text) {
+        Update-RepositoryCheckout $script:RepoBox.Text
+        Update-ConfigFromFields
+        return
+    }
     $defaultParent = Join-Path $env:USERPROFILE "Documents\GitHub"
     if (-not (Test-Path -LiteralPath $defaultParent -PathType Container)) { $defaultParent = $env:USERPROFILE }
     $parent = Select-Folder $defaultParent "Choose a parent folder for roblox-mcp-bridge"
     if (-not $parent) { throw "Repository installation was cancelled." }
     $target = Join-Path $parent "roblox-mcp-bridge"
-    if (Test-Path -LiteralPath $target) {
+    $targetAlreadyExisted = Test-Path -LiteralPath $target
+    if ($targetAlreadyExisted) {
         if (-not (Test-RepositoryDirectory $target)) { throw "$target already exists but is not a valid Roblox MCP checkout. Choose another parent folder." }
     }
     else {
@@ -399,6 +421,7 @@ function Install-OrSelectRepository {
     }
     $script:RepoBox.Text = $target
     Update-ConfigFromFields
+    if ($targetAlreadyExisted) { Update-RepositoryCheckout $target }
     Add-Log "MCP repository ready at $target" "OK"
 }
 
@@ -487,23 +510,24 @@ function Get-ListeningBridgeProcess {
 }
 
 function Stop-Bridge {
-    param([bool]$ForReload = $false)
-    if (-not (Test-BridgeRunning $script:Config.BridgeAddress)) {
+    param([bool]$ForReload = $false, [string]$Address = "")
+    $targetAddress = if ([string]::IsNullOrWhiteSpace($Address)) { $script:Config.BridgeAddress } else { Normalize-BridgeAddress $Address }
+    if (-not (Test-BridgeRunning $targetAddress)) {
         if (-not $ForReload) { Add-Log "Bridge is already disconnected." "OK" }
         return
     }
 
-    $bridgeProcess = Get-ListeningBridgeProcess $script:Config.BridgeAddress
+    $bridgeProcess = Get-ListeningBridgeProcess $targetAddress
     if (-not $bridgeProcess) {
-        throw "Port $(Get-BridgePort $script:Config.BridgeAddress) is serving the MCP dashboard, but its process could not be safely identified. Stop it manually rather than risking another Node process."
+        throw "Port $(Get-BridgePort $targetAddress) is serving the MCP dashboard, but its process could not be safely identified. Stop it manually rather than risking another Node process."
     }
     Add-Log "Stopping bridge process $($bridgeProcess.ProcessId)..."
     Stop-Process -Id ([int]$bridgeProcess.ProcessId) -Force -ErrorAction Stop
-    for ($attempt = 0; $attempt -lt 30 -and (Test-BridgeRunning $script:Config.BridgeAddress); $attempt++) {
+    for ($attempt = 0; $attempt -lt 30 -and (Test-BridgeRunning $targetAddress); $attempt++) {
         Start-Sleep -Milliseconds 100
         [Windows.Forms.Application]::DoEvents()
     }
-    if (Test-BridgeRunning $script:Config.BridgeAddress) { throw "The old bridge process did not release the port." }
+    if (Test-BridgeRunning $targetAddress) { throw "The old bridge process did not release port $(Get-BridgePort $targetAddress)." }
     if (-not $ForReload) { Add-Log "Bridge disconnected successfully." "OK" }
 }
 
@@ -552,20 +576,82 @@ function Get-PreferredLanAddress {
     throw "No usable LAN IPv4 address was found. Connect this PC to the network, then try again."
 }
 
+function Sync-TunnelProfileDefinition {
+    if (-not $script:Config.TunnelId) { return }
+    if (-not (Test-ExistingFile $script:Config.TunnelClientExecutable)) { return }
+    if (-not (Test-RepositoryDirectory $script:Config.RepositoryDirectory)) { return }
+    if (-not (Test-ExistingFile (Join-Path $script:Config.RepositoryDirectory "dist\index.js"))) { return }
+    $setup = Join-Path $script:Config.RepositoryDirectory "scripts\setup-chatgpt-tunnel.ps1"
+    if (-not (Test-ExistingFile $setup)) { return }
+    $arguments = @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $setup,
+        "-SkipProjectSetup", "-NoPathPrompts", "-NoStartPrompt", "-ConfigureOnly",
+        "-RepositoryDirectory", $script:Config.RepositoryDirectory,
+        "-TunnelClientExecutable", $script:Config.TunnelClientExecutable,
+        "-BridgeAddress", $script:Config.BridgeAddress,
+        "-ProfileName", $script:Config.ProfileName,
+        "-TunnelId", $script:Config.TunnelId
+    )
+    Set-Busy $true "Updating tunnel profile..."
+    try {
+        Invoke-ManagedProcess "powershell.exe" $arguments $script:Config.RepositoryDirectory
+        Add-Log "Tunnel profile '$($script:Config.ProfileName)' now uses $($script:Config.BridgeAddress)." "OK"
+    }
+    finally { Set-Busy $false "Ready" }
+}
+
+function Apply-BridgeAddressChange {
+    param([string]$NewAddress, [string]$StoppedMessage, [string]$RunningMessage)
+    $previousAddress = Normalize-BridgeAddress $script:Config.BridgeAddress
+    $normalizedNewAddress = Normalize-BridgeAddress $NewAddress
+    $addressChanged = $previousAddress -ne $normalizedNewAddress
+    $wasRunning = Test-BridgeRunning $previousAddress
+    $script:AddressBox.Text = $normalizedNewAddress
+    Update-ConfigFromFields
+    if ($addressChanged -and $wasRunning) {
+        Stop-Bridge -ForReload $true -Address $previousAddress
+        Start-Bridge
+        Add-Log $RunningMessage "OK"
+    }
+    elseif ($addressChanged) {
+        Add-Log $StoppedMessage "OK"
+    }
+    elseif ($wasRunning) {
+        Add-Log "Bridge address is already $normalizedNewAddress; the running bridge was left untouched." "OK"
+    }
+    else {
+        Add-Log "Bridge address is already $normalizedNewAddress; the bridge remains stopped." "OK"
+    }
+    if ($addressChanged) { Sync-TunnelProfileDefinition }
+}
+
 function Apply-LanBridgeAddress {
     $port = Get-BridgePort $script:AddressBox.Text
-    $script:AddressBox.Text = "$(Get-PreferredLanAddress):$port"
-    Update-ConfigFromFields
-    Reload-Bridge
-    Add-Log "Bridge is listening on the LAN at http://$($script:Config.BridgeAddress)/" "OK"
+    $address = "$(Get-PreferredLanAddress):$port"
+    Apply-BridgeAddressChange $address "LAN address saved as http://$address/. The bridge was stopped, so it was not started." "Bridge is listening on the LAN at http://$address/."
 }
 
 function Apply-LocalBridgeAddress {
     $port = Get-BridgePort $script:AddressBox.Text
-    $script:AddressBox.Text = "localhost:$port"
+    $address = "localhost:$port"
+    Apply-BridgeAddressChange $address "Local address saved as http://$address/. The bridge was stopped, so it was not started." "Bridge returned to local-only access at http://$address/."
+}
+
+function Save-And-Refresh {
+    $previousAddress = Normalize-BridgeAddress $script:Config.BridgeAddress
+    $newAddress = Normalize-BridgeAddress $script:AddressBox.Text
+    $addressChanged = $previousAddress -ne $newAddress
+    $wasRunning = $addressChanged -and (Test-BridgeRunning $previousAddress)
     Update-ConfigFromFields
-    Reload-Bridge
-    Add-Log "Bridge returned to local-only access at http://localhost:$port/" "OK"
+    if ($addressChanged -and $wasRunning) {
+        Stop-Bridge -ForReload $true -Address $previousAddress
+        Start-Bridge
+        Add-Log "Bridge reloaded from $previousAddress to $($script:Config.BridgeAddress)." "OK"
+    }
+    elseif ($addressChanged) {
+        Add-Log "Bridge address saved as $($script:Config.BridgeAddress). The bridge was stopped, so it was not started." "OK"
+    }
+    if ($addressChanged) { Sync-TunnelProfileDefinition }
 }
 
 function Start-InteractiveUpdate {
@@ -1113,7 +1199,7 @@ New-UiButton $actions "Disconnect" 226 37 100 32 { Disconnect-Bridge } "Bridge d
 New-UiButton $actions "Dashboard" 336 37 100 32 { Start-Process ("http://" + (Normalize-BridgeAddress $script:AddressBox.Text) + "/") } "Dashboard failed" | Out-Null
 New-UiButton $actions "Update" 446 37 92 32 { Start-InteractiveUpdate } "Updater failed" | Out-Null
 New-UiButton $actions "Copy loader" 548 37 100 32 { Copy-RobloxLoader } "Clipboard failed" | Out-Null
-New-UiButton $actions "Save + refresh" 658 37 116 32 { Update-ConfigFromFields } "Invalid settings" | Out-Null
+New-UiButton $actions "Save + refresh" 658 37 116 32 { Save-And-Refresh } "Invalid settings" | Out-Null
 
 $logCard = New-Card $script:Form 340 726 800 74
 $script:LogBox = New-Object Windows.Forms.RichTextBox

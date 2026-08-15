@@ -26,6 +26,8 @@ param(
 
     [switch]$NoStartPrompt,
 
+    [switch]$ConfigureOnly,
+
     [switch]$Start
 )
 
@@ -47,6 +49,63 @@ function Invoke-CheckedCommand {
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "$FailureMessage (exit code $LASTEXITCODE)."
+    }
+}
+
+
+
+function Get-TunnelProfileDirectory {
+    $explicit = [Environment]::GetEnvironmentVariable("TUNNEL_CLIENT_PROFILE_DIR", "Process")
+    if (-not [string]::IsNullOrWhiteSpace($explicit)) { return [IO.Path]::GetFullPath($explicit) }
+    $xdg = [Environment]::GetEnvironmentVariable("XDG_CONFIG_HOME", "Process")
+    if (-not [string]::IsNullOrWhiteSpace($xdg)) { return [IO.Path]::GetFullPath((Join-Path $xdg "tunnel-client")) }
+    return [IO.Path]::GetFullPath((Join-Path $HOME ".config\tunnel-client"))
+}
+
+function Get-TunnelProfileFile {
+    param([string]$Name)
+    $directory = Get-TunnelProfileDirectory
+    $yaml = Join-Path $directory "$Name.yaml"
+    $yml = Join-Path $directory "$Name.yml"
+    if (Test-Path -LiteralPath $yaml -PathType Leaf) { return $yaml }
+    if (Test-Path -LiteralPath $yml -PathType Leaf) { return $yml }
+    return $yaml
+}
+
+function Invoke-TunnelProfileInit {
+    param(
+        [string]$TunnelExecutable,
+        [string]$Name,
+        [string]$TunnelId,
+        [string]$McpCommand
+    )
+    $arguments = @(
+        "init",
+        "--sample", "sample_mcp_stdio_local",
+        "--profile", $Name,
+        "--tunnel-id", $TunnelId,
+        "--mcp-command", $McpCommand
+    )
+    $profileFile = Get-TunnelProfileFile $Name
+    $backupFile = $null
+    if (Test-Path -LiteralPath $profileFile -PathType Leaf) {
+        $backupFile = "$profileFile.roblox-mcp-backup-$((Get-Date).ToString('yyyyMMddHHmmss'))"
+        Move-Item -LiteralPath $profileFile -Destination $backupFile -Force
+    }
+    try {
+        Invoke-CheckedCommand -FilePath $TunnelExecutable -Arguments $arguments -FailureMessage "Could not configure tunnel profile '$Name'"
+        if ($backupFile -and (Test-Path -LiteralPath $backupFile -PathType Leaf)) {
+            Remove-Item -LiteralPath $backupFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        if (Test-Path -LiteralPath $profileFile -PathType Leaf) {
+            Remove-Item -LiteralPath $profileFile -Force -ErrorAction SilentlyContinue
+        }
+        if ($backupFile -and (Test-Path -LiteralPath $backupFile -PathType Leaf)) {
+            Move-Item -LiteralPath $backupFile -Destination $profileFile -Force
+        }
+        throw
     }
 }
 
@@ -261,19 +320,13 @@ if ($bridgeUri.Port -ne 16384) {
     $mcpCommand += ' --port ' + $bridgeUri.Port
 }
 
-Write-Step "Creating tunnel profile '$ProfileName'"
-$profileInitCommand = @{
-    FilePath = $tunnelExecutable
-    Arguments = @(
-        "init",
-        "--sample", "sample_mcp_stdio_local",
-        "--profile", $ProfileName,
-        "--tunnel-id", $TunnelId,
-        "--mcp-command", $mcpCommand
-    )
-    FailureMessage = "Could not create the tunnel profile. If it already exists, use start-chatgpt-tunnel.ps1 or choose another -ProfileName"
+Write-Step "Configuring tunnel profile '$ProfileName'"
+Invoke-TunnelProfileInit -TunnelExecutable $tunnelExecutable -Name $ProfileName -TunnelId $TunnelId -McpCommand $mcpCommand
+
+if ($ConfigureOnly) {
+    Write-Host "Tunnel profile '$ProfileName' was updated for bridge address $BridgeAddress." -ForegroundColor Green
+    return
 }
-Invoke-CheckedCommand @profileInitCommand
 
 $shouldCreateManager = $CreateManager
 if (-not $NoPathPrompts -and -not $CreateManager) {
