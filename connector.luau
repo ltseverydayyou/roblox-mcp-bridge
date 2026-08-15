@@ -15,18 +15,18 @@ if not game:IsLoaded() then
 end
 
 --// Services \\--
-local cloneref = cloneref or function(x) return x end
+local SR = loadstring(game:HttpGet("https://raw.githubusercontent.com/ltseverydayyou/ltseverydayyou.github.io/refs/heads/main/ServiceResolver.luau"))()
 
-local RobloxReplicatedStorage: RobloxReplicatedStorage = cloneref(game:GetService("RobloxReplicatedStorage"))
-local VirtualInputManager: VirtualInputManager = cloneref(Instance.new("VirtualInputManager"))
-local MarketplaceService: MarketplaceService = cloneref(game:GetService("MarketplaceService"))
-local CoreGui: CoreGui = cloneref(game:GetService("CoreGui"))
-local CorePackages: CorePackages = cloneref(game:GetService("CorePackages"))
-local ScriptContext: ScriptContext = cloneref(game:GetService("ScriptContext"))
-local HttpService: HttpService = cloneref(game:GetService("HttpService"))
-local LogService: LogService = cloneref(game:GetService("LogService"))
-local Players: Players = cloneref(game:GetService("Players"))
-local CollectionService: CollectionService = cloneref(game:GetService("CollectionService"))
+local RobloxReplicatedStorage: RobloxReplicatedStorage = SR.cs("RobloxReplicatedStorage", cloneref)
+local VirtualInputManager: VirtualInputManager = SR.cs("VirtualInputManager", cloneref)
+local MarketplaceService: MarketplaceService = SR.cs("MarketplaceService", cloneref)
+local CoreGui: CoreGui = SR.cs("CoreGui", cloneref)
+local CorePackages: CorePackages = SR.cs("CorePackages", cloneref)
+local ScriptContext: ScriptContext = SR.cs("ScriptContext", cloneref)
+local HttpService: HttpService = SR.cs("HttpService", cloneref)
+local LogService: LogService = SR.cs("LogService", cloneref)
+local Players: Players = SR.cs("Players", cloneref)
+local CollectionService: CollectionService = SR.cs("CollectionService", cloneref)
 
 --// Libraries \\--
 
