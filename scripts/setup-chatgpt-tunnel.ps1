@@ -81,32 +81,13 @@ function Invoke-TunnelProfileInit {
     )
     $arguments = @(
         "init",
+        "--force",
         "--sample", "sample_mcp_stdio_local",
         "--profile", $Name,
         "--tunnel-id", $TunnelId,
         "--mcp-command", $McpCommand
     )
-    $profileFile = Get-TunnelProfileFile $Name
-    $backupFile = $null
-    if (Test-Path -LiteralPath $profileFile -PathType Leaf) {
-        $backupFile = "$profileFile.roblox-mcp-backup-$((Get-Date).ToString('yyyyMMddHHmmss'))"
-        Move-Item -LiteralPath $profileFile -Destination $backupFile -Force
-    }
-    try {
-        Invoke-CheckedCommand -FilePath $TunnelExecutable -Arguments $arguments -FailureMessage "Could not configure tunnel profile '$Name'"
-        if ($backupFile -and (Test-Path -LiteralPath $backupFile -PathType Leaf)) {
-            Remove-Item -LiteralPath $backupFile -Force -ErrorAction SilentlyContinue
-        }
-    }
-    catch {
-        if (Test-Path -LiteralPath $profileFile -PathType Leaf) {
-            Remove-Item -LiteralPath $profileFile -Force -ErrorAction SilentlyContinue
-        }
-        if ($backupFile -and (Test-Path -LiteralPath $backupFile -PathType Leaf)) {
-            Move-Item -LiteralPath $backupFile -Destination $profileFile -Force
-        }
-        throw
-    }
+    Invoke-CheckedCommand -FilePath $TunnelExecutable -Arguments $arguments -FailureMessage "Could not configure tunnel profile '$Name'"
 }
 
 function Read-RuntimeApiKey {
