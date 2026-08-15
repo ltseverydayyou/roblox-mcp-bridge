@@ -27,6 +27,7 @@ local HttpService: HttpService = SR.cs("HttpService", cloneref)
 local LogService: LogService = SR.cs("LogService", cloneref)
 local Players: Players = SR.cs("Players", cloneref)
 local CollectionService: CollectionService = SR.cs("CollectionService", cloneref)
+local UserInputService: UserInputService = SR.cs("UserInputService", cloneref)
 
 --// Libraries \\--
 
@@ -164,6 +165,70 @@ local function GetStableClientSessionId()
     return getgenv().MCP_ClientSessionId
 end
 
+local function GetExecutorInfo()
+    local executorName = "Unknown"
+    local executorVersion = "Unknown"
+
+    if typeof(identifyexecutor) == "function" then
+        pcall(function()
+            local name, versionValue = identifyexecutor()
+            if type(name) == "string" and name ~= "" then
+                executorName = name
+            end
+            if versionValue ~= nil then
+                local text = tostring(versionValue)
+                if text ~= "" then
+                    executorVersion = text
+                end
+            end
+        end)
+    elseif typeof(getexecutorname) == "function" then
+        pcall(function()
+            local name = getexecutorname()
+            if type(name) == "string" and name ~= "" then
+                executorName = name
+            end
+        end)
+    end
+
+    if executorVersion == "Unknown" and typeof(getexecutorversion) == "function" then
+        pcall(function()
+            local versionValue = getexecutorversion()
+            if versionValue ~= nil then
+                local text = tostring(versionValue)
+                if text ~= "" then
+                    executorVersion = text
+                end
+            end
+        end)
+    end
+
+    return executorName, executorVersion
+end
+
+local function GetRobloxVersion()
+    local robloxVersion = "Unknown"
+    if typeof(version) == "function" then
+        pcall(function()
+            local value = version()
+            if type(value) == "string" and value ~= "" then
+                robloxVersion = value
+            end
+        end)
+    end
+    return robloxVersion
+end
+
+local function GetPlatformName()
+    local platform = "Unknown"
+    pcall(function()
+        local value = UserInputService:GetPlatform()
+        local text = tostring(value)
+        platform = string.gsub(text, "^Enum%.Platform%.", "")
+    end)
+    return platform
+end
+
 local function GetRegistrationInfo()
     local player = Players.LocalPlayer
     local placeName = "Unknown"
@@ -171,13 +236,22 @@ local function GetRegistrationInfo()
         local productInfo = MarketplaceService:GetProductInfo(game.PlaceId)
         placeName = productInfo.Name
     end)
+
+    local executorName, executorVersion = GetExecutorInfo()
+
     return {
         type = "register",
         username = player and player.Name or "Unknown",
         userId = player and player.UserId or 0,
+        displayName = player and player.DisplayName or "Unknown",
         placeId = game.PlaceId,
+        gameId = game.GameId,
         jobId = game.JobId,
         placeName = placeName,
+        executorName = executorName,
+        executorVersion = executorVersion,
+        robloxVersion = GetRobloxVersion(),
+        platform = GetPlatformName(),
         sessionId = GetStableClientSessionId(),
     }
 end

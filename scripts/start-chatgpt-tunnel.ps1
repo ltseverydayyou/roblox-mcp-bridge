@@ -14,6 +14,61 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+
+function Test-RepositoryBuildFresh {
+    param([string]$Repository)
+    $entry = Join-Path $Repository "dist\index.js"
+    if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) { return $false }
+
+    try {
+        $builtAt = (Get-Item -LiteralPath $entry -ErrorAction Stop).LastWriteTimeUtc
+        $inputs = @()
+        $src = Join-Path $Repository "src"
+        if (Test-Path -LiteralPath $src -PathType Container) {
+            $inputs += @(Get-ChildItem -LiteralPath $src -Recurse -File -ErrorAction Stop)
+        }
+        foreach ($name in @("package.json", "tsconfig.json")) {
+            $candidate = Join-Path $Repository $name
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $inputs += Get-Item -LiteralPath $candidate -ErrorAction Stop
+            }
+        }
+        foreach ($input in $inputs) {
+            if ($input.LastWriteTimeUtc -gt $builtAt) { return $false }
+        }
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Update-StaleBuild {
+    $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+    if (Test-RepositoryBuildFresh $repository) { return }
+
+    $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+    if (-not $npm) { $npm = Get-Command "npm" -ErrorAction SilentlyContinue }
+    if (-not $npm) {
+        throw "The MCP source is newer than dist, but npm was not found. Install Node.js/npm and rebuild the repository."
+    }
+
+    Write-Host "MCP source changed since the last build. Rebuilding before tunnel startup..." -ForegroundColor Yellow
+    Push-Location $repository
+    try {
+        & $npm.Source run build
+        if ($LASTEXITCODE -ne 0) { throw "MCP rebuild failed with exit code $LASTEXITCODE." }
+    }
+    finally {
+        Pop-Location
+    }
+
+    if (-not (Test-RepositoryBuildFresh $repository)) {
+        throw "MCP rebuild completed, but dist still appears stale."
+    }
+    Write-Host "MCP build refreshed." -ForegroundColor Green
+}
+
 function Invoke-CheckedTunnelCommand {
     param([string[]]$Arguments)
 
@@ -40,6 +95,8 @@ else {
 if (-not (Test-Path -LiteralPath $script:TunnelExecutable -PathType Leaf)) {
     throw "tunnel-client.exe was not found. Run scripts\setup-chatgpt-tunnel.ps1 first."
 }
+
+Update-StaleBuild
 
 $runtimeKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
 if ([string]::IsNullOrWhiteSpace($runtimeKey)) {

@@ -425,6 +425,37 @@ function Install-OrSelectRepository {
     Add-Log "MCP repository ready at $target" "OK"
 }
 
+function Test-RepositoryBuildFresh {
+    param([string]$Repository)
+    if (-not (Test-RepositoryDirectory $Repository)) { return $false }
+
+    $entry = Join-Path $Repository "dist\index.js"
+    if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) { return $false }
+
+    try {
+        $builtAt = (Get-Item -LiteralPath $entry -ErrorAction Stop).LastWriteTimeUtc
+        $inputs = @()
+        $src = Join-Path $Repository "src"
+        if (Test-Path -LiteralPath $src -PathType Container) {
+            $inputs += @(Get-ChildItem -LiteralPath $src -Recurse -File -ErrorAction Stop)
+        }
+        foreach ($name in @("package.json", "tsconfig.json")) {
+            $candidate = Join-Path $Repository $name
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $inputs += Get-Item -LiteralPath $candidate -ErrorAction Stop
+            }
+        }
+
+        foreach ($input in $inputs) {
+            if ($input.LastWriteTimeUtc -gt $builtAt) { return $false }
+        }
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 function Build-Repository {
     Install-Node
     if (-not (Test-RepositoryDirectory $script:RepoBox.Text)) { Install-OrSelectRepository }
@@ -473,7 +504,7 @@ function Install-AllRequired {
 function Start-Bridge {
     Update-ConfigFromFields
     if (Test-BridgeRunning $script:Config.BridgeAddress) { Add-Log "The bridge is already running." "OK"; return }
-    if (-not (Test-Path -LiteralPath (Join-Path $script:Config.RepositoryDirectory "dist\index.js") -PathType Leaf)) { Build-Repository }
+    if (-not (Test-RepositoryBuildFresh $script:Config.RepositoryDirectory)) { Build-Repository }
     $node = Find-Node
     if (-not $node) { throw "Node.js is missing. Click Install Node.js first." }
     $entry = Join-Path $script:Config.RepositoryDirectory "dist\index.js"
@@ -540,7 +571,7 @@ function Reload-Bridge {
     Update-ConfigFromFields
     if (-not (Test-RepositoryDirectory $script:Config.RepositoryDirectory)) { throw "Choose or install the MCP repository first." }
     $entry = Join-Path $script:Config.RepositoryDirectory "dist\index.js"
-    if (-not (Test-ExistingFile $entry)) { Build-Repository; Update-ConfigFromFields }
+    if (-not (Test-RepositoryBuildFresh $script:Config.RepositoryDirectory)) { Build-Repository; Update-ConfigFromFields }
 
     Stop-Bridge $true
 
@@ -694,7 +725,7 @@ function Configure-Tunnel {
     $runtimeKey = $script:RuntimeKeyBox.Text
     if (-not $runtimeKey) { throw "Enter the OpenAI Platform runtime API key. It is used only in memory and is never saved." }
     if (-not (Test-ExistingFile $script:Config.TunnelClientExecutable)) { Install-TunnelClient; Update-ConfigFromFields }
-    if (-not (Test-Path -LiteralPath (Join-Path $script:Config.RepositoryDirectory "dist\index.js") -PathType Leaf)) { Build-Repository }
+    if (-not (Test-RepositoryBuildFresh $script:Config.RepositoryDirectory)) { Build-Repository }
     $setup = Join-Path $script:Config.RepositoryDirectory "scripts\setup-chatgpt-tunnel.ps1"
     $arguments = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $setup,
@@ -720,6 +751,11 @@ function Configure-Tunnel {
 function Start-Tunnel {
     Update-ConfigFromFields
     if (-not (Test-ExistingFile $script:Config.TunnelClientExecutable)) { throw "Install or browse to tunnel-client.exe first." }
+    if (-not (Test-RepositoryBuildFresh $script:Config.RepositoryDirectory)) {
+        Add-Log "Source files are newer than dist; rebuilding before tunnel startup..." "WARN"
+        Build-Repository
+        Update-ConfigFromFields
+    }
     $startup = Join-Path $script:Config.RepositoryDirectory "scripts\start-chatgpt-tunnel.ps1"
     if (-not (Test-Path -LiteralPath $startup -PathType Leaf)) { throw "The tunnel startup script is missing." }
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File " + (Quote-ProcessArgument $startup) +
@@ -856,7 +892,7 @@ function Refresh-Status {
     $nodeVersion = Get-NodeVersion
     $npm = Find-Npm
     $repoReady = Test-RepositoryDirectory $script:RepoBox.Text
-    $buildReady = $repoReady -and (Test-Path -LiteralPath (Join-Path $script:RepoBox.Text "dist\index.js") -PathType Leaf)
+    $buildReady = $repoReady -and (Test-RepositoryBuildFresh $script:RepoBox.Text)
     $tunnelReady = Test-ExistingFile $script:TunnelBox.Text
     $bridgeRunning = Test-BridgeRunning $script:AddressBox.Text
     $localVersion = if ($repoReady) { Get-LocalVersion $script:RepoBox.Text } else { $null }

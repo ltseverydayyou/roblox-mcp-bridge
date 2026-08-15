@@ -11,15 +11,19 @@ interface RegisterMessage {
   type: "register";
   username?: string;
   userId?: number;
+  displayName?: string;
   placeId?: number;
+  gameId?: number;
   jobId?: string;
   placeName?: string;
+  executorName?: string;
+  executorVersion?: string;
+  robloxVersion?: string;
+  platform?: string;
   sessionId?: string;
 }
 
 export function WS(ws: WebSocket): void {
-  console.error("[Primary] Roblox client connected via WebSocket (awaiting registration).");
-
   ws.on("message", (rawData) => {
     try {
       const data = JSON.parse(rawData.toString()) as RegisterMessage | RobloxResponse;
@@ -29,9 +33,15 @@ export function WS(ws: WebSocket): void {
         const clientId = registerClient({
           username: info.username || "Unknown",
           userId: info.userId || 0,
+          displayName: info.displayName,
           placeId: info.placeId || 0,
+          gameId: info.gameId,
           jobId: info.jobId || "",
           placeName: info.placeName || "Unknown",
+          executorName: info.executorName,
+          executorVersion: info.executorVersion,
+          robloxVersion: info.robloxVersion,
+          platform: info.platform,
           sessionId: info.sessionId,
           transport: "ws",
           ws,

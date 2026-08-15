@@ -3,6 +3,7 @@ import { WebSocket } from "ws";
 import { HTTP_POLL_TIMEOUT } from "../../../config.js";
 import type { RobloxClient } from "../../types.js";
 import { clearScriptSourceIndex } from "./script-source-store.js";
+import { SERVER_VERSION } from "../../../version.js";
 
 const clientRegistry: Map<string, RobloxClient> = new Map();
 const wsToClientId: Map<WebSocket, string> = new Map();
@@ -59,12 +60,66 @@ export function resetRegistry(): void {
   activeClientIsRemote = false;
 }
 
+function cleanMeta(value: string | undefined): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "Unknown";
+}
+
+function formatExecutor(name?: string, version?: string): string {
+  const cleanName = cleanMeta(name);
+  const cleanVersion = cleanMeta(version);
+  if (cleanVersion === "Unknown") return cleanName;
+  if (cleanName === "Unknown") return cleanVersion;
+  if (cleanName.toLowerCase().includes(cleanVersion.toLowerCase())) return cleanName;
+  return `${cleanName} ${cleanVersion}`;
+}
+
+function logClientRegistration(action: "registered" | "refreshed", clientId: string, info: {
+  username: string;
+  userId: number;
+  displayName?: string;
+  placeId: number;
+  gameId?: number;
+  jobId: string;
+  placeName: string;
+  executorName?: string;
+  executorVersion?: string;
+  robloxVersion?: string;
+  platform?: string;
+  sessionId?: string;
+  transport: "ws" | "http";
+}): void {
+  const player = info.displayName && info.displayName !== info.username
+    ? `${info.displayName} (@${info.username})`
+    : `@${info.username}`;
+  const transport = info.transport === "ws" ? "WebSocket" : "HTTP Polling";
+  const lines = [
+    `[Registry] Client ${action}:`,
+    `  Client ID : ${clientId}`,
+    `  Player    : ${player} (UserId ${info.userId})`,
+    `  Experience: ${info.placeName} (PlaceId ${info.placeId}${info.gameId ? `, UniverseId ${info.gameId}` : ""})`,
+    `  Job ID    : ${info.jobId || "Unknown"}`,
+    `  Executor  : ${formatExecutor(info.executorName, info.executorVersion)}`,
+    `  Roblox    : ${cleanMeta(info.robloxVersion)}`,
+    `  Platform  : ${cleanMeta(info.platform)}`,
+    `  Transport : ${transport}`,
+    `  MCP       : v${SERVER_VERSION}`,
+  ];
+  console.error(lines.join("\n"));
+}
+
 export function registerClient(info: {
   username: string;
   userId: number;
+  displayName?: string;
   placeId: number;
+  gameId?: number;
   jobId: string;
   placeName: string;
+  executorName?: string;
+  executorVersion?: string;
+  robloxVersion?: string;
+  platform?: string;
   sessionId?: string;
   transport: "ws" | "http";
   ws?: WebSocket;
@@ -83,9 +138,15 @@ export function registerClient(info: {
     existing.pendingPollResolve?.([]);
     existing.username = info.username;
     existing.userId = info.userId;
+    existing.displayName = info.displayName;
     existing.placeId = info.placeId;
+    existing.gameId = info.gameId;
     existing.jobId = info.jobId;
     existing.placeName = info.placeName;
+    existing.executorName = info.executorName;
+    existing.executorVersion = info.executorVersion;
+    existing.robloxVersion = info.robloxVersion;
+    existing.platform = info.platform;
     existing.sessionId = info.sessionId;
     existing.transport = info.transport;
     existing.ws = info.ws;
@@ -96,9 +157,7 @@ export function registerClient(info: {
       wsToClientId.set(info.ws, existing.clientId);
     }
 
-    console.error(
-      `[Registry] Client refreshed: ${existing.clientId} (${info.username} @ ${info.placeName}, ${info.transport})`
-    );
+    logClientRegistration("refreshed", existing.clientId, info);
     return existing.clientId;
   }
 
@@ -108,9 +167,15 @@ export function registerClient(info: {
     sessionId: info.sessionId,
     username: info.username,
     userId: info.userId,
+    displayName: info.displayName,
     placeId: info.placeId,
+    gameId: info.gameId,
     jobId: info.jobId,
     placeName: info.placeName,
+    executorName: info.executorName,
+    executorVersion: info.executorVersion,
+    robloxVersion: info.robloxVersion,
+    platform: info.platform,
     transport: info.transport,
     ws: info.ws,
     lastHttpPoll: Date.now(),
@@ -121,9 +186,7 @@ export function registerClient(info: {
   if (info.ws) {
     wsToClientId.set(info.ws, clientId);
   }
-  console.error(
-    `[Registry] Client registered: ${clientId} (${info.username} @ ${info.placeName}, ${info.transport})`
-  );
+  logClientRegistration("registered", clientId, info);
   return clientId;
 }
 
@@ -136,7 +199,8 @@ export function unregisterClient(clientId: string): void {
   clientRegistry.delete(clientId);
   if (!activeClientIsRemote && activeClientId === clientId) activeClientId = undefined;
   clearScriptSourceIndex(clientId);
-  console.error(`[Registry] Client unregistered: ${clientId}`);
+  const identity = entry ? `@${entry.username} / ${formatExecutor(entry.executorName, entry.executorVersion)}` : "Unknown client";
+  console.error(`[Registry] Client unregistered: ${clientId} (${identity})`);
 }
 
 export function getClientById(clientId: string): RobloxClient | undefined {
@@ -169,9 +233,11 @@ export function formatActiveClientListForTool(): string {
   return active
     .map((c) => {
       const marker = c.clientId === selectedClientId ? "* " : "  ";
+      const executor = formatExecutor(c.executorName, c.executorVersion);
+      const platform = cleanMeta(c.platform);
       return (
         `${marker}${c.clientId} | ${c.username ?? "?"} @ ${c.placeName ?? c.placeId} ` +
-        `(place=${c.placeId} job=${c.jobId} ${c.transport})`
+        `(place=${c.placeId} job=${c.jobId} ${c.transport} executor=${executor} platform=${platform})`
       );
     })
     .join("\n");

@@ -7,9 +7,15 @@ export interface RobloxClient {
   sessionId?: string;
   username: string;
   userId: number;
+  displayName?: string;
   placeId: number;
+  gameId?: number;
   jobId: string;
   placeName: string;
+  executorName?: string;
+  executorVersion?: string;
+  robloxVersion?: string;
+  platform?: string;
   transport: "ws" | "http";
   ws?: WebSocket;
   lastHttpPoll: number;

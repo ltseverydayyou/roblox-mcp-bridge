@@ -1133,6 +1133,10 @@ function updateOverview() {
     $('overviewPlaceId').textContent = c.placeId || '—';
     $('overviewUserId').textContent = c.userId || '—';
     $('overviewJobId').textContent = c.jobId || '—';
+    $('overviewExecutor').textContent = c.executorName || 'Unknown';
+    $('overviewExecutorVersion').textContent = c.executorVersion || 'Unknown';
+    $('overviewRobloxVersion').textContent = c.robloxVersion || 'Unknown';
+    $('overviewPlatform').textContent = c.platform || 'Unknown';
 
     const oa = $('overviewAvatar');
     oa.innerHTML = avatarHtml(c.userId, c.username, 56);

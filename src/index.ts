@@ -42,7 +42,7 @@ registerAllTools(server);
 
 const transport = new StdioServerTransport();
 server.connect(transport);
-console.error("MCP Server started and connected via stdio.");
+console.error(`[MCP] Server v${SERVER_VERSION} started via stdio (PID ${process.pid}).`);
 
 void boot();
 startAutomaticUpdateChecks();
