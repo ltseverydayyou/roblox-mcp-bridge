@@ -778,7 +778,42 @@ function Start-Tunnel {
 function Copy-RobloxLoader {
     Update-ConfigFromFields
     $address = $script:Config.BridgeAddress
-    $loader = "getgenv().BridgeURL = `"$address`"`r`nlocal bridgeUrl = getgenv().BridgeURL or `"localhost:16384`"`r`nloadstring(game:HttpGet(`"http://`" .. bridgeUrl .. `"/script.luau`"))()"
+    $loaderAddress = if ($address -eq "localhost:16384") { "127.0.0.1:16384" } else { $address }
+    $loader = @(
+        "getgenv().BridgeURL = `"$loaderAddress`""
+        ""
+        "if getgenv().MCP_AutoReconnect then"
+        "    return"
+        "end"
+        ""
+        "getgenv().MCP_AutoReconnect = true"
+        ""
+        "while getgenv().MCP_AutoReconnect do"
+        "    local Success, Source = pcall(function()"
+        "        return game:HttpGet(`"http://`" .. getgenv().BridgeURL .. `"/script.luau`")"
+        "    end)"
+        ""
+        "    if not Success or type(Source) ~= `"string`" or Source == `"`" then"
+        "        task.wait(2)"
+        "        continue"
+        "    end"
+        ""
+        "    local Bridge = loadstring(Source)"
+        ""
+        "    if not Bridge then"
+        "        task.wait(2)"
+        "        continue"
+        "    end"
+        ""
+        "    getgenv().MCP_Loaded = false"
+        ""
+        "    pcall(Bridge)"
+        ""
+        "    getgenv().MCP_Loaded = false"
+        ""
+        "    task.wait(2)"
+        "end"
+    ) -join "`r`n"
     [Windows.Forms.Clipboard]::SetText($loader)
     Add-Log "Roblox loader copied to the clipboard." "OK"
 }

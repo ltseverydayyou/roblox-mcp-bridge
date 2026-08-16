@@ -106,8 +106,39 @@ The completed build is `dist\index.js`. The tunnel profile launches it automatic
 Start Roblox, join a game, and inject the executor. If autoexec does not load the connector, run:
 
 ```lua
-local bridgeUrl = getgenv().BridgeURL or "localhost:16384"
-loadstring(game:HttpGet("http://" .. bridgeUrl .. "/script.luau"))()
+getgenv().BridgeURL = "127.0.0.1:16384"
+
+if getgenv().MCP_AutoReconnect then
+    return
+end
+
+getgenv().MCP_AutoReconnect = true
+
+while getgenv().MCP_AutoReconnect do
+    local Success, Source = pcall(function()
+        return game:HttpGet("http://" .. getgenv().BridgeURL .. "/script.luau")
+    end)
+
+    if not Success or type(Source) ~= "string" or Source == "" then
+        task.wait(2)
+        continue
+    end
+
+    local Bridge = loadstring(Source)
+
+    if not Bridge then
+        task.wait(2)
+        continue
+    end
+
+    getgenv().MCP_Loaded = false
+
+    pcall(Bridge)
+
+    getgenv().MCP_Loaded = false
+
+    task.wait(2)
+end
 ```
 
 Open the bridge dashboard:

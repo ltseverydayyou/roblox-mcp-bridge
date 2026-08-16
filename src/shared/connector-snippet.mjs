@@ -16,8 +16,38 @@ export function normalizeBridgeUrl(value) {
 
 export function buildLoaderSnippet(bridgeUrl = DEFAULT_BRIDGE_URL) {
   const normalized = normalizeBridgeUrl(bridgeUrl);
-  if (normalized === DEFAULT_BRIDGE_URL) {
-    return `local bridgeUrl = getgenv().BridgeURL or "${DEFAULT_BRIDGE_URL}"\nloadstring(game:HttpGet("http://" .. bridgeUrl .. "/script.luau"))()`;
-  }
-  return `getgenv().BridgeURL = "${normalized}"\nlocal bridgeUrl = getgenv().BridgeURL or "${DEFAULT_BRIDGE_URL}"\nloadstring(game:HttpGet("http://" .. bridgeUrl .. "/script.luau"))()`;
+  const loaderAddress = normalized === DEFAULT_BRIDGE_URL ? "127.0.0.1:16384" : normalized;
+  return `getgenv().BridgeURL = "${loaderAddress}"
+
+if getgenv().MCP_AutoReconnect then
+    return
+end
+
+getgenv().MCP_AutoReconnect = true
+
+while getgenv().MCP_AutoReconnect do
+    local Success, Source = pcall(function()
+        return game:HttpGet("http://" .. getgenv().BridgeURL .. "/script.luau")
+    end)
+
+    if not Success or type(Source) ~= "string" or Source == "" then
+        task.wait(2)
+        continue
+    end
+
+    local Bridge = loadstring(Source)
+
+    if not Bridge then
+        task.wait(2)
+        continue
+    end
+
+    getgenv().MCP_Loaded = false
+
+    pcall(Bridge)
+
+    getgenv().MCP_Loaded = false
+
+    task.wait(2)
+end`;
 }

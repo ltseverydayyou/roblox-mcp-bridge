@@ -233,7 +233,7 @@ function fileLooksLikeConnector(filePath) {
     (
       text.includes("/script.luau") &&
       text.includes("BridgeURL") &&
-      text.includes("localhost:16384")
+      (text.includes("localhost:16384") || text.includes("127.0.0.1:16384") || text.includes("MCP_AutoReconnect"))
     )
   );
 }

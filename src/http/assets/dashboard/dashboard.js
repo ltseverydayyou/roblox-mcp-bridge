@@ -454,10 +454,30 @@ function normalizeDashboardBridgeUrl(value) {
 
 function buildDashboardLoaderSnippet(bridgeUrl) {
     const normalized = normalizeDashboardBridgeUrl(bridgeUrl);
-    if (normalized === 'localhost:16384') {
-        return 'local bridgeUrl = getgenv().BridgeURL or "localhost:16384"\nloadstring(game:HttpGet("http://" .. bridgeUrl .. "/script.luau"))()';
-    }
-    return 'getgenv().BridgeURL = "' + normalized + '"\nlocal bridgeUrl = getgenv().BridgeURL or "localhost:16384"\nloadstring(game:HttpGet("http://" .. bridgeUrl .. "/script.luau"))()';
+    const loaderAddress = normalized === 'localhost:16384' ? '127.0.0.1:16384' : normalized;
+    return 'getgenv().BridgeURL = "' + loaderAddress + '"\n\n' +
+        'if getgenv().MCP_AutoReconnect then\n' +
+        '    return\n' +
+        'end\n\n' +
+        'getgenv().MCP_AutoReconnect = true\n\n' +
+        'while getgenv().MCP_AutoReconnect do\n' +
+        '    local Success, Source = pcall(function()\n' +
+        '        return game:HttpGet("http://" .. getgenv().BridgeURL .. "/script.luau")\n' +
+        '    end)\n\n' +
+        '    if not Success or type(Source) ~= "string" or Source == "" then\n' +
+        '        task.wait(2)\n' +
+        '        continue\n' +
+        '    end\n\n' +
+        '    local Bridge = loadstring(Source)\n\n' +
+        '    if not Bridge then\n' +
+        '        task.wait(2)\n' +
+        '        continue\n' +
+        '    end\n\n' +
+        '    getgenv().MCP_Loaded = false\n\n' +
+        '    pcall(Bridge)\n\n' +
+        '    getgenv().MCP_Loaded = false\n\n' +
+        '    task.wait(2)\n' +
+        'end';
 }
 
 function buildDashboardMcpRelaySnippet(bridgeUrl) {
