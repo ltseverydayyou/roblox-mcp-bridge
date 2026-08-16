@@ -1,13 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { describeResponse, sendAndWait } from "../../factory.js";
-import { maxOutputCharsSchema } from "../../schemas.js";
+import { maxOutputCharsSchema, userConfirmedRiskSchema } from "../../schemas.js";
 
 const directionSchema = z.enum(["Incoming", "Outgoing"]);
 
 const inputSchema = z.discriminatedUnion("operation", [
   z.object({
     operation: z.literal("list"),
+    userConfirmedRisk: userConfirmedRiskSchema,
     direction: z
       .enum(["Incoming", "Outgoing", "Both"])
       .describe("Call direction to inspect (default: Both)")
@@ -27,6 +28,7 @@ const inputSchema = z.discriminatedUnion("operation", [
       .describe("Recent calls to include per remote when summaryOnly is false (default: 1, max: 20)")
       .optional()
       .default(1),
+    sinceCursor: z.string().describe("Optional cursor from operation=mark; only remotes with newer calls are returned.").optional(),
     summaryOnly: z
       .boolean()
       .describe("Return names, state, and call counts without argument payloads (default: true)")
@@ -34,11 +36,24 @@ const inputSchema = z.discriminatedUnion("operation", [
       .default(true),
     maxOutputChars: maxOutputCharsSchema,
   }),
-  z.object({ operation: z.literal("clear") }),
+  z.object({ operation: z.literal("mark"), userConfirmedRisk: userConfirmedRiskSchema }),
+  z.object({
+    operation: z.literal("profile"),
+    userConfirmedRisk: userConfirmedRiskSchema,
+    direction: z.enum(["Incoming", "Outgoing", "Both"]).optional().default("Both"),
+    nameFilter: z.string().optional(),
+    sinceCursor: z.string().optional(),
+    limit: z.number().optional().default(20),
+    maxCallsPerRemote: z.number().optional().default(20),
+    maxOutputChars: maxOutputCharsSchema,
+  }),
+  z.object({ operation: z.literal("clear"), userConfirmedRisk: userConfirmedRiskSchema }),
   z.object({ operation: z.literal("status") }),
   z.object({
     operation: z.enum(["block", "unblock", "ignore", "unignore"]),
-    remoteName: z.string().describe("Exact remote name; use operation=list to discover candidates first"),
+    userConfirmedRisk: userConfirmedRiskSchema,
+    remoteName: z.string().describe("Exact remote name; use operation=list to discover candidates first").optional(),
+    remoteDebugId: z.string().describe("Preferred stable DebugId from operation=list; disambiguates duplicate remote names.").optional(),
     direction: directionSchema.describe("Direction of the captured remote"),
   }),
 ]);
@@ -49,11 +64,11 @@ export default function register(server: McpServer): void {
     {
       title: "Inspect and control Cobalt remote spy",
       description:
-        "Inspect and control Cobalt remote-spy state. Cobalt loads automatically. Use operation=list before changing a remote. block/unblock prevents or permits matching calls; ignore/unignore only changes whether matching calls are logged. Remote names are exact for state changes; list.nameFilter is a case-insensitive substring filter. Start with summaryOnly=true and small limits, then request arguments only for a narrowed remote.",
+        "RISK-AWARE Cobalt remote spy. operation=status is safe and does NOT load Cobalt. Before any other operation, ask the user for confirmation because starting/using Cobalt may install executor hooks that could be detectable; then set userConfirmedRisk=true. If the user already approved Cobalt for the current workflow, reuse that approval for follow-ups. Use operation=list before changing a remote. block/unblock prevents or permits matching calls; ignore/unignore only changes whether matching calls are logged. State changes accept an exact remoteName or the preferred remoteDebugId; list.nameFilter is a case-insensitive substring filter. Start with summaryOnly=true and small limits, then request arguments only for a narrowed remote.",
       inputSchema,
     },
     async (input) => {
-      const maxOutputChars = input.operation === "list" ? input.maxOutputChars : undefined;
+      const maxOutputChars = input.operation === "list" || input.operation === "profile" ? input.maxOutputChars : undefined;
       return sendAndWait({
         type: "remote-spy",
         data: input,

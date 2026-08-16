@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import fs from "fs";
 import path from "node:path";
 import { z } from "zod";
-import { sendFireAndForget, toolTextResponse } from "../../factory.js";
+import { detectRiskyExecutorMethods, riskConfirmationMessage, sendFireAndForget, toolTextResponse } from "../../factory.js";
 import { threadContextSchema } from "../../schemas.js";
 
 const MAX_INLINE_SOURCE_BYTES = 8 * 1024 * 1024;
@@ -13,7 +13,7 @@ export default function register(server: McpServer): void {
     {
       title: "Execute a Luau file in the Roblox Game Client",
       description:
-        "Execute a .luau/.lua file in the active Roblox client without returning output. For files on the MCP host, pass filePath. ChatGPT sandbox paths such as /mnt/data are not mounted on the MCP host: ChatGPT must read the file itself and pass its complete contents in source, optionally preserving the original path/name in filePath or fileName. Use get-data-by-code instead when you need returned values.",
+        "Execute a .luau/.lua file in the active Roblox client without returning output. If its source calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true. Safe files do not need this flag. For files on the MCP host, pass filePath; ChatGPT /mnt/data files must be passed as source.",
       inputSchema: z.object({
         filePath: z
           .string()
@@ -32,9 +32,10 @@ export default function register(server: McpServer): void {
           .optional()
           .describe("Optional display filename for inline source, such as TailSway.luau."),
         threadContext: threadContextSchema,
+        userConfirmedRisk: z.boolean().optional().describe("Set true only after the user explicitly approves risky executor methods detected in this file."),
       }),
     },
-    async ({ filePath, source, fileName, threadContext }) => {
+    async ({ filePath, source, fileName, threadContext, userConfirmedRisk }) => {
       let code: string;
       let displayName: string;
 
@@ -70,11 +71,16 @@ export default function register(server: McpServer): void {
         displayName = fileName || filePath;
       }
 
+      const riskyMethods = detectRiskyExecutorMethods(code);
+      if (riskyMethods.length > 0 && userConfirmedRisk !== true) {
+        return toolTextResponse(riskConfirmationMessage(riskyMethods), {}, true);
+      }
+
       console.error(`Executing file ${displayName} in thread ${threadContext}...`);
 
       return sendFireAndForget({
         type: "execute",
-        data: { source: `setthreadidentity(${threadContext})\n${code}` },
+        data: { source: `setthreadidentity(${threadContext})\n${code}`, userConfirmedRisk: userConfirmedRisk === true },
         successMessage: `File executed: ${displayName} (thread context ${threadContext})`,
       });
     }

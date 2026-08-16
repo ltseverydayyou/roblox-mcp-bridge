@@ -1233,109 +1233,362 @@ function renderOverviewClients() {
 
 
 /* ── Tools ───────────────────────────────────────────────── */
+const TOOL_BOOL_OPTIONS = [['true', 'Yes'], ['false', 'No']];
+const TOOL_CATEGORY_ORDER = ['Search', 'Client', 'Instances', 'Observation', 'Remotes', 'Runtime', 'Execution'];
+const TOOL_CATEGORY_ICONS = {
+    Search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
+    Client: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    Instances: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>',
+    Observation: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+    Remotes: '<path d="M8 12h8"/><path d="M12 8v8"/><circle cx="12" cy="12" r="9"/>',
+    Runtime: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5C14.5 15.3 14 16 14 17h-4c0-1-.5-1.7-1.5-2.5z"/>',
+    Execution: '<polygon points="6 4 20 12 6 20 6 4"/>',
+};
+
+function toolInt(value, fallback) {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function toolFloat(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function toolBool(value, fallback = false) {
+    if (value === undefined || value === '') return fallback;
+    return value === true || value === 'true';
+}
+
+function toolOptionalJson(value, label) {
+    if (!value || !String(value).trim()) return undefined;
+    try {
+        return JSON.parse(value);
+    } catch (error) {
+        throw new Error(`${label || 'JSON'} is invalid: ${error.message}`);
+    }
+}
+
+function detectRiskyExecutorMethods(source) {
+    const text = String(source || '');
+    const checks = [
+        ['getgc', /\bgetgc\s*\(/i],
+        ['getnilinstances', /\bgetnilinstances\s*\(/i],
+        ['getconnections', /\bgetconnections\s*\(/i],
+        ['getloadedmodules', /\bgetloadedmodules\s*\(/i],
+        ['getreg/getregistry', /\b(?:getreg|getregistry)\s*\(/i],
+        ['debug.getregistry', /\bdebug\s*\.\s*getregistry\s*\(/i],
+        ['hookfunction', /\bhookfunction\s*\(/i],
+        ['hookmetamethod', /\bhookmetamethod\s*\(/i],
+        ['getconstants', /\b(?:getconstants|debug\s*\.\s*getconstants)\s*\(/i],
+        ['getupvalues', /\b(?:getupvalues|debug\s*\.\s*getupvalues?)\s*\(/i],
+        ['getprotos', /\b(?:getprotos|debug\s*\.\s*getprotos)\s*\(/i],
+        ['getscriptclosure', /\bgetscriptclosure\s*\(/i],
+        ['getrawmetatable', /\bgetrawmetatable\s*\(/i],
+        ['setreadonly', /\bsetreadonly\s*\(/i],
+    ];
+    return checks.filter(([, regex]) => regex.test(text)).map(([name]) => name);
+}
+
 const toolDefs = {
     'script-grep': {
-        name: 'Script Grep',
-        desc: 'Search across all decompiled scripts using regex or literal patterns',
+        name: 'Script Grep', category: 'Search',
+        desc: 'Search across all decompiled scripts using regex or literal patterns.',
         fields: [
             { key: 'query', label: 'Search Pattern', type: 'text', placeholder: 'e.g. RemoteEvent or \\bfunction\\b' },
             { key: 'literal', label: 'Literal Match', type: 'select', options: [['false','Regex'],['true','Literal']], default: 'false' },
             { key: 'caseSensitive', label: 'Case Sensitive', type: 'select', options: [['true','Yes'],['false','No']], default: 'true' },
             { key: 'limit', label: 'Max Scripts', type: 'text', placeholder: '50', default: '50' },
         ],
-        buildPayload(vals) {
-            return { type: 'script-grep', query: vals.query, literal: vals.literal === 'true', caseSensitive: vals.caseSensitive === 'true', limit: parseInt(vals.limit) || 50 };
-        }
+        buildPayload(vals) { return { type: 'script-grep', query: vals.query, literal: vals.literal === 'true', caseSensitive: vals.caseSensitive === 'true', limit: toolInt(vals.limit, 50) }; }
     },
     'semantic-search': {
-        name: 'Semantic Search',
-        desc: 'Natural language search across script sources using embeddings',
+        name: 'Semantic Search', category: 'Search',
+        desc: 'Natural-language search across decompiled script sources using embeddings.',
         fields: [
             { key: 'query', label: 'Natural Language Query', type: 'text', placeholder: 'e.g. inventory management logic' },
             { key: 'limit', label: 'Max Results', type: 'text', placeholder: '10', default: '10' },
         ],
-        buildPayload(vals) {
-            return { type: 'semantic-search', query: vals.query, limit: parseInt(vals.limit) || 10 };
-        }
+        buildPayload(vals) { return { type: 'semantic-search', query: vals.query, limit: toolInt(vals.limit, 10) }; }
     },
-    'get-data-by-code': {
-        name: 'Get Data by Code',
-        desc: 'Execute Luau code and retrieve the returned values',
+    'get-script-content': {
+        name: 'Get Script Content', category: 'Search',
+        desc: 'Read a bounded source range from a mapped script path or ScriptProxy.',
         fields: [
-            { key: 'code', label: 'Luau Code (must return a value)', type: 'textarea', placeholder: 'return game.PlaceId' },
-            { key: 'timeout', label: 'Timeout (ms)', type: 'text', placeholder: '15000', default: '15000' },
+            { key: 'scriptPath', label: 'Script Path / ScriptProxy', type: 'text', placeholder: 'game.ReplicatedStorage.Module or <ScriptProxy: ...>' },
+            { key: 'startLine', label: 'Start Line', type: 'text', placeholder: '1', default: '1' },
+            { key: 'endLine', label: 'End Line (optional)', type: 'text', placeholder: 'Leave blank for bounded continuation' },
+            { key: 'maxLines', label: 'Max Lines', type: 'text', placeholder: '80', default: '80' },
         ],
         buildPayload(vals) {
-            return { type: 'get-data-by-code', code: vals.code, timeout: parseInt(vals.timeout) || 15000 };
+            const p = { type: 'get-script-content', scriptPath: vals.scriptPath, startLine: toolInt(vals.startLine, 1), maxLines: toolInt(vals.maxLines, 80) };
+            if (vals.endLine) p.endLine = toolInt(vals.endLine, undefined);
+            return p;
         }
     },
-    'execute': {
-        name: 'Execute Code',
-        desc: 'Run typed or locally loaded Luau code in the Roblox client (fire-and-forget)',
-        fields: [
-            { key: 'code', label: 'Luau Code', type: 'textarea', placeholder: 'print("Hello from dashboard!")', fileUpload: true },
-        ],
-        buildPayload(vals) { return { type: 'execute', code: vals.code }; }
+
+    'get-game-info': {
+        name: 'Game Info', category: 'Client',
+        desc: 'Get PlaceId, GameId, version, creator and basic game metadata.',
+        fields: [{ key: 'includeDescription', label: 'Include Description', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' }],
+        buildPayload(vals) { return { type: 'get-game-info', includeDescription: toolBool(vals.includeDescription) }; }
     },
+    'get-player-state': {
+        name: 'Player State', category: 'Client',
+        desc: 'Compact LocalPlayer, Character, Humanoid, camera, movement and equipped-tool state.',
+        fields: [], buildPayload() { return { type: 'get-player-state' }; }
+    },
+    'inspect-visible-gui': {
+        name: 'Visible GUI', category: 'Client',
+        desc: 'List actually visible GUI objects with text, screen rectangles and stable DebugIds.',
+        fields: [
+            { key: 'textFilter', label: 'Text / Name Filter', type: 'text', placeholder: 'Optional filter' },
+            { key: 'limit', label: 'Max Results', type: 'text', default: '50' },
+        ],
+        buildPayload(vals) { const p = { type: 'inspect-visible-gui', limit: toolInt(vals.limit, 50) }; if (vals.textFilter) p.textFilter = vals.textFilter; return p; }
+    },
+    'inspect-animations': {
+        name: 'Playing Animations', category: 'Client',
+        desc: 'Inspect active LocalPlayer animation tracks, priorities, timing, weights and asset IDs.',
+        fields: [{ key: 'limit', label: 'Max Tracks', type: 'text', default: '30' }],
+        buildPayload(vals) { return { type: 'inspect-animations', limit: toolInt(vals.limit, 30) }; }
+    },
+    'inspect-sounds': {
+        name: 'Sounds', category: 'Client',
+        desc: 'Inspect playing or all Sound instances with volume, timing, rolloff and DebugIds.',
+        fields: [
+            { key: 'playingOnly', label: 'Playing Only', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'limit', label: 'Max Sounds', type: 'text', default: '30' },
+        ],
+        buildPayload(vals) { return { type: 'inspect-sounds', playingOnly: toolBool(vals.playingOnly, true), limit: toolInt(vals.limit, 30) }; }
+    },
+    'get-performance-stats': {
+        name: 'Performance Stats', category: 'Client',
+        desc: 'Sample FPS and return bounded client memory, network and object-count diagnostics.',
+        fields: [{ key: 'sampleSeconds', label: 'Sample Seconds', type: 'text', default: '0.5' }],
+        buildPayload(vals) { return { type: 'get-performance-stats', sampleSeconds: toolFloat(vals.sampleSeconds, 0.5) }; }
+    },
+    'get-executor-capabilities': {
+        name: 'Executor Capabilities', category: 'Client',
+        desc: 'Check which executor APIs exist without invoking heavy enumeration or hook functions.',
+        fields: [], buildPayload() { return { type: 'get-executor-capabilities' }; }
+    },
+
     'search-instances': {
-        name: 'Search Instances',
-        desc: 'Query game instances with QueryDescendants selectors',
+        name: 'Search Instances', category: 'Instances',
+        desc: 'Query game instances with QueryDescendants selectors and return stable DebugIds.',
         fields: [
             { key: 'selector', label: 'QueryDescendants Selector', type: 'text', placeholder: 'e.g. Part, Model > Humanoid, .Tagged' },
             { key: 'root', label: 'Root', type: 'text', placeholder: 'game', default: 'game' },
             { key: 'limit', label: 'Max Results', type: 'text', placeholder: '50', default: '50' },
         ],
-        buildPayload(vals) {
-            return { type: 'search-instances', selector: vals.selector, root: vals.root || 'game', limit: parseInt(vals.limit) || 50 };
-        }
+        buildPayload(vals) { return { type: 'search-instances', selector: vals.selector, root: vals.root || 'game', limit: toolInt(vals.limit, 50) }; }
     },
     'inspect-instances': {
-        name: 'Inspect Instances',
-        desc: 'Batch-read typed properties, attributes, tags, and immediate children',
+        name: 'Inspect Instances', category: 'Instances',
+        desc: 'Batch-read properties, attributes, tags and children by path or DebugId.',
         fields: [
-            { key: 'paths', label: 'Instance Paths (one per line)', type: 'textarea', placeholder: 'game.Workspace.Baseplate\ngame.Players.LocalPlayer' },
-            { key: 'properties', label: 'Properties (optional, comma-separated)', type: 'text', placeholder: 'Anchored, Position, Size' },
-            { key: 'maxChildren', label: 'Max Children', type: 'text', placeholder: '20', default: '20' },
+            { key: 'paths', label: 'Targets (one per line)', type: 'textarea', placeholder: 'game.Workspace.Baseplate\ndebug:INSTANCE_DEBUG_ID' },
+            { key: 'properties', label: 'Properties (comma-separated)', type: 'text', placeholder: 'Anchored, Position, Size' },
+            { key: 'maxChildren', label: 'Max Children', type: 'text', default: '20' },
         ],
         buildPayload(vals) {
-            const paths = vals.paths.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
-            const payload = { type: 'inspect-instances', paths, maxChildren: parseInt(vals.maxChildren) || 20 };
+            const lines = vals.paths.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+            const targets = lines.map(value => {
+                const match = value.match(/^(?:debug|id):\s*(.+)$/i);
+                return match ? { debugId: match[1].trim() } : { path: value };
+            });
+            const payload = { type: 'inspect-instances', targets, maxChildren: toolInt(vals.maxChildren, 20) };
             if (vals.properties) payload.properties = vals.properties.split(',').map(v => v.trim()).filter(Boolean);
             return payload;
         }
     },
-    'get-console-output': {
-        name: 'Console Output',
-        desc: 'Retrieve the client\'s console/output log',
-        fields: [
-            { key: 'limit', label: 'Max Lines', type: 'text', placeholder: '50', default: '50' },
-            { key: 'filter', label: 'Filter (optional)', type: 'text', placeholder: 'Only include lines containing this text' },
-        ],
-        buildPayload(vals) {
-            const payload = { type: 'get-console-output', limit: parseInt(vals.limit) || 50 };
-            if (vals.filter) payload.filter = vals.filter;
-            return payload;
-        }
-    },
     'get-descendants-tree': {
-        name: 'Descendants Tree',
-        desc: 'Explore the game instance hierarchy tree',
+        name: 'Descendants Tree', category: 'Instances',
+        desc: 'Explore an instance hierarchy with bounded depth and optional class filtering.',
         fields: [
             { key: 'root', label: 'Root Instance', type: 'text', placeholder: 'game.Workspace' },
-            { key: 'maxDepth', label: 'Max Depth', type: 'text', placeholder: '3', default: '3' },
-            { key: 'classFilter', label: 'Class Filter (optional)', type: 'text', placeholder: 'e.g. BasePart' },
+            { key: 'maxDepth', label: 'Max Depth', type: 'text', default: '3' },
+            { key: 'maxChildren', label: 'Max Children / Node', type: 'text', default: '20' },
+            { key: 'classFilter', label: 'Class Filter', type: 'text', placeholder: 'Optional, e.g. BasePart' },
         ],
+        buildPayload(vals) { const p = { type: 'get-descendants-tree', root: vals.root, maxDepth: toolInt(vals.maxDepth, 3), maxChildren: toolInt(vals.maxChildren, 20) }; if (vals.classFilter) p.classFilter = vals.classFilter; return p; }
+    },
+    'inspect-module': {
+        name: 'Inspect Module', category: 'Instances',
+        desc: 'Require a specific ModuleScript by path or DebugId and inspect its cached export shape.',
+        fields: [
+            { key: 'path', label: 'Module Path', type: 'text', placeholder: 'game.ReplicatedStorage.Modules.Controller' },
+            { key: 'debugId', label: 'DebugId (alternative)', type: 'text', placeholder: 'Optional' },
+            { key: 'includeValues', label: 'Include Export Values', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+            { key: 'maxKeys', label: 'Max Export Keys', type: 'text', default: '50' },
+        ],
+        buildPayload(vals) { const p = { type: 'inspect-module', includeValues: toolBool(vals.includeValues), maxKeys: toolInt(vals.maxKeys, 50) }; if (vals.path) p.path = vals.path; if (vals.debugId) p.debugId = vals.debugId; return p; }
+    },
+
+    'get-console-output': {
+        name: 'Console Output', category: 'Observation',
+        desc: 'Retrieve bounded client console output, optionally only entries after a cursor.',
+        fields: [
+            { key: 'limit', label: 'Max Lines', type: 'text', default: '50' },
+            { key: 'filter', label: 'Filter', type: 'text', placeholder: 'Optional text filter' },
+            { key: 'sinceCursor', label: 'Since Cursor', type: 'text', placeholder: 'Optional console cursor' },
+        ],
+        buildPayload(vals) { const p = { type: 'get-console-output', limit: toolInt(vals.limit, 50) }; if (vals.filter) p.filter = vals.filter; if (vals.sinceCursor) p.sinceCursor = vals.sinceCursor; return p; }
+    },
+    'create-console-cursor': {
+        name: 'Create Console Cursor', category: 'Observation',
+        desc: 'Mark the current console position so a later Console Output call can show only new entries.',
+        fields: [], buildPayload() { return { type: 'create-console-cursor' }; }
+    },
+    'state-observation': {
+        name: 'State Snapshot / Diff', category: 'Observation',
+        desc: 'Capture and compare bounded player, console, GUI, sound, animation and optional remote state.',
+        fields: [
+            { key: 'operation', label: 'Operation', type: 'select', options: [['snapshot','Snapshot'],['diff','Diff'],['delete','Delete Snapshot']], default: 'snapshot' },
+            { key: 'snapshotId', label: 'Snapshot ID', type: 'text', placeholder: 'Required for Diff/Delete' },
+            { key: 'targets', label: 'Targets JSON', type: 'textarea', placeholder: '[{"path":"game.Workspace.Part","properties":["Position"]}]' },
+            { key: 'includePlayer', label: 'Player State', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeConsole', label: 'Console', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeGui', label: 'GUI', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+            { key: 'includeSounds', label: 'Sounds', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+            { key: 'includeAnimations', label: 'Animations', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+            { key: 'includeRemotes', label: 'Remote Spy', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+        ],
+        riskMethods(vals) { return toolBool(vals.includeRemotes) ? ['Cobalt remote-spy hooks'] : []; },
         buildPayload(vals) {
-            const p = { type: 'get-descendants-tree', root: vals.root, maxDepth: parseInt(vals.maxDepth) || 3 };
-            if (vals.classFilter) p.classFilter = vals.classFilter;
+            const p = { type: 'state-observation', operation: vals.operation, includePlayer: toolBool(vals.includePlayer, true), includeConsole: toolBool(vals.includeConsole, true), includeGui: toolBool(vals.includeGui), includeSounds: toolBool(vals.includeSounds), includeAnimations: toolBool(vals.includeAnimations), includeRemotes: toolBool(vals.includeRemotes) };
+            if (vals.snapshotId) p.snapshotId = vals.snapshotId;
+            const targets = toolOptionalJson(vals.targets, 'Targets JSON'); if (targets !== undefined) p.targets = targets;
             return p;
         }
     },
-    'get-game-info': {
-        name: 'Game Info',
-        desc: 'Get PlaceId, GameId, version, and other metadata',
+    'observe-action': {
+        name: 'Observe Action', category: 'Observation',
+        desc: 'Begin/end an action observation and return only what changed across useful client state.',
+        fields: [
+            { key: 'operation', label: 'Operation', type: 'select', options: [['begin','Begin'],['end','End']], default: 'begin' },
+            { key: 'snapshotId', label: 'Snapshot ID', type: 'text', placeholder: 'Required for End' },
+            { key: 'targets', label: 'Targets JSON', type: 'textarea', placeholder: '[{"debugId":"...","properties":["Value"]}]' },
+            { key: 'includePlayer', label: 'Player State', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeConsole', label: 'Console', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeGui', label: 'GUI', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeSounds', label: 'Sounds', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeAnimations', label: 'Animations', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeRemotes', label: 'Remote Spy', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+        ],
+        riskMethods(vals) { return toolBool(vals.includeRemotes) ? ['Cobalt remote-spy hooks'] : []; },
+        buildPayload(vals) {
+            const p = { type: 'observe-action', operation: vals.operation, includePlayer: toolBool(vals.includePlayer, true), includeConsole: toolBool(vals.includeConsole, true), includeGui: toolBool(vals.includeGui, true), includeSounds: toolBool(vals.includeSounds, true), includeAnimations: toolBool(vals.includeAnimations, true), includeRemotes: toolBool(vals.includeRemotes) };
+            if (vals.snapshotId) p.snapshotId = vals.snapshotId;
+            const targets = toolOptionalJson(vals.targets, 'Targets JSON'); if (targets !== undefined) p.targets = targets;
+            return p;
+        }
+    },
+
+    'remote-spy': {
+        name: 'Remote Spy', category: 'Remotes',
+        desc: 'Inspect/control Cobalt remote logs. Status is safe; other operations may initialize remote-spy hooks.',
+        fields: [
+            { key: 'operation', label: 'Operation', type: 'select', options: [['status','Status (safe)'],['list','List'],['mark','Mark Cursor'],['profile','Profile'],['clear','Clear'],['block','Block'],['unblock','Unblock'],['ignore','Ignore'],['unignore','Unignore']], default: 'status' },
+            { key: 'direction', label: 'Direction', type: 'select', options: [['Both','Both'],['Outgoing','Outgoing'],['Incoming','Incoming']], default: 'Both' },
+            { key: 'nameFilter', label: 'Name Filter', type: 'text', placeholder: 'Optional' },
+            { key: 'sinceCursor', label: 'Since Cursor', type: 'text', placeholder: 'Optional remote cursor' },
+            { key: 'limit', label: 'Max Remotes', type: 'text', default: '5' },
+            { key: 'maxCallsPerRemote', label: 'Calls / Remote', type: 'text', default: '1' },
+            { key: 'summaryOnly', label: 'Summary Only', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'remoteName', label: 'Remote Name', type: 'text', placeholder: 'For block/ignore operations' },
+            { key: 'remoteDebugId', label: 'Remote DebugId', type: 'text', placeholder: 'Preferred exact target' },
+        ],
+        riskMethods(vals) { return vals.operation === 'status' ? [] : ['Cobalt remote-spy hooks']; },
+        buildPayload(vals) {
+            const p = { type: 'remote-spy', operation: vals.operation, direction: vals.direction, limit: toolInt(vals.limit, 5), maxCallsPerRemote: toolInt(vals.maxCallsPerRemote, 1), summaryOnly: toolBool(vals.summaryOnly, true) };
+            ['nameFilter','sinceCursor','remoteName','remoteDebugId'].forEach(k => { if (vals[k]) p[k] = vals[k]; });
+            return p;
+        }
+    },
+
+    'search-runtime-objects': {
+        name: 'Runtime Search', category: 'Runtime',
+        desc: 'RISKY: bounded getgc search returning opaque handles instead of dumping the full GC.',
+        fields: [
+            { key: 'objectType', label: 'Object Type', type: 'select', options: [['Any','Any'],['function','Function'],['table','Table']], default: 'Any' },
+            { key: 'constantContains', label: 'Constant Contains', type: 'text', placeholder: 'Optional' },
+            { key: 'sourceContains', label: 'Source Contains', type: 'text', placeholder: 'Optional' },
+            { key: 'upvalueName', label: 'Upvalue Name', type: 'text', placeholder: 'Optional' },
+            { key: 'key', label: 'Table Key', type: 'text', placeholder: 'Optional' },
+            { key: 'limit', label: 'Max Results', type: 'text', default: '20' },
+            { key: 'maxScanned', label: 'Max Scanned', type: 'text', default: '5000' },
+        ],
+        riskMethods: () => ['getgc'],
+        buildPayload(vals) { const p = { type: 'search-runtime-objects', objectType: vals.objectType, limit: toolInt(vals.limit, 20), maxScanned: toolInt(vals.maxScanned, 5000) }; ['constantContains','sourceContains','upvalueName','key'].forEach(k => { if (vals[k]) p[k] = vals[k]; }); return p; }
+    },
+    'inspect-runtime-object': {
+        name: 'Runtime Object', category: 'Runtime',
+        desc: 'Inspect a runtime handle. Function inspection may use constants, upvalues or proto APIs.',
+        fields: [
+            { key: 'handle', label: 'Runtime Handle', type: 'text', placeholder: 'runtime:f:1 or runtime:t:1' },
+            { key: 'includeConstants', label: 'Constants', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeUpvalues', label: 'Upvalues', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+            { key: 'includeProtos', label: 'Protos', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+            { key: 'maxEntries', label: 'Max Entries', type: 'text', default: '40' },
+        ],
+        riskMethods(vals) { const out=[]; if (toolBool(vals.includeConstants,true)) out.push('getconstants'); if (toolBool(vals.includeUpvalues,true)) out.push('getupvalues'); if (toolBool(vals.includeProtos)) out.push('getprotos'); return out; },
+        buildPayload(vals) { return { type: 'inspect-runtime-object', handle: vals.handle, includeConstants: toolBool(vals.includeConstants,true), includeUpvalues: toolBool(vals.includeUpvalues,true), includeProtos: toolBool(vals.includeProtos), maxEntries: toolInt(vals.maxEntries,40) }; }
+    },
+    'recover-nil-scripts': {
+        name: 'Recover Nil Scripts', category: 'Runtime',
+        desc: 'RISKY: on-demand nil-script discovery. Returns original nil instances by DebugId; never clones/reparents them.',
         fields: [],
-        buildPayload() { return { type: 'get-game-info' }; }
+        riskMethods: () => ['getnilinstances', 'getloadedmodules', 'getgc', 'getreg/getregistry', 'debug.getregistry/getupvalue'],
+        buildPayload() { return { type: 'recover-nil-scripts' }; }
+    },
+    'search-loaded-modules': {
+        name: 'Loaded Modules', category: 'Runtime',
+        desc: 'RISKY: search getloadedmodules() with optional bounded export-shape inspection.',
+        fields: [
+            { key: 'filter', label: 'Filter', type: 'text', placeholder: 'Optional module name/path' },
+            { key: 'includeExports', label: 'Include Export Shape', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+            { key: 'limit', label: 'Max Modules', type: 'text', default: '20' },
+        ],
+        riskMethods: () => ['getloadedmodules'],
+        buildPayload(vals) { const p={type:'search-loaded-modules', includeExports:toolBool(vals.includeExports), limit:toolInt(vals.limit,20)}; if(vals.filter)p.filter=vals.filter; return p; }
+    },
+    'inspect-connections': {
+        name: 'Signal Connections', category: 'Runtime',
+        desc: 'List getconnections() for a signal or enable/disable a previously returned connection handle.',
+        fields: [
+            { key: 'operation', label: 'Operation', type: 'select', options: [['list','List Connections'],['set-state','Set Existing Handle State']], default: 'list' },
+            { key: 'path', label: 'Instance Path', type: 'text', placeholder: 'game.Players.LocalPlayer...' },
+            { key: 'debugId', label: 'Instance DebugId', type: 'text', placeholder: 'Alternative to path' },
+            { key: 'signal', label: 'Signal Name', type: 'text', placeholder: 'e.g. Changed, Activated' },
+            { key: 'limit', label: 'Max Connections', type: 'text', default: '20' },
+            { key: 'handle', label: 'Connection Handle', type: 'text', placeholder: 'For set-state' },
+            { key: 'enabled', label: 'Enabled', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'true' },
+        ],
+        riskMethods(vals) { return vals.operation === 'list' ? ['getconnections'] : []; },
+        buildPayload(vals) {
+            if (vals.operation === 'set-state') return { type:'inspect-connections', operation:'set-state', handle:vals.handle, enabled:toolBool(vals.enabled,true) };
+            const p={type:'inspect-connections', operation:'list', signal:vals.signal, limit:toolInt(vals.limit,20)}; if(vals.path)p.path=vals.path; if(vals.debugId)p.debugId=vals.debugId; return p;
+        }
+    },
+
+    'get-data-by-code': {
+        name: 'Get Data by Code', category: 'Execution',
+        desc: 'Execute Luau and retrieve returned values. Risky executor calls require explicit confirmation.',
+        fields: [
+            { key: 'code', label: 'Luau Code (must return a value)', type: 'textarea', placeholder: 'return game.PlaceId' },
+            { key: 'timeout', label: 'Timeout (ms)', type: 'text', default: '15000' },
+        ],
+        riskMethods(vals) { return detectRiskyExecutorMethods(vals.code); },
+        buildPayload(vals) { return { type:'get-data-by-code', code:vals.code, timeout:toolInt(vals.timeout,15000) }; }
+    },
+    'execute': {
+        name: 'Execute Code', category: 'Execution',
+        desc: 'Run typed or locally loaded Luau code. Risky executor calls require explicit confirmation.',
+        fields: [{ key: 'code', label: 'Luau Code', type: 'textarea', placeholder: 'print("Hello from dashboard!")', fileUpload: true }],
+        riskMethods(vals) { return detectRiskyExecutorMethods(vals.code); },
+        buildPayload(vals) { return { type:'execute', code:vals.code }; }
     },
 };
 
@@ -1439,6 +1692,13 @@ function selectTool(toolKey) {
     // Update Header
     $('toolExecName').textContent = def.name;
     $('toolExecDesc').textContent = def.desc;
+    const riskBadge = $('toolRiskBadge');
+    if (riskBadge) {
+        const riskAware = typeof def.riskMethods === 'function';
+        riskBadge.hidden = !riskAware;
+        riskBadge.textContent = 'Risk-aware';
+        riskBadge.title = riskAware ? 'Potentially detectable executor methods require confirmation before dispatch.' : '';
+    }
 
     // Reset Result
     $('toolOutputBody').textContent = 'Click Send to execute the tool';
@@ -1478,10 +1738,69 @@ function selectTool(toolKey) {
     if (toolKey === 'execute') setupCodeFileInput();
 }
 
-// Sidebar listeners
-document.querySelectorAll('.tools-list-item').forEach(item => {
-    item.addEventListener('click', () => selectTool(item.dataset.tool));
-});
+function renderToolsList(filter = '') {
+    const list = $('toolsList');
+    if (!list) return;
+    const needle = String(filter || '').trim().toLowerCase();
+    let visibleCount = 0;
+    const chunks = [];
+
+    for (const category of TOOL_CATEGORY_ORDER) {
+        const entries = Object.entries(toolDefs).filter(([key, def]) => {
+            if (def.category !== category) return false;
+            if (key === 'semantic-search' && semanticSearchEnabled === false) return false;
+            if (!needle) return true;
+            return `${def.name} ${def.desc} ${key} ${category}`.toLowerCase().includes(needle);
+        });
+        if (entries.length === 0) continue;
+
+        chunks.push(`<div class="tools-category-label">${escapeHtml(category)}</div>`);
+        for (const [key, def] of entries) {
+            visibleCount += 1;
+            const risky = typeof def.riskMethods === 'function';
+            const semanticId = key === 'semantic-search' ? ' id="semanticSearchToolItem"' : '';
+            const icon = TOOL_CATEGORY_ICONS[category] || TOOL_CATEGORY_ICONS.Client;
+            chunks.push(`<div class="tools-list-item${activeTool === key ? ' active' : ''}" data-tool="${escapeHtml(key)}"${semanticId}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon}</svg>
+                <span class="tools-list-item-name">${escapeHtml(def.name)}</span>
+                ${risky ? '<span class="tools-risk-dot" title="Risk confirmation may be required"></span>' : ''}
+            </div>`);
+        }
+    }
+
+    list.innerHTML = chunks.join('') || '<div class="tools-empty">No tools match this filter.</div>';
+    const count = $('toolsCount');
+    if (count) count.textContent = `${visibleCount}/${Object.keys(toolDefs).length}`;
+}
+
+const toolsListEl = $('toolsList');
+if (toolsListEl) {
+    toolsListEl.addEventListener('click', event => {
+        const item = event.target.closest('.tools-list-item');
+        if (item?.dataset.tool) selectTool(item.dataset.tool);
+    });
+}
+const toolsSearchEl = $('toolsSearch');
+if (toolsSearchEl) {
+    toolsSearchEl.addEventListener('input', () => renderToolsList(toolsSearchEl.value));
+}
+renderToolsList();
+
+const toolCopyResponseBtn = $('toolCopyResponseBtn');
+if (toolCopyResponseBtn) {
+    toolCopyResponseBtn.addEventListener('click', () => {
+        const text = $('toolOutputBody')?.textContent || '';
+        if (text) copyText(text, 'Tool response');
+    });
+}
+const toolClearResponseBtn = $('toolClearResponseBtn');
+if (toolClearResponseBtn) {
+    toolClearResponseBtn.addEventListener('click', () => {
+        $('toolOutputBody').textContent = '';
+        $('toolResponseStatus').textContent = '';
+        $('toolResponseTime').textContent = '';
+    });
+}
 
 function formatProgress(job) {
     const total = Number(job.total) || 0;
@@ -1617,7 +1936,29 @@ toolRunBtn.addEventListener('click', async () => {
         if (el) vals[f.key] = el.value;
     });
 
-    const payload = def.buildPayload(vals);
+    let payload;
+    try {
+        payload = def.buildPayload(vals);
+    } catch (error) {
+        $('toolOutputBody').textContent = 'Error: ' + (error.message || error);
+        $('toolResponseStatus').textContent = 'ERROR';
+        $('toolResponseStatus').className = 'tool-res-badge tool-res-badge--error';
+        $('toolResponseTime').textContent = '';
+        return;
+    }
+
+    const riskMethods = typeof def.riskMethods === 'function'
+        ? [...new Set((def.riskMethods(vals, payload) || []).filter(Boolean))]
+        : [];
+    if (riskMethods.length > 0) {
+        const confirmed = await showConfirmDialog({
+            title: 'Potentially detectable executor methods',
+            desc: `This action may invoke: ${riskMethods.join(', ')}. These executor methods or hooks may increase detection risk in some games. Continue?`,
+        });
+        if (!confirmed) return;
+        payload.userConfirmedRisk = true;
+    }
+
     payload.clientId = selectedClientId;
 
     toolRunBtn.disabled = true;
@@ -2858,8 +3199,7 @@ function updateSemanticSearchVisibility() {
     const semanticIndexPanel = $('semanticIndexPanel');
     if (semanticIndexPanel) semanticIndexPanel.style.display = enabled ? '' : 'none';
 
-    const semanticToolItem = $('semanticSearchToolItem');
-    if (semanticToolItem) semanticToolItem.style.display = enabled ? '' : 'none';
+    renderToolsList($('toolsSearch')?.value || '');
 
     if (!enabled) {
         if (semanticIndexBtn) semanticIndexBtn.disabled = true;

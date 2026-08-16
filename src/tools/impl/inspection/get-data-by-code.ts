@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { describeResponse, sendAndWait } from "../../factory.js";
+import { detectRiskyExecutorMethods, describeResponse, riskConfirmationMessage, sendAndWait, toolTextResponse } from "../../factory.js";
 import { maxOutputCharsSchema, threadContextSchema } from "../../schemas.js";
 
 export default function register(server: McpServer): void {
@@ -9,7 +9,7 @@ export default function register(server: McpServer): void {
     {
       title: "Get data by code",
       description:
-        "Execute Luau in the active Roblox client and return serialized raw Lua values. Prefer the specialized tools (search-instances, get-descendants-tree, get-script-content, script-grep) for exploration; use this only for small, targeted value probes. The code must return values; do not manually JSON-encode them.",
+        "Execute Luau in the active Roblox client and return serialized raw Lua values. If the probe calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true. Safe targeted probes do not need the flag. Prefer specialized inspection tools when possible.",
       inputSchema: z.object({
         code: z
           .string()
@@ -25,15 +25,20 @@ export default function register(server: McpServer): void {
           .optional()
           .default(15000),
         maxOutputChars: maxOutputCharsSchema,
+        userConfirmedRisk: z.boolean().optional().describe("Set true only after the user explicitly approves risky executor methods detected in this probe."),
       }),
     },
-    async ({ code, threadContext, timeout, maxOutputChars }) => {
+    async ({ code, threadContext, timeout, maxOutputChars, userConfirmedRisk }) => {
+      const riskyMethods = detectRiskyExecutorMethods(code);
+      if (riskyMethods.length > 0 && userConfirmedRisk !== true) {
+        return toolTextResponse(riskConfirmationMessage(riskyMethods), {}, true);
+      }
       console.error(`Executing code in thread ${threadContext}...`);
       const clampedTimeout = Math.min(Math.max(timeout, 1000), 120000);
 
       return sendAndWait({
         type: "get-data-by-code",
-        data: { source: `setthreadidentity(${threadContext});${code}` },
+        data: { source: `setthreadidentity(${threadContext});${code}`, userConfirmedRisk: userConfirmedRisk === true },
         timeoutMs: clampedTimeout,
         maxOutputChars,
         stampClient: true,

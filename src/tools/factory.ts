@@ -12,6 +12,47 @@ export const DEFAULT_TOOL_OUTPUT_CHAR_LIMIT = 6000;
 export const HARD_TOOL_OUTPUT_CHAR_LIMIT = 32000;
 export const MAX_ERROR_RESPONSE_CHARS = 500;
 
+const RISKY_EXECUTOR_METHOD_PATTERNS: Array<[string, RegExp]> = [
+  ["getgc", /\bgetgc\s*\(/i],
+  ["getnilinstances", /\bgetnilinstances\s*\(/i],
+  ["getconnections", /\bgetconnections\s*\(/i],
+  ["getloadedmodules", /\bgetloadedmodules\s*\(/i],
+  ["getreg", /\bgetreg\s*\(/i],
+  ["getregistry", /\bgetregistry\s*\(/i],
+  ["hookfunction", /\bhookfunction\s*\(/i],
+  ["hookmetamethod", /\bhookmetamethod\s*\(/i],
+  ["getrawmetatable", /\bgetrawmetatable\s*\(/i],
+  ["setreadonly", /\bsetreadonly\s*\(/i],
+  ["newcclosure", /\bnewcclosure\s*\(/i],
+  ["clonefunction", /\bclonefunction\s*\(/i],
+  ["replaceclosure", /\breplaceclosure\s*\(/i],
+  ["getscriptclosure", /\bgetscriptclosure\s*\(/i],
+  ["getconstants", /\bgetconstants\s*\(/i],
+  ["getupvalues", /\bgetupvalues\s*\(/i],
+  ["getprotos", /\bgetprotos\s*\(/i],
+  ["debug.getregistry", /\bdebug\s*\.\s*getregistry\s*\(/i],
+  ["debug.getupvalue", /\bdebug\s*\.\s*getupvalue\s*\(/i],
+  ["debug.getupvalues", /\bdebug\s*\.\s*getupvalues\s*\(/i],
+  ["debug.getconstants", /\bdebug\s*\.\s*getconstants\s*\(/i],
+  ["debug.getprotos", /\bdebug\s*\.\s*getprotos\s*\(/i],
+];
+
+export function detectRiskyExecutorMethods(source: string): string[] {
+  const found: string[] = [];
+  for (const [name, pattern] of RISKY_EXECUTOR_METHOD_PATTERNS) {
+    if (pattern.test(source) && !found.includes(name)) found.push(name);
+  }
+  return found;
+}
+
+export function riskConfirmationMessage(methods: string[]): string {
+  return (
+    `User confirmation required before using potentially detectable executor methods: ${methods.join(", ")}. ` +
+    'Ask the user first, for example: "This step would use potentially detectable executor introspection/hooking methods: ' +
+    `${methods.join(", ")}. Would you like me to continue?"`
+  );
+}
+
 /**
  * Check if the current instance is a secondary relay.
  * Secondaries can be created either via --baseurl or automatically when

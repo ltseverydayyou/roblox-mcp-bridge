@@ -11,11 +11,14 @@ export default function register(server: McpServer): void {
       description:
         "Explore the structure under a Roblox instance. Defaults to a compact summary (child/class counts); set summaryOnly=false for the full tree. Use search-instances for selector-based filtering.",
       inputSchema: z.object({
+        rootDebugId: z.string().describe("Optional stable DebugId to use as the tree root instead of root path.").optional(),
         root: z
           .string()
           .describe(
             "The instance path to get the tree from (e.g., 'game.Workspace', 'game.Workspace.CurrentRooms')"
-          ),
+          )
+          .optional()
+          .default("game"),
         maxDepth: z
           .number()
           .describe(
@@ -44,10 +47,10 @@ export default function register(server: McpServer): void {
         maxOutputChars: maxOutputCharsSchema,
       }),
     },
-    async ({ root, maxDepth, classFilter, maxChildren, summaryOnly, maxOutputChars }) =>
+    async ({ rootDebugId, root, maxDepth, classFilter, maxChildren, summaryOnly, maxOutputChars }) =>
       sendAndWait({
         type: "get-descendants-tree",
-        data: { root, maxDepth, classFilter: classFilter || "", maxChildren, summaryOnly },
+        data: { rootDebugId, root, maxDepth, classFilter: classFilter || "", maxChildren, summaryOnly },
         maxOutputChars,
         stampClient: true,
         truncationHint: "Rerun get-descendants-tree with summaryOnly=true, lower maxDepth, lower maxChildren, or a classFilter.",

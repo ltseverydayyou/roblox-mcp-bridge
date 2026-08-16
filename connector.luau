@@ -28,6 +28,8 @@ local LogService: LogService = SR.cs("LogService", cloneref)
 local Players: Players = SR.cs("Players", cloneref)
 local CollectionService: CollectionService = SR.cs("CollectionService", cloneref)
 local UserInputService: UserInputService = SR.cs("UserInputService", cloneref)
+local RunService: RunService = SR.cs("RunService", cloneref)
+local Stats: Stats = SR.cs("Stats", cloneref)
 
 --// Libraries \\--
 
@@ -128,7 +130,129 @@ local function StripDecompilerBanner(source)
     return (string.gsub(source, "^%s*%-%-[^\n]*[Dd]ecompiled[^\n]*\n", "", 1))
 end
 
-local getnilinstances = getnilinstances or function() return {} end
+local InstanceByDebugId = setmetatable({}, { __mode = "v" })
+local RuntimeHandles = setmetatable({}, { __mode = "v" })
+local RuntimeHandleCounter = 0
+local ConnectionHandles = setmetatable({}, { __mode = "v" })
+local ConnectionHandleCounter = 0
+local ConsoleCursors = {}
+local ConsoleCursorCounter = 0
+local RemoteSpyCursors = {}
+local RemoteSpyCursorCounter = 0
+local StateSnapshots = {}
+local StateSnapshotCounter = 0
+
+local function SafeFullName(instance)
+    local ok, value = pcall(function() return instance:GetFullName() end)
+    return ok and value or tostring(instance)
+end
+
+local function GetInstanceByDebugId(debugId)
+    if typeof(debugId) ~= "string" or debugId == "" then return nil end
+    local cached = InstanceByDebugId[debugId]
+    if cached then return cached end
+
+    local ok, descendants = pcall(function() return game:GetDescendants() end)
+    if ok then
+        for _, instance in ipairs(descendants) do
+            local idOk, id = pcall(function() return instance:GetDebugId() end)
+            if idOk and id == debugId then
+                InstanceByDebugId[debugId] = instance
+                return instance
+            end
+        end
+    end
+
+    return nil
+end
+
+local function ResolveInstanceTarget(data, pathKey, debugIdKey)
+    pathKey = pathKey or "path"
+    debugIdKey = debugIdKey or "debugId"
+    local debugId = data and data[debugIdKey]
+    if typeof(debugId) == "string" and debugId ~= "" then
+        local instance = GetInstanceByDebugId(debugId)
+        assert(instance, "DebugId did not resolve to a live Instance: " .. debugId)
+        return instance
+    end
+
+    local path = data and data[pathKey]
+    assert(typeof(path) == "string" and path ~= "", "Provide either path or debugId.")
+    local instance = loadstring("return " .. path)()
+    assert(typeof(instance) == "Instance", "Path did not resolve to a valid Instance.")
+    InstanceByDebugId[instance:GetDebugId()] = instance
+    return instance
+end
+
+local function StoreRuntimeHandle(value, prefix)
+    RuntimeHandleCounter += 1
+    local handle = (prefix or "runtime") .. ":" .. tostring(RuntimeHandleCounter)
+    RuntimeHandles[handle] = value
+    return handle
+end
+
+local function ResolveCallable(name)
+    local envs = {}
+    if typeof(getgenv) == "function" then
+        local ok, env = pcall(getgenv)
+        if ok and typeof(env) == "table" then table.insert(envs, env) end
+    end
+    if typeof(getfenv) == "function" then
+        local ok, env = pcall(getfenv, 0)
+        if ok and typeof(env) == "table" then table.insert(envs, env) end
+    end
+    if typeof(_G) == "table" then table.insert(envs, _G) end
+    for _, env in ipairs(envs) do
+        if typeof(env[name]) == "function" then return env[name] end
+    end
+    return nil
+end
+
+local function GetDebugFunction(name)
+    if typeof(debug) == "table" and typeof(debug[name]) == "function" then return debug[name] end
+    return ResolveCallable(name)
+end
+
+local RiskySourceMethods = {
+    "getgc", "getnilinstances", "getconnections", "getloadedmodules", "getreg", "getregistry",
+    "hookfunction", "hookmetamethod", "getrawmetatable", "setreadonly", "newcclosure",
+    "clonefunction", "replaceclosure", "getscriptclosure", "getconstants", "getupvalues", "getprotos",
+}
+
+local function FindRiskyMethodsInSource(source)
+    if typeof(source) ~= "string" then return {} end
+    local lowered = string.lower(source)
+    local found = {}
+    for _, method in ipairs(RiskySourceMethods) do
+        if string.find(lowered, "%f[%w_]" .. method .. "%s*%(") then
+            found[#found + 1] = method
+        end
+    end
+    local debugMethods = { "getregistry", "getupvalue", "getupvalues", "getconstants", "getprotos" }
+    for _, method in ipairs(debugMethods) do
+        if string.find(lowered, "debug%s*%.%s*" .. method .. "%s*%(") then
+            found[#found + 1] = "debug." .. method
+        end
+    end
+    return found
+end
+
+local function AssertRiskConfirmed(data, methods)
+    if data and data.userConfirmedRisk == true then return end
+    local methodText = typeof(methods) == "table" and table.concat(methods, ", ") or tostring(methods)
+    error("Risk confirmation required before using potentially detectable executor methods: " .. methodText .. ". Ask the user before continuing.")
+end
+
+local function StableValue(value)
+    local t = typeof(value)
+    if t == "Instance" then return SafeFullName(value) end
+    if t == "string" or t == "number" or t == "boolean" or t == "nil" then return tostring(value) end
+    if t == "table" then
+        local ok, encoded = pcall(function() return HttpService:JSONEncode(SanitizeForOutput(value)) end)
+        if ok then return encoded end
+    end
+    return tostring(value)
+end
 
 --// Compatibility Check \\--
 local WebSocketAvailable = (
@@ -1172,18 +1296,17 @@ local function GetScriptByDebugId(debugId)
         return CachedInstance
     end
 
-    for _, script in game:QueryDescendants("LuaSourceContainer") do
-        if script:IsA("Script") and script.RunContext == Enum.RunContext.Server then continue end
-        if script:GetDebugId() ~= debugId then continue end
-        
-        ScriptInstanceMap[debugId] = script
-        return script
+    local CachedByDebugId = InstanceByDebugId[debugId]
+    if CachedByDebugId then
+        local ok, isScript = pcall(function() return CachedByDebugId:IsA("LuaSourceContainer") end)
+        if ok and isScript then
+            ScriptInstanceMap[debugId] = CachedByDebugId
+            return CachedByDebugId
+        end
     end
 
-    for _, script in getnilinstances() do
-        if not script:IsA("LuaSourceContainer") then continue end
-
-        if script:IsA("Script") and script.RunContext ~= Enum.RunContext.Client then continue end
+    for _, script in game:QueryDescendants("LuaSourceContainer") do
+        if script:IsA("Script") and script.RunContext == Enum.RunContext.Server then continue end
         if script:GetDebugId() ~= debugId then continue end
         
         ScriptInstanceMap[debugId] = script
@@ -1256,7 +1379,6 @@ local function StartScriptMapping(clientId)
 
     local CategoriesToMap = {
         game:QueryDescendants("LuaSourceContainer"),
-        getnilinstances()
     }
 
     --// Map script sources \\--
@@ -1375,6 +1497,8 @@ while true do
     end
 
     Bridge:BindToType("execute", function(data)
+        local riskyMethods = FindRiskyMethodsInSource(data.source)
+        if #riskyMethods > 0 then AssertRiskConfirmed(data, riskyMethods) end
         task.defer(function()
             setthreadidentity(8)
             loadstring(data.source)()
@@ -1389,6 +1513,18 @@ while true do
         local summaryOnly = data.summaryOnly == true
 
         local logs = LogService:GetLogHistory()
+        local cursorIndex = 0
+        local cursorTimestamp = nil
+        if typeof(data.sinceCursor) == "string" then
+            local cursor = ConsoleCursors[data.sinceCursor]
+            assert(cursor, "Unknown console cursor: " .. data.sinceCursor)
+            if typeof(cursor) == "table" then
+                cursorIndex = tonumber(cursor.index) or 0
+                cursorTimestamp = tonumber(cursor.timestamp)
+            else
+                cursorIndex = tonumber(cursor) or 0
+            end
+        end
         local results = {}
         local matchedCount = 0
         local countsByLevel = {}
@@ -1411,6 +1547,12 @@ while true do
         if logsOrder == "NewestFirst" then
             for i = #logs, 1, -1 do
                 local logEntry = logs[i]
+                local entryTimestamp = tonumber(logEntry.timestamp)
+                if cursorTimestamp then
+                    if entryTimestamp and entryTimestamp <= cursorTimestamp then continue end
+                elseif i <= cursorIndex then
+                    continue
+                end
                 if not matchesFilter(logEntry) then continue end
                 
                 matchedCount += 1
@@ -1421,7 +1563,13 @@ while true do
                 end
             end
         else
-            for _, logEntry in logs do
+            for i, logEntry in ipairs(logs) do
+                local entryTimestamp = tonumber(logEntry.timestamp)
+                if cursorTimestamp then
+                    if entryTimestamp and entryTimestamp <= cursorTimestamp then continue end
+                elseif i <= cursorIndex then
+                    continue
+                end
                 if not matchesFilter(logEntry) then continue end
                 
                 matchedCount += 1
@@ -1456,6 +1604,8 @@ while true do
     end)
 
     Bridge:BindToType("get-data-by-code", function(data)
+        local riskyMethods = FindRiskyMethodsInSource(data.source)
+        if #riskyMethods > 0 then AssertRiskConfirmed(data, riskyMethods) end
         setthreadidentity(8)
         local dataOutput = table.pack(loadstring(data.source)())
 
@@ -1534,7 +1684,13 @@ while true do
     end)
 
     Bridge:BindToType("search-instances", function(data)
-        local rootInstance = loadstring("return " .. data.root)()
+        local rootInstance
+        if typeof(data.rootDebugId) == "string" and data.rootDebugId ~= "" then
+            rootInstance = GetInstanceByDebugId(data.rootDebugId)
+            assert(rootInstance, "rootDebugId did not resolve to a live Instance.")
+        else
+            rootInstance = loadstring("return " .. (data.root or "game"))()
+        end
         local instances = rootInstance:QueryDescendants(data.selector)
         
         local limit = math.max(1, math.min(tonumber(data.limit) or 20, 100))
@@ -1546,11 +1702,13 @@ while true do
             local fullName = instance.Name
             pcall(function() fullName = instance:GetFullName() end)
 
+            local debugId = instance:GetDebugId()
+            InstanceByDebugId[debugId] = instance
             table.insert(results, {
                 Name = instance.Name,
                 ClassName = instance.ClassName,
                 Path = fullName,
-                DebugId = instance:GetDebugId()
+                DebugId = debugId
             })
         end
         
@@ -1562,10 +1720,17 @@ while true do
     end)
 
     Bridge:BindToType("inspect-instances", function(data)
-        local paths = data.paths
-        assert(typeof(paths) == "table" and #paths > 0, "paths must contain at least one instance path.")
+        local targets = data.targets
+        if typeof(targets) ~= "table" or #targets == 0 then
+            targets = {}
+            local paths = data.paths
+            if typeof(paths) == "table" then
+                for _, path in ipairs(paths) do table.insert(targets, { path = path }) end
+            end
+        end
+        assert(#targets > 0, "targets/paths must contain at least one instance target.")
 
-        local maxPaths = math.min(#paths, 25)
+        local maxPaths = math.min(#targets, 25)
         local maxChildren = math.max(0, math.min(tonumber(data.maxChildren) or 20, 100))
         local includeAttributes = data.includeAttributes ~= false
         local includeTags = data.includeTags ~= false
@@ -1662,11 +1827,11 @@ while true do
 
         local results = {}
         for index = 1, maxPaths do
-            local path = paths[index]
+            local target = targets[index]
             local ok, result = pcall(function()
-                assert(typeof(path) == "string" and path ~= "", "Instance path must be a non-empty string.")
-                local instance = loadstring("return " .. path)()
-                assert(typeof(instance) == "Instance", "Path did not resolve to an Instance.")
+                if typeof(target) == "string" then target = { path = target } end
+                assert(typeof(target) == "table", "Instance target must be a path string or {path/debugId} object.")
+                local instance = ResolveInstanceTarget(target)
 
                 local propertyNames = requestedProperties
                 if typeof(propertyNames) ~= "table" or #propertyNames == 0 then
@@ -1680,11 +1845,13 @@ while true do
                     children = {}
                     for childIndex, child in ipairs(instance:GetChildren()) do
                         if childIndex > maxChildren then break end
+                        local childDebugId = child:GetDebugId()
+                        InstanceByDebugId[childDebugId] = child
                         table.insert(children, {
                             Name = child.Name,
                             ClassName = child.ClassName,
                             Path = child:GetFullName(),
-                            DebugId = child:GetDebugId(),
+                            DebugId = childDebugId,
                             ChildCount = #child:GetChildren(),
                         })
                     end
@@ -1710,7 +1877,7 @@ while true do
                 table.insert(results, result)
             else
                 table.insert(results, {
-                    RequestedPath = tostring(path),
+                    RequestedTarget = SanitizeForOutput(target),
                     Error = tostring(result),
                 })
             end
@@ -1749,8 +1916,13 @@ while true do
     end)
 
     Bridge:BindToType("get-descendants-tree", function(data)
-        local rootInstance = loadstring("return " .. data.root)()
-        assert(typeof(rootInstance) == "Instance", "Root path did not resolve to a valid Instance.")
+        local rootInstance
+        if typeof(data.rootDebugId) == "string" and data.rootDebugId ~= "" then
+            rootInstance = GetInstanceByDebugId(data.rootDebugId)
+        else
+            rootInstance = loadstring("return " .. (data.root or "game"))()
+        end
+        assert(typeof(rootInstance) == "Instance", "Root path/DebugId did not resolve to a valid Instance.")
 
         local maxDepth = math.max(0, math.min(tonumber(data.maxDepth) or 2, 5))
         local maxChildren = math.max(1, math.min(tonumber(data.maxChildren) or 20, 30))
@@ -1789,6 +1961,7 @@ while true do
                 Root = {
                     Name = rootInstance.Name,
                     ClassName = rootInstance.ClassName,
+                    DebugId = rootInstance:GetDebugId(),
                     ChildCount = #rootInstance:GetChildren(),
                 },
                 MaxDepth = maxDepth,
@@ -1831,9 +2004,12 @@ while true do
 
                 nodeBudget -= 1
 
+                local childDebugId = child:GetDebugId()
+                InstanceByDebugId[childDebugId] = child
                 local node = {
                     Name = child.Name,
                     ClassName = child.ClassName,
+                    DebugId = childDebugId,
                     ChildCount = #child:GetChildren()
                 }
 
@@ -1848,9 +2024,12 @@ while true do
                 shown += 1
             end
 
+            local instanceDebugId = instance:GetDebugId()
+            InstanceByDebugId[instanceDebugId] = instance
             return {
                 Name = instance.Name,
                 ClassName = instance.ClassName,
+                DebugId = instanceDebugId,
                 ChildCount = total,
                 TruncatedAt = if shown < total then shown else nil,
                 Children = childNodes
@@ -1865,6 +2044,7 @@ while true do
     end)
 
     Bridge:BindToType("ensure-remote-spy", function(data)
+        AssertRiskConfirmed(data, { "Cobalt remote-spy hooks" })
         if getgenv().Cobalt then
             return {
                 status = "already_loaded",
@@ -1874,7 +2054,7 @@ while true do
 
         -- Load Cobalt
         local success, err = pcall(function()
-            loadstring(game:HttpGet("https://github.com/notpoiu/cobalt/releases/latest/download/Cobalt.luau"))()
+            loadstring(game:HttpGet("https://gitlab.com/upio/cobalt/-/releases/permalink/latest/downloads/Cobalt.luau"))()
         end)
 
         if not success then
@@ -1905,13 +2085,17 @@ while true do
         local maxCallsPerRemote = math.max(0, math.min(tonumber(data.maxCallsPerRemote) or 2, 20))
         local summaryOnly = data.summaryOnly == true
         local hasNameFilter = nameFilter ~= ""
+        local cursor = nil
+        if typeof(data.sinceCursor) == "string" then
+            cursor = RemoteSpyCursors[data.sinceCursor]
+            assert(cursor, "Unknown remote-spy cursor: " .. data.sinceCursor)
+        end
 
         local function ProcessLogs(logTable, directionLabel)
             local results = {}
 
             for instance, log in logTable do
                 if typeof(instance) ~= "Instance" then continue end
-                if #results >= limit then break end
 
                 local remoteName = ""
                 local remoteClass = ""
@@ -1928,7 +2112,12 @@ while true do
                 -- Get recent calls (raw — LuaEncode handles serialization)
                 local recentCalls = {}
                 local totalCalls = #log.Calls
-                local startIdx = math.max(1, totalCalls - maxCallsPerRemote + 1)
+                local debugId = instance:GetDebugId()
+                local cursorKey = directionLabel .. ":" .. debugId
+                local previousCalls = cursor and (cursor[cursorKey] or 0) or 0
+                local newCalls = math.max(0, totalCalls - previousCalls)
+                if cursor and newCalls == 0 then continue end
+                local startIdx = math.max(previousCalls + 1, totalCalls - maxCallsPerRemote + 1, 1)
 
                 if not summaryOnly then
                     for i = startIdx, totalCalls do
@@ -1952,6 +2141,8 @@ while true do
                     Direction = directionLabel,
                     Method = log.Method,
                     TotalCalls = totalCalls,
+                    NewCalls = cursor and newCalls or nil,
+                    DebugId = debugId,
                     Ignored = log.Ignored,
                     Blocked = log.Blocked,
                     RecentCalls = if summaryOnly then nil else recentCalls,
@@ -1979,7 +2170,10 @@ while true do
 
         -- Sort by total calls descending (most active remotes first)
         table.sort(allResults, function(a, b)
-            return a.TotalCalls > b.TotalCalls
+            local av = a.NewCalls or a.TotalCalls
+            local bv = b.NewCalls or b.TotalCalls
+            if av == bv then return a.TotalCalls > b.TotalCalls end
+            return av > bv
         end)
 
         -- Trim to limit
@@ -2014,6 +2208,8 @@ while true do
         assert(Cobalt and Cobalt.shared and Cobalt.shared.Logs, "Cobalt remote spy is not loaded. Call ensure-remote-spy first.")
 
         local remoteName = data.remoteName
+        local remoteDebugId = data.remoteDebugId
+        assert((typeof(remoteName) == "string" and remoteName ~= "") or (typeof(remoteDebugId) == "string" and remoteDebugId ~= ""), "Provide remoteName or remoteDebugId.")
         local direction = data.direction
         local shouldBlock = data.shouldBlock
 
@@ -2026,7 +2222,10 @@ while true do
             local name = ""
             pcall(function() name = instance.Name end)
 
-            if name == remoteName then
+            local debugId = instance:GetDebugId()
+            local matches = (typeof(remoteDebugId) == "string" and remoteDebugId ~= "" and debugId == remoteDebugId)
+                or ((remoteDebugId == nil or remoteDebugId == "") and name == remoteName)
+            if matches then
                 if shouldBlock and not log.Blocked then
                     log:Block()
                 elseif not shouldBlock and log.Blocked then
@@ -2035,13 +2234,15 @@ while true do
 
                 return {
                     status = "success",
-                    message = (shouldBlock and "Blocked" or "Unblocked") .. " remote: " .. remoteName,
+                    message = (shouldBlock and "Blocked" or "Unblocked") .. " remote: " .. name,
+                    remoteName = name,
+                    remoteDebugId = debugId,
                     blocked = log.Blocked
                 }
             end
         end
 
-        error("Remote not found: " .. remoteName .. " in " .. direction .. " logs. Make sure the remote has been logged at least once.")
+        error("Remote not found: " .. tostring(remoteDebugId or remoteName) .. " in " .. direction .. " logs. Make sure the remote has been logged at least once.")
     end)
 
     Bridge:BindToType("ignore-remote", function(data)
@@ -2049,6 +2250,8 @@ while true do
         assert(Cobalt and Cobalt.shared and Cobalt.shared.Logs, "Cobalt remote spy is not loaded. Call ensure-remote-spy first.")
 
         local remoteName = data.remoteName
+        local remoteDebugId = data.remoteDebugId
+        assert((typeof(remoteName) == "string" and remoteName ~= "") or (typeof(remoteDebugId) == "string" and remoteDebugId ~= ""), "Provide remoteName or remoteDebugId.")
         local direction = data.direction
         local shouldIgnore = data.shouldIgnore
 
@@ -2061,7 +2264,10 @@ while true do
             local name = ""
             pcall(function() name = instance.Name end)
 
-            if name == remoteName then
+            local debugId = instance:GetDebugId()
+            local matches = (typeof(remoteDebugId) == "string" and remoteDebugId ~= "" and debugId == remoteDebugId)
+                or ((remoteDebugId == nil or remoteDebugId == "") and name == remoteName)
+            if matches then
                 if shouldIgnore and not log.Ignored then
                     log:Ignore()
                 elseif not shouldIgnore and log.Ignored then
@@ -2070,21 +2276,21 @@ while true do
 
                 return {
                     status = "success",
-                    message = (shouldIgnore and "Ignoring" or "Unignored") .. " remote: " .. remoteName,
+                    message = (shouldIgnore and "Ignoring" or "Unignored") .. " remote: " .. name,
+                    remoteName = name,
+                    remoteDebugId = debugId,
                     ignored = log.Ignored
                 }
             end
         end
 
-        error("Remote not found: " .. remoteName .. " in " .. direction .. " logs. Make sure the remote has been logged at least once.")
+        error("Remote not found: " .. tostring(remoteDebugId or remoteName) .. " in " .. direction .. " logs. Make sure the remote has been logged at least once.")
     end)
 
     -- Keep Cobalt's implementation details behind one public MCP operation.
     -- The legacy callbacks above remain internal so this dispatcher can reuse
     -- their validated filtering and state-change behavior.
     Bridge:BindToType("remote-spy", function(data)
-        Bridge.Callbacks["ensure-remote-spy"]({})
-
         local operation = data.operation
         if operation == "status" then
             local Cobalt = getgenv().Cobalt
@@ -2098,29 +2304,86 @@ while true do
             end
 
             return {
-                status = "loaded",
-                outgoingRemotes = CountLogs(Cobalt.shared and Cobalt.shared.Logs and Cobalt.shared.Logs.Outgoing),
-                incomingRemotes = CountLogs(Cobalt.shared and Cobalt.shared.Logs and Cobalt.shared.Logs.Incoming),
+                status = Cobalt and "loaded" or "not_loaded",
+                provider = "Cobalt",
+                source = "https://gitlab.com/upio/cobalt/-/releases/permalink/latest/downloads/Cobalt.luau",
+                outgoingRemotes = Cobalt and CountLogs(Cobalt.shared and Cobalt.shared.Logs and Cobalt.shared.Logs.Outgoing) or 0,
+                incomingRemotes = Cobalt and CountLogs(Cobalt.shared and Cobalt.shared.Logs and Cobalt.shared.Logs.Incoming) or 0,
             }
-        elseif operation == "list" then
+        end
+
+        Bridge.Callbacks["ensure-remote-spy"]({ userConfirmedRisk = data.userConfirmedRisk })
+
+        if operation == "list" then
             return Bridge.Callbacks["get-remote-spy-logs"]({
                 direction = data.direction,
                 remoteNameFilter = data.nameFilter,
                 limit = data.limit,
                 maxCallsPerRemote = data.maxCallsPerRemote,
                 summaryOnly = data.summaryOnly,
+                sinceCursor = data.sinceCursor,
             })
+        elseif operation == "mark" then
+            local Cobalt = getgenv().Cobalt
+            RemoteSpyCursorCounter += 1
+            if RemoteSpyCursorCounter > 100 then RemoteSpyCursors["remote:" .. tostring(RemoteSpyCursorCounter - 100)] = nil end
+            local cursorId = "remote:" .. tostring(RemoteSpyCursorCounter)
+            local counts = {}
+            local function Capture(logTable, directionLabel)
+                if typeof(logTable) ~= "table" then return end
+                for instance, log in logTable do
+                    if typeof(instance) == "Instance" then
+                        counts[directionLabel .. ":" .. instance:GetDebugId()] = #log.Calls
+                    end
+                end
+            end
+            Capture(Cobalt.shared.Logs.Outgoing, "Outgoing")
+            Capture(Cobalt.shared.Logs.Incoming, "Incoming")
+            RemoteSpyCursors[cursorId] = counts
+            return { cursor = cursorId, trackedRemotes = (function() local n=0 for _ in counts do n+=1 end return n end)() }
+        elseif operation == "profile" then
+            local listed = Bridge.Callbacks["get-remote-spy-logs"]({
+                direction = data.direction, remoteNameFilter = data.nameFilter, limit = data.limit or 20,
+                maxCallsPerRemote = data.maxCallsPerRemote or 20, summaryOnly = false, sinceCursor = data.sinceCursor,
+            })
+            for _, remote in ipairs(listed.results or {}) do
+                local signatures = {}
+                local origins = {}
+                local executorCalls = 0
+                local actorCalls = 0
+                for _, call in ipairs(remote.RecentCalls or {}) do
+                    local args = call.Arguments
+                    local parts = {}
+                    if typeof(args) == "table" then
+                        for i, arg in ipairs(args) do parts[i] = typeof(arg) end
+                    end
+                    local sig = "(" .. table.concat(parts, ", ") .. ")"
+                    signatures[sig] = (signatures[sig] or 0) + 1
+                    local origin = tostring(call.Origin or "Unknown")
+                    origins[origin] = (origins[origin] or 0) + 1
+                    if call.IsExecutor then executorCalls += 1 end
+                    if call.IsActor then actorCalls += 1 end
+                end
+                remote.Signatures = signatures
+                remote.Origins = origins
+                remote.ExecutorCalls = executorCalls
+                remote.ActorCalls = actorCalls
+                remote.RecentCalls = nil
+            end
+            return listed
         elseif operation == "clear" then
             return Bridge.Callbacks["clear-remote-spy-logs"]({})
         elseif operation == "block" or operation == "unblock" then
             return Bridge.Callbacks["block-remote"]({
                 remoteName = data.remoteName,
+                remoteDebugId = data.remoteDebugId,
                 direction = data.direction,
                 shouldBlock = operation == "block",
             })
         elseif operation == "ignore" or operation == "unignore" then
             return Bridge.Callbacks["ignore-remote"]({
                 remoteName = data.remoteName,
+                remoteDebugId = data.remoteDebugId,
                 direction = data.direction,
                 shouldIgnore = operation == "ignore",
             })
@@ -2129,20 +2392,806 @@ while true do
         error("Invalid remote-spy operation: " .. tostring(operation))
     end)
 
+
+    Bridge:BindToType("get-executor-capabilities", function(data)
+        local names = {
+            "getgc", "getconnections", "getloadedmodules", "getnilinstances", "getreg", "getregistry", "getsenv",
+            "getscriptclosure", "getconstants", "getupvalues", "getprotos", "hookfunction",
+            "hookmetamethod", "firesignal", "fireproximityprompt", "firetouchinterest",
+            "getscriptbytecode", "decompile", "request", "http_request", "writefile", "readfile",
+            "isfile", "makefolder", "listfiles", "setclipboard", "gethui", "cloneref",
+            "setthreadidentity", "getthreadidentity", "queue_on_teleport", "gethiddenproperty", "sethiddenproperty",
+        }
+        local caps = {}
+        for _, name in ipairs(names) do caps[name] = ResolveCallable(name) ~= nil end
+        caps["debug.getconstants"] = GetDebugFunction("getconstants") ~= nil
+        caps["debug.getupvalues"] = GetDebugFunction("getupvalues") ~= nil
+        caps["debug.getupvalue"] = (typeof(debug) == "table" and typeof(debug.getupvalue) == "function")
+        caps["debug.getregistry"] = (typeof(debug) == "table" and typeof(debug.getregistry) == "function")
+        caps["debug.getprotos"] = GetDebugFunction("getprotos") ~= nil
+        caps.websocket = (typeof(WebSocket) == "table" and typeof(WebSocket.connect) == "function")
+            or ResolveCallable("websocket") ~= nil
+        caps.filesystem = caps.writefile and caps.readfile and caps.isfile
+        caps.drawing = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
+        local executorName, executorVersion = GetExecutorInfo()
+        return { executor = executorName, version = executorVersion, capabilities = caps }
+    end)
+
+    Bridge:BindToType("recover-nil-scripts", function(data)
+        -- Heavy recovery is intentionally explicit/on-demand only. Nothing in startup or ordinary
+        -- DebugId/script resolution calls getnilinstances/getgc/getreg/getregistry.
+        assert(data.userConfirmedRisk == true, "Risk confirmation required before nil/runtime recovery (getnilinstances/getgc/registry scans).")
+        local getnilinstancesFn = ResolveCallable("getnilinstances")
+        assert(getnilinstancesFn, "Executor does not support getnilinstances.")
+
+        local S, F = {}, {}
+        local ops, fc, tc = 0, 0, 0
+        local CF, CU, CT, CP, CS = 6e3, 80, 250, 80, 250
+        local sourcesUsed = { "getnilinstances" }
+
+        local function st()
+            ops += 1
+            if ops % CS == 0 then task.wait() end
+        end
+
+        local function par(x)
+            local o, p = pcall(function() return x.Parent end)
+            return o and p
+        end
+
+        local function nilp(x)
+            return typeof(x) == "Instance" and not par(x)
+        end
+
+        local function scr(x)
+            local o, r = pcall(function()
+                return x:IsA("LocalScript") or x:IsA("ModuleScript") or x:IsA("Script")
+            end)
+            return o and r
+        end
+
+        local function add(x)
+            if nilp(x) and not S[x] then
+                S[x] = 1
+                F[#F + 1] = x
+            end
+        end
+
+        local function tab(t)
+            if type(t) ~= "table" or tc >= CT then return end
+            tc += 1
+            local n = 0
+            pcall(function()
+                for k, v in t do
+                    n += 1
+                    add(k)
+                    add(v)
+                    if n >= CP then break end
+                    st()
+                end
+            end)
+        end
+
+        local function up(f)
+            if type(f) ~= "function" or fc >= CF or not debug or type(debug.getupvalue) ~= "function" then return end
+            fc += 1
+            for i = 1, CU do
+                local o, a, b = pcall(debug.getupvalue, f, i)
+                if not o or (a == nil and b == nil) then break end
+                add(a)
+                add(b)
+                tab(a)
+                tab(b)
+                st()
+            end
+        end
+
+        local function each(fn, ...)
+            local o, t = pcall(fn, ...)
+            if not o or type(t) ~= "table" then return false end
+            for _, v in t do
+                add(v)
+                up(v)
+                tab(v)
+                st()
+            end
+            return true
+        end
+
+        each(getnilinstancesFn)
+
+        local getloadedmodulesFn = ResolveCallable("getloadedmodules")
+        if getloadedmodulesFn and each(getloadedmodulesFn) then
+            sourcesUsed[#sourcesUsed + 1] = "getloadedmodules"
+        end
+
+        local getgcFn = ResolveCallable("getgc")
+        if getgcFn and each(getgcFn, false) then
+            sourcesUsed[#sourcesUsed + 1] = "getgc(false)"
+        end
+
+        local getregFn = ResolveCallable("getreg")
+        if getregFn and each(getregFn) then
+            sourcesUsed[#sourcesUsed + 1] = "getreg"
+        end
+
+        local getregistryFn = ResolveCallable("getregistry")
+        if getregistryFn and each(getregistryFn) then
+            sourcesUsed[#sourcesUsed + 1] = "getregistry"
+        end
+
+        if type(debug) == "table" and type(debug.getregistry) == "function" and each(debug.getregistry) then
+            sourcesUsed[#sourcesUsed + 1] = "debug.getregistry"
+        end
+
+        local recovered = {}
+        local recoveredCount = 0
+        for _, v in F do
+            if nilp(v) and scr(v) then
+                recoveredCount += 1
+                local item = {
+                    Name = v.Name,
+                    ClassName = v.ClassName,
+                    Parent = nil,
+                }
+                pcall(function() item.Path = SafeFullName(v) end)
+                pcall(function() item.Archivable = v.Archivable end)
+                pcall(function()
+                    local id = v:GetDebugId()
+                    item.DebugId = id
+                    InstanceByDebugId[id] = v
+                    ScriptInstanceMap[id] = v
+                end)
+                if #recovered < 100 then recovered[#recovered + 1] = item end
+            end
+            st()
+        end
+
+        return {
+            success = true,
+            foundNilInstances = #F,
+            recoveredScripts = recoveredCount,
+            functionScans = fc,
+            tableScans = tc,
+            operations = ops,
+            sourcesUsed = sourcesUsed,
+            recovered = recovered,
+            recoveredTruncated = recoveredCount > #recovered,
+            note = "Original nil LuaSourceContainers are cached by DebugId for direct MCP follow-up; no cloning or reparenting is performed.",
+        }
+    end)
+
+    Bridge:BindToType("create-console-cursor", function(data)
+        ConsoleCursorCounter += 1
+        if ConsoleCursorCounter > 100 then ConsoleCursors["console:" .. tostring(ConsoleCursorCounter - 100)] = nil end
+        local id = "console:" .. tostring(ConsoleCursorCounter)
+        local logs = LogService:GetLogHistory()
+        local last = logs[#logs]
+        ConsoleCursors[id] = {
+            index = #logs,
+            timestamp = last and tonumber(last.timestamp) or nil,
+        }
+        return { cursor = id, index = #logs, timestamp = ConsoleCursors[id].timestamp }
+    end)
+
+    Bridge:BindToType("search-runtime-objects", function(data)
+        AssertRiskConfirmed(data, { "getgc" })
+        local getgcFn = ResolveCallable("getgc")
+        assert(getgcFn, "Executor does not support getgc.")
+        local objectType = string.lower(tostring(data.objectType or "Any"))
+        local constantNeedle = typeof(data.constantContains) == "string" and string.lower(data.constantContains) or nil
+        local sourceNeedle = typeof(data.sourceContains) == "string" and string.lower(data.sourceContains) or nil
+        local upvalueNeedle = typeof(data.upvalueName) == "string" and string.lower(data.upvalueName) or nil
+        local keyNeedle = data.key
+        local limit = math.max(1, math.min(tonumber(data.limit) or 20, 100))
+        local maxScanned = math.max(limit, math.min(tonumber(data.maxScanned) or 5000, 50000))
+        local constantsFn = GetDebugFunction("getconstants")
+        local upvaluesFn = GetDebugFunction("getupvalues")
+        local results, scanned = {}, 0
+
+        local ok, objects = pcall(getgcFn, true)
+        if not ok then ok, objects = pcall(getgcFn) end
+        assert(ok and typeof(objects) == "table", "getgc failed.")
+
+        for _, object in ipairs(objects) do
+            scanned += 1
+            if scanned > maxScanned or #results >= limit then break end
+            local t = typeof(object)
+            if objectType ~= "any" and string.lower(t) ~= objectType then continue end
+            if sourceNeedle then
+                if t ~= "function" then continue end
+                local sourceOk, source = pcall(function() return debug.info(object, "s") end)
+                if not sourceOk or not string.find(string.lower(tostring(source or "")), sourceNeedle, 1, true) then continue end
+            end
+            if upvalueNeedle then
+                if t ~= "function" or not upvaluesFn then continue end
+                local uOk, upvalues = pcall(upvaluesFn, object)
+                if not uOk or typeof(upvalues) ~= "table" then continue end
+                local found = false
+                for name in pairs(upvalues) do
+                    if string.find(string.lower(tostring(name)), upvalueNeedle, 1, true) then found = true break end
+                end
+                if not found then continue end
+            end
+            if keyNeedle ~= nil then
+                if t ~= "table" or rawget(object, keyNeedle) == nil then continue end
+            end
+            if constantNeedle then
+                if t ~= "function" or not constantsFn then continue end
+                local cOk, constants = pcall(constantsFn, object)
+                if not cOk or typeof(constants) ~= "table" then continue end
+                local found = false
+                for _, constant in pairs(constants) do
+                    if string.find(string.lower(tostring(constant)), constantNeedle, 1, true) then found = true break end
+                end
+                if not found then continue end
+            end
+            local prefix = t == "function" and "runtime:f" or (t == "table" and "runtime:t" or "runtime:o")
+            local handle = StoreRuntimeHandle(object, prefix)
+            local item = { Handle = handle, Type = t }
+            if t == "table" then
+                local keys = {}
+                for k in pairs(object) do
+                    if #keys >= 15 then break end
+                    table.insert(keys, tostring(k))
+                end
+                item.Keys = keys
+            elseif t == "function" then
+                local infoOk, info = pcall(function() return debug.info(object, "sln") end)
+                if infoOk then item.DebugInfo = tostring(info) end
+            end
+            table.insert(results, item)
+        end
+        return { scanned = scanned, count = #results, results = results }
+    end)
+
+    Bridge:BindToType("inspect-runtime-object", function(data)
+        local object = RuntimeHandles[data.handle]
+        assert(object ~= nil, "Unknown or expired runtime handle: " .. tostring(data.handle))
+        local t = typeof(object)
+        local result = { Handle = data.handle, Type = t }
+        if t == "table" then
+            local maxEntries = math.max(1, math.min(tonumber(data.maxEntries) or 40, 100))
+            local entries, count = {}, 0
+            for k, v in pairs(object) do
+                count += 1
+                if #entries < maxEntries then
+                    table.insert(entries, { Key = SanitizeForOutput(k), Value = SanitizeForOutput(v) })
+                end
+            end
+            result.EntryCount = count
+            result.Entries = entries
+        elseif t == "function" then
+            local requestedMethods = {}
+            if data.includeConstants ~= false then requestedMethods[#requestedMethods + 1] = "getconstants" end
+            if data.includeUpvalues ~= false then requestedMethods[#requestedMethods + 1] = "getupvalues" end
+            if data.includeProtos == true then requestedMethods[#requestedMethods + 1] = "getprotos" end
+            if #requestedMethods > 0 then AssertRiskConfirmed(data, requestedMethods) end
+            local constantsFn = GetDebugFunction("getconstants")
+            local upvaluesFn = GetDebugFunction("getupvalues")
+            local protosFn = GetDebugFunction("getprotos")
+            local info = {}
+            pcall(function()
+                info.Source = debug.info(object, "s")
+                info.Line = debug.info(object, "l")
+                info.Name = debug.info(object, "n")
+                info.Arity = debug.info(object, "a")
+            end)
+            result.Info = info
+            if data.includeConstants ~= false and constantsFn then
+                local okC, values = pcall(constantsFn, object)
+                if okC then result.Constants = SanitizeForOutput(values) end
+            end
+            if data.includeUpvalues ~= false and upvaluesFn then
+                local okU, values = pcall(upvaluesFn, object)
+                if okU then result.Upvalues = SanitizeForOutput(values) end
+            end
+            if data.includeProtos == true and protosFn then
+                local okP, values = pcall(protosFn, object)
+                if okP and typeof(values) == "table" then
+                    local handles = {}
+                    for i, proto in ipairs(values) do
+                        if i > 20 then break end
+                        table.insert(handles, StoreRuntimeHandle(proto, "runtime:f"))
+                    end
+                    result.ProtoHandles = handles
+                end
+            end
+        else
+            result.Value = SanitizeForOutput(object)
+        end
+        return result
+    end)
+
+    Bridge:BindToType("inspect-connections", function(data)
+        if data.operation == "set-state" then
+            local connection = ConnectionHandles[data.handle]
+            assert(connection, "Unknown or expired connection handle.")
+            local enabled = data.enabled == true
+            local ok = pcall(function()
+                if enabled and typeof(connection.Enable) == "function" then connection:Enable()
+                elseif not enabled and typeof(connection.Disable) == "function" then connection:Disable()
+                elseif connection.Enabled ~= nil then connection.Enabled = enabled
+                else error("Connection does not expose Enable/Disable.") end
+            end)
+            assert(ok, "Failed to change connection state.")
+            return { handle = data.handle, enabled = enabled }
+        end
+
+        AssertRiskConfirmed(data, { "getconnections" })
+        local getconnectionsFn = ResolveCallable("getconnections")
+        assert(getconnectionsFn, "Executor does not support getconnections.")
+        local instance = ResolveInstanceTarget(data)
+        local signalName = data.signal
+        assert(typeof(signalName) == "string" and signalName ~= "", "signal is required.")
+        local signal = instance[signalName]
+        local connections = getconnectionsFn(signal)
+        local limit = math.max(1, math.min(tonumber(data.limit) or 20, 100))
+        local results = {}
+        for i, connection in ipairs(connections) do
+            if i > limit then break end
+            ConnectionHandleCounter += 1
+            local handle = "connection:" .. tostring(ConnectionHandleCounter)
+            ConnectionHandles[handle] = connection
+            local item = { Handle = handle }
+            pcall(function() item.Enabled = connection.Enabled end)
+            pcall(function() item.Function = connection.Function and StoreRuntimeHandle(connection.Function, "runtime:f") or nil end)
+            pcall(function() item.LuaConnection = connection.LuaConnection end)
+            table.insert(results, item)
+        end
+        return { Path = SafeFullName(instance), Signal = signalName, count = #connections, results = results }
+    end)
+
+    Bridge:BindToType("inspect-module", function(data)
+        local module = ResolveInstanceTarget(data)
+        assert(module:IsA("ModuleScript"), "Target is not a ModuleScript.")
+        local result = { Name = module.Name, Path = SafeFullName(module), DebugId = module:GetDebugId() }
+        local ok, exported = pcall(require, module)
+        if not ok then
+            result.RequireError = tostring(exported)
+            return result
+        end
+        result.ExportType = typeof(exported)
+        if typeof(exported) == "table" then
+            local keys = {}
+            local maxKeys = math.max(1, math.min(tonumber(data.maxKeys) or 50, 100))
+            for key in pairs(exported) do
+                if #keys >= maxKeys then break end
+                table.insert(keys, tostring(key))
+            end
+            result.ExportKeys = keys
+            if data.includeValues == true then result.Exports = SanitizeForOutput(exported) end
+        elseif data.includeValues == true then
+            result.ExportValue = SanitizeForOutput(exported)
+        end
+        return result
+    end)
+
+    Bridge:BindToType("inspect-loaded-modules", function(data)
+        AssertRiskConfirmed(data, { "getloadedmodules" })
+        local getloadedmodulesFn = ResolveCallable("getloadedmodules")
+        assert(getloadedmodulesFn, "Executor does not support getloadedmodules.")
+        local filter = string.lower(tostring(data.filter or ""))
+        local limit = math.max(1, math.min(tonumber(data.limit) or 20, 100))
+        local modules = getloadedmodulesFn()
+        local results = {}
+        for _, module in ipairs(modules) do
+            if typeof(module) ~= "Instance" then continue end
+            local path = SafeFullName(module)
+            if filter ~= "" and not string.find(string.lower(module.Name .. " " .. path), filter, 1, true) then continue end
+            local debugId = module:GetDebugId()
+            InstanceByDebugId[debugId] = module
+            local item = { Name = module.Name, Path = path, DebugId = debugId }
+            if data.includeExports == true then
+                local okR, exported = pcall(require, module)
+                if okR then
+                    item.ExportType = typeof(exported)
+                    if typeof(exported) == "table" then
+                        local keys = {}
+                        for k in pairs(exported) do if #keys >= 30 then break end table.insert(keys, tostring(k)) end
+                        item.ExportKeys = keys
+                    end
+                else item.RequireError = tostring(exported) end
+            end
+            table.insert(results, item)
+            if #results >= limit then break end
+        end
+        return { count = #results, results = results }
+    end)
+
+    Bridge:BindToType("inspect-visible-gui", function(data)
+        local limit = math.max(1, math.min(tonumber(data.limit) or 50, 200))
+        local textFilter = string.lower(tostring(data.textFilter or ""))
+        local roots = {}
+        local player = Players.LocalPlayer
+        if player then
+            local pg = player:FindFirstChildOfClass("PlayerGui")
+            if pg then table.insert(roots, pg) end
+        end
+        table.insert(roots, CoreGui)
+
+        local function IsActuallyVisible(obj)
+            local current = obj
+            while current and current ~= game do
+                if current:IsA("GuiObject") and current.Visible == false then return false end
+                if current:IsA("ScreenGui") and current.Enabled == false then return false end
+                current = current.Parent
+            end
+            return true
+        end
+
+        local results = {}
+        for _, rootGui in ipairs(roots) do
+            for _, obj in ipairs(rootGui:GetDescendants()) do
+                if #results >= limit then break end
+                if not obj:IsA("GuiObject") or not IsActuallyVisible(obj) then continue end
+                local text = nil
+                if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then text = obj.Text end
+                if textFilter ~= "" and not string.find(string.lower(tostring(text or obj.Name)), textFilter, 1, true) then continue end
+                local debugId = obj:GetDebugId()
+                InstanceByDebugId[debugId] = obj
+                local item = {
+                    Name = obj.Name, ClassName = obj.ClassName, Path = SafeFullName(obj), DebugId = debugId,
+                    AbsolutePosition = obj.AbsolutePosition, AbsoluteSize = obj.AbsoluteSize, ZIndex = obj.ZIndex,
+                    Active = obj.Active, Text = text,
+                }
+                if obj:IsA("GuiButton") then item.Interactable = obj.Active and obj.Visible end
+                table.insert(results, item)
+            end
+            if #results >= limit then break end
+        end
+        return { count = #results, limited = #results >= limit, results = results }
+    end)
+
+    Bridge:BindToType("get-player-state", function(data)
+        local player = Players.LocalPlayer
+        assert(player, "LocalPlayer unavailable.")
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local camera = workspace.CurrentCamera
+        local tools = {}
+        local function AddTools(container, location)
+            if not container then return end
+            for _, child in ipairs(container:GetChildren()) do
+                if child:IsA("Tool") then
+                    local debugId = child:GetDebugId()
+                    InstanceByDebugId[debugId] = child
+                    table.insert(tools, { Name = child.Name, Location = location, DebugId = debugId })
+                end
+            end
+        end
+        AddTools(player:FindFirstChildOfClass("Backpack"), "Backpack")
+        AddTools(character, "Character")
+        if character then InstanceByDebugId[character:GetDebugId()] = character end
+        if humanoid then InstanceByDebugId[humanoid:GetDebugId()] = humanoid end
+        if root then InstanceByDebugId[root:GetDebugId()] = root end
+        return {
+            Player = { Name = player.Name, UserId = tostring(player.UserId) },
+            Character = character and { Path = SafeFullName(character), DebugId = character:GetDebugId() } or nil,
+            HumanoidDebugId = humanoid and humanoid:GetDebugId() or nil,
+            RootPartDebugId = root and root:GetDebugId() or nil,
+            Position = root and root.Position or nil,
+            Velocity = root and root.AssemblyLinearVelocity or nil,
+            Humanoid = humanoid and {
+                Health = humanoid.Health, MaxHealth = humanoid.MaxHealth, WalkSpeed = humanoid.WalkSpeed,
+                JumpPower = humanoid.JumpPower, State = tostring(humanoid:GetState()), MoveDirection = humanoid.MoveDirection,
+                FloorMaterial = tostring(humanoid.FloorMaterial),
+            } or nil,
+            Camera = camera and { CFrame = camera.CFrame, FieldOfView = camera.FieldOfView, CameraType = tostring(camera.CameraType), CameraSubject = camera.CameraSubject } or nil,
+            Tools = tools,
+        }
+    end)
+
+    Bridge:BindToType("inspect-animations", function(data)
+        local player = Players.LocalPlayer
+        local character = player and player.Character
+        local results = {}
+        local limit = math.max(1, math.min(tonumber(data.limit) or 30, 100))
+        if character then
+            for _, animator in ipairs(character:GetDescendants()) do
+                if animator:IsA("Animator") then
+                    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                        if #results >= limit then break end
+                        local animatorDebugId = animator:GetDebugId()
+                        InstanceByDebugId[animatorDebugId] = animator
+                        table.insert(results, {
+                            Name = track.Name, AnimationId = track.Animation and track.Animation.AnimationId or nil,
+                            AnimatorDebugId = animatorDebugId,
+                            Priority = tostring(track.Priority), Speed = track.Speed, TimePosition = track.TimePosition,
+                            Length = track.Length, WeightCurrent = track.WeightCurrent, WeightTarget = track.WeightTarget,
+                            Looped = track.Looped, IsPlaying = track.IsPlaying, Animator = SafeFullName(animator),
+                        })
+                    end
+                end
+                if #results >= limit then break end
+            end
+        end
+        return { count = #results, results = results }
+    end)
+
+    Bridge:BindToType("inspect-sounds", function(data)
+        local limit = math.max(1, math.min(tonumber(data.limit) or 30, 100))
+        local playingOnly = data.playingOnly ~= false
+        local results = {}
+        for _, sound in ipairs(game:GetDescendants()) do
+            if not sound:IsA("Sound") then continue end
+            if playingOnly and not sound.Playing then continue end
+            local soundDebugId = sound:GetDebugId()
+            InstanceByDebugId[soundDebugId] = sound
+            table.insert(results, {
+                Name = sound.Name, Path = SafeFullName(sound), DebugId = soundDebugId, SoundId = sound.SoundId,
+                Playing = sound.Playing, Volume = sound.Volume, PlaybackSpeed = sound.PlaybackSpeed,
+                TimePosition = sound.TimePosition, SoundGroup = sound.SoundGroup, RollOffMode = tostring(sound.RollOffMode),
+                RollOffMinDistance = sound.RollOffMinDistance, RollOffMaxDistance = sound.RollOffMaxDistance,
+            })
+            if #results >= limit then break end
+        end
+        return { count = #results, results = results }
+    end)
+
+    Bridge:BindToType("get-performance-stats", function(data)
+        local duration = math.max(0.1, math.min(tonumber(data.sampleSeconds) or 0.5, 2))
+        local frames = 0
+        local start = os.clock()
+        local connection = RunService.RenderStepped:Connect(function() frames += 1 end)
+        repeat task.wait() until os.clock() - start >= duration
+        connection:Disconnect()
+        local elapsed = os.clock() - start
+        local result = { FPS = frames / elapsed, FrameTimeMs = (elapsed / math.max(frames, 1)) * 1000, SampleSeconds = elapsed }
+        pcall(function() result.TotalMemoryMb = Stats:GetTotalMemoryUsageMb() end)
+        pcall(function() result.InstanceCount = Stats.InstanceCount end)
+        pcall(function() result.NetworkPingSeconds = Players.LocalPlayer:GetNetworkPing() end)
+        pcall(function() result.LuaHeapKb = gcinfo() end)
+        local counts = { Sound = 0, PlayingSound = 0, LuaSourceContainer = 0, GuiObject = 0, BasePart = 0, PlayingAnimation = 0 }
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("Sound") then
+                counts.Sound += 1
+                if obj.Playing then counts.PlayingSound += 1 end
+            end
+            if obj:IsA("Animator") then
+                local ok, tracks = pcall(function() return obj:GetPlayingAnimationTracks() end)
+                if ok then counts.PlayingAnimation += #tracks end
+            end
+            if obj:IsA("LuaSourceContainer") then counts.LuaSourceContainer += 1 end
+            if obj:IsA("GuiObject") then counts.GuiObject += 1 end
+            if obj:IsA("BasePart") then counts.BasePart += 1 end
+        end
+        result.Counts = counts
+        return result
+    end)
+
+    local function CaptureStateSnapshot(data)
+        local snapshot = {
+            Instances = {}, ConsoleCount = nil, RemoteCounts = nil, Player = nil,
+            Gui = nil, Sounds = nil, Animations = nil, CreatedAt = os.clock(),
+        }
+        snapshot.TargetSpecs = data.targets
+        snapshot.Options = {
+            includeConsole = data.includeConsole, includePlayer = data.includePlayer, includeRemotes = data.includeRemotes,
+            includeGui = data.includeGui, includeSounds = data.includeSounds, includeAnimations = data.includeAnimations,
+            riskApproved = data.userConfirmedRisk == true,
+        }
+        local targets = data.targets
+        if typeof(targets) == "table" then
+            for _, target in ipairs(targets) do
+                if typeof(target) == "string" then target = { path = target } end
+                local ok, instance = pcall(ResolveInstanceTarget, target)
+                if ok and instance then
+                    local entry = { Path = SafeFullName(instance), DebugId = instance:GetDebugId(), Properties = {} }
+                    local properties = target.properties or { "Name", "Parent" }
+                    for i, property in ipairs(properties) do
+                        if i > 50 then break end
+                        local pOk, value = pcall(function() return instance[property] end)
+                        if pOk then entry.Properties[property] = StableValue(value) end
+                    end
+                    snapshot.Instances[entry.DebugId] = entry
+                end
+            end
+        end
+        if data.includeConsole ~= false then snapshot.ConsoleCount = #LogService:GetLogHistory() end
+        if data.includePlayer ~= false then
+            local player = Players.LocalPlayer
+            local character = player and player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            snapshot.Player = {
+                Position = root and StableValue(root.Position) or nil,
+                Velocity = root and StableValue(root.AssemblyLinearVelocity) or nil,
+                Health = humanoid and humanoid.Health or nil,
+                WalkSpeed = humanoid and humanoid.WalkSpeed or nil,
+                State = humanoid and tostring(humanoid:GetState()) or nil,
+            }
+        end
+        if data.includeRemotes == true and getgenv().Cobalt and getgenv().Cobalt.shared and getgenv().Cobalt.shared.Logs then
+            snapshot.RemoteCounts = {}
+            for _, dir in ipairs({ "Outgoing", "Incoming" }) do
+                local logTable = getgenv().Cobalt.shared.Logs[dir]
+                for instance, log in logTable do
+                    if typeof(instance) == "Instance" then snapshot.RemoteCounts[dir .. ":" .. instance:GetDebugId()] = #log.Calls end
+                end
+            end
+        end
+
+        if data.includeGui == true then
+            snapshot.Gui = {}
+            local roots = {}
+            local player = Players.LocalPlayer
+            local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+            if playerGui then table.insert(roots, playerGui) end
+            table.insert(roots, CoreGui)
+            local captured = 0
+            for _, guiRoot in ipairs(roots) do
+                for _, obj in ipairs(guiRoot:GetDescendants()) do
+                    if captured >= 250 then break end
+                    if not obj:IsA("GuiObject") then continue end
+                    local visible = true
+                    local current = obj
+                    while current and current ~= game do
+                        if current:IsA("GuiObject") and current.Visible == false then visible = false break end
+                        if current:IsA("ScreenGui") and current.Enabled == false then visible = false break end
+                        current = current.Parent
+                    end
+                    if not visible then continue end
+                    local text = nil
+                    if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then text = obj.Text end
+                    local id = obj:GetDebugId()
+                    snapshot.Gui[id] = {
+                        Path = SafeFullName(obj), ClassName = obj.ClassName, Text = text,
+                        Position = StableValue(obj.AbsolutePosition), Size = StableValue(obj.AbsoluteSize),
+                    }
+                    captured += 1
+                end
+                if captured >= 250 then break end
+            end
+        end
+
+        if data.includeSounds == true then
+            snapshot.Sounds = {}
+            for _, sound in ipairs(game:GetDescendants()) do
+                if sound:IsA("Sound") and sound.Playing then
+                    local id = sound:GetDebugId()
+                    snapshot.Sounds[id] = { Path = SafeFullName(sound), SoundId = sound.SoundId, Volume = sound.Volume }
+                end
+            end
+        end
+
+        if data.includeAnimations == true then
+            snapshot.Animations = {}
+            local player = Players.LocalPlayer
+            local character = player and player.Character
+            if character then
+                for _, animator in ipairs(character:GetDescendants()) do
+                    if not animator:IsA("Animator") then continue end
+                    local animatorId = animator:GetDebugId()
+                    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                        local animationId = track.Animation and track.Animation.AnimationId or ""
+                        local key = animatorId .. "|" .. animationId .. "|" .. track.Name
+                        snapshot.Animations[key] = {
+                            Animator = SafeFullName(animator), Name = track.Name, AnimationId = animationId,
+                            Priority = tostring(track.Priority), Speed = track.Speed,
+                        }
+                    end
+                end
+            end
+        end
+        return snapshot
+    end
+
+    local function DiffStateSnapshots(before, after)
+        local changes = {
+            Instances = {}, Player = {}, ConsoleNewEntries = nil, RemoteCallDeltas = {},
+            GuiChanges = {}, SoundsStarted = {}, SoundsStopped = {}, AnimationsStarted = {}, AnimationsStopped = {},
+        }
+        for id, old in pairs(before.Instances or {}) do
+            local new = (after.Instances or {})[id]
+            if not new then
+                table.insert(changes.Instances, { DebugId = id, Path = old.Path, Change = "removed-or-unresolved" })
+            else
+                for property, oldValue in pairs(old.Properties or {}) do
+                    local newValue = new.Properties and new.Properties[property]
+                    if oldValue ~= newValue then
+                        table.insert(changes.Instances, { DebugId = id, Path = new.Path, Property = property, Before = oldValue, After = newValue })
+                    end
+                end
+            end
+        end
+        for id, new in pairs(after.Instances or {}) do
+            if not (before.Instances or {})[id] then table.insert(changes.Instances, { DebugId = id, Path = new.Path, Change = "added" }) end
+        end
+        for key, oldValue in pairs(before.Player or {}) do
+            local newValue = (after.Player or {})[key]
+            if oldValue ~= newValue then changes.Player[key] = { Before = oldValue, After = newValue } end
+        end
+        if before.ConsoleCount and after.ConsoleCount then changes.ConsoleNewEntries = math.max(0, after.ConsoleCount - before.ConsoleCount) end
+        for key, newCount in pairs(after.RemoteCounts or {}) do
+            local delta = newCount - ((before.RemoteCounts or {})[key] or 0)
+            if delta > 0 then changes.RemoteCallDeltas[key] = delta end
+        end
+
+        for id, oldGui in pairs(before.Gui or {}) do
+            local newGui = (after.Gui or {})[id]
+            if not newGui then
+                table.insert(changes.GuiChanges, { DebugId = id, Path = oldGui.Path, Change = "hidden-or-removed" })
+            else
+                for _, field in ipairs({ "Text", "Position", "Size" }) do
+                    if oldGui[field] ~= newGui[field] then
+                        table.insert(changes.GuiChanges, { DebugId = id, Path = newGui.Path, Property = field, Before = oldGui[field], After = newGui[field] })
+                    end
+                end
+            end
+        end
+        for id, newGui in pairs(after.Gui or {}) do
+            if not (before.Gui or {})[id] then table.insert(changes.GuiChanges, { DebugId = id, Path = newGui.Path, Change = "shown-or-added", Text = newGui.Text }) end
+        end
+
+        for id, sound in pairs(after.Sounds or {}) do
+            if not (before.Sounds or {})[id] then table.insert(changes.SoundsStarted, sound) end
+        end
+        for id, sound in pairs(before.Sounds or {}) do
+            if not (after.Sounds or {})[id] then table.insert(changes.SoundsStopped, sound) end
+        end
+        for key, animation in pairs(after.Animations or {}) do
+            if not (before.Animations or {})[key] then table.insert(changes.AnimationsStarted, animation) end
+        end
+        for key, animation in pairs(before.Animations or {}) do
+            if not (after.Animations or {})[key] then table.insert(changes.AnimationsStopped, animation) end
+        end
+        return changes
+    end
+
+    Bridge:BindToType("state-observation", function(data)
+        local operation = data.operation or "snapshot"
+        if operation == "snapshot" or operation == "begin" then
+            if data.includeRemotes == true then
+                AssertRiskConfirmed(data, { "Cobalt remote-spy hooks" })
+                Bridge.Callbacks["ensure-remote-spy"]({ userConfirmedRisk = data.userConfirmedRisk })
+            end
+            StateSnapshotCounter += 1
+            if StateSnapshotCounter > 50 then StateSnapshots["snapshot:" .. tostring(StateSnapshotCounter - 50)] = nil end
+            local id = "snapshot:" .. tostring(StateSnapshotCounter)
+            StateSnapshots[id] = CaptureStateSnapshot(data)
+            return { snapshotId = id, createdAt = StateSnapshots[id].CreatedAt, mode = operation }
+        elseif operation == "diff" or operation == "end" then
+            local before = StateSnapshots[data.snapshotId]
+            assert(before, "Unknown snapshotId: " .. tostring(data.snapshotId))
+            local captureData = {}
+            for k, v in pairs(data) do captureData[k] = v end
+            if captureData.targets == nil then captureData.targets = before.TargetSpecs end
+            local options = before.Options or {}
+            if captureData.includeConsole == nil then captureData.includeConsole = options.includeConsole end
+            if captureData.includePlayer == nil then captureData.includePlayer = options.includePlayer end
+            if captureData.includeRemotes == nil then captureData.includeRemotes = options.includeRemotes end
+            if captureData.userConfirmedRisk == nil and options.riskApproved == true then
+                captureData.userConfirmedRisk = true
+            end
+            if captureData.includeRemotes == true and not getgenv().Cobalt then
+                AssertRiskConfirmed(captureData, { "Cobalt remote-spy hooks" })
+                Bridge.Callbacks["ensure-remote-spy"]({ userConfirmedRisk = captureData.userConfirmedRisk })
+            end
+            if captureData.includeGui == nil then captureData.includeGui = options.includeGui end
+            if captureData.includeSounds == nil then captureData.includeSounds = options.includeSounds end
+            if captureData.includeAnimations == nil then captureData.includeAnimations = options.includeAnimations end
+            local after = CaptureStateSnapshot(captureData)
+            local diff = DiffStateSnapshots(before, after)
+            if operation == "end" then StateSnapshots[data.snapshotId] = nil end
+            return { snapshotId = data.snapshotId, diff = diff }
+        elseif operation == "delete" then
+            StateSnapshots[data.snapshotId] = nil
+            return { deleted = data.snapshotId }
+        end
+        error("Invalid state-observation operation: " .. tostring(operation))
+    end)
+
     Bridge:BindToType("type-text-box", function(data)
         local path = data.path
         local text = data.string or data.text
         local enter = data.enter
         local useKeyPress = data.useKeyPress
 
-        local textBox
-        if typeof(path) == "string" then
-            textBox = loadstring("return " .. path)()
-        else
-            textBox = path
-        end
+        local textBox = ResolveInstanceTarget(data)
         
-        assert(typeof(textBox) == "Instance", "Path did not resolve to a valid Instance.")
+        assert(typeof(textBox) == "Instance", "Target did not resolve to a valid Instance.")
         assert(textBox:IsA("TextBox"), "Resolved Instance is not a TextBox.")
 
         textBox:CaptureFocus()
@@ -2204,14 +3253,9 @@ while true do
         local path = data.path
         local action = data.Action or data.action
 
-        local button
-        if typeof(path) == "string" then
-            button = loadstring("return " .. path)()
-        else
-            button = path
-        end
+        local button = ResolveInstanceTarget(data)
 
-        assert(typeof(button) == "Instance", "Path did not resolve to a valid Instance.")
+        assert(typeof(button) == "Instance", "Target did not resolve to a valid Instance.")
         assert(button:IsA("GuiButton"), "Resolved Instance is not a GuiButton (e.g., TextButton or ImageButton).")
         assert(typeof(firesignal) == "function", "Your executor does not support 'firesignal', which is required for this command.")
 

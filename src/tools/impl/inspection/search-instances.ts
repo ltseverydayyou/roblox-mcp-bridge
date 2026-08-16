@@ -16,6 +16,7 @@ export default function register(server: McpServer): void {
           .describe(
             "QueryDescendants selector. Supports class (Part), tag (.Tagged), name (#HumanoidRootPart), property ([CanCollide = false]), attribute ([$QuestId]), combinators (> >>), OR (,), :not(), :has(). Chain for AND, e.g. Part.Tagged[Anchored = false]."
           ),
+        rootDebugId: z.string().describe("Optional DebugId to use as the search root instead of root path.").optional(),
         root: z
           .string()
           .describe(
@@ -31,10 +32,10 @@ export default function register(server: McpServer): void {
         maxOutputChars: maxOutputCharsSchema,
       }),
     },
-    async ({ selector, root, limit, maxOutputChars }) =>
+    async ({ selector, rootDebugId, root, limit, maxOutputChars }) =>
       sendAndWait({
         type: "search-instances",
-        data: { selector, root, limit },
+        data: { selector, rootDebugId, root, limit },
         maxOutputChars,
         stampClient: true,
         truncationHint: "Rerun search-instances with a narrower selector, tighter root, or lower limit.",

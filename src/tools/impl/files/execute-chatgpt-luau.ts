@@ -2,7 +2,7 @@ import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { downloadOpenAIFile } from "../../../files/chatgpt-file.js";
-import { sendFireAndForget, toolTextResponse } from "../../factory.js";
+import { detectRiskyExecutorMethods, riskConfirmationMessage, sendFireAndForget, toolTextResponse } from "../../factory.js";
 import { threadContextSchema } from "../../schemas.js";
 import { openAIFileInputSchema } from "./file-schema.js";
 
@@ -15,10 +15,11 @@ export default function register(server: McpServer): void {
     {
       title: "Execute a ChatGPT Luau file",
       description:
-        "Download one complete Luau file supplied by ChatGPT and execute it in the active Roblox client. Use this for attached or generated /mnt/data files instead of copying code in chunks. Accepts .lua, .luau, and plain-text source files up to 8 MiB.",
+        "Download one complete Luau file supplied by ChatGPT and execute it in the active Roblox client. If the file calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true. Safe files do not need the flag.",
       inputSchema: z.object({
         file: openAIFileInputSchema.describe("The ChatGPT file containing Luau source code."),
         threadContext: threadContextSchema,
+        userConfirmedRisk: z.boolean().optional().describe("Set true only after the user explicitly approves risky executor methods detected in the downloaded file."),
       }),
       annotations: {
         readOnlyHint: false,
@@ -30,7 +31,7 @@ export default function register(server: McpServer): void {
         "openai/fileParams": ["file"],
       },
     },
-    async ({ file, threadContext }) => {
+    async ({ file, threadContext, userConfirmedRisk }) => {
       try {
         const downloaded = await downloadOpenAIFile(file, MAX_EXECUTABLE_FILE_BYTES);
         const extension = path.extname(downloaded.fileName).toLowerCase();
@@ -61,12 +62,17 @@ export default function register(server: McpServer): void {
           );
         }
 
+        const riskyMethods = detectRiskyExecutorMethods(source);
+        if (riskyMethods.length > 0 && userConfirmedRisk !== true) {
+          return toolTextResponse(riskConfirmationMessage(riskyMethods), {}, true);
+        }
+
         console.error(
           `[ChatGPT File] Executing ${downloaded.fileName} (${downloaded.bytes.length} bytes, sha256=${downloaded.sha256}) in thread ${threadContext}...`
         );
         return sendFireAndForget({
           type: "execute",
-          data: { source: `setthreadidentity(${threadContext})\n${source}` },
+          data: { source: `setthreadidentity(${threadContext})\n${source}`, userConfirmedRisk: userConfirmedRisk === true },
           successMessage:
             `Downloaded and executed ${downloaded.fileName} ` +
             `(${downloaded.bytes.length} bytes, sha256=${downloaded.sha256}, thread context ${threadContext}).`,

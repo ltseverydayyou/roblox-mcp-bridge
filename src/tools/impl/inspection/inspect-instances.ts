@@ -11,13 +11,9 @@ export default function register(server: McpServer): void {
       description:
         "Inspect one or more Roblox instances in a single call. Returns stable debug IDs, selected readable properties, attributes, tags, and a bounded immediate-child summary. Prefer this over arbitrary Luau for ordinary instance inspection.",
       inputSchema: z.object({
-        paths: z
-          .array(z.string())
-          .min(1)
-          .max(25)
-          .describe(
-            "Instance paths to inspect, such as ['game.Workspace.Baseplate', 'game.Players.LocalPlayer']. Maximum 25 paths."
-          ),
+        paths: z.array(z.string()).max(25).describe("Legacy path-only targets.").optional(),
+        targets: z.array(z.object({ path: z.string().optional(), debugId: z.string().optional() })).min(1).max(25)
+          .describe("Preferred targets. Each item may use path or stable DebugId from search-instances.").optional(),
         properties: z
           .array(z.string())
           .max(50)
@@ -50,6 +46,7 @@ export default function register(server: McpServer): void {
     },
     async ({
       paths,
+      targets,
       properties,
       includeAttributes,
       includeTags,
@@ -60,7 +57,8 @@ export default function register(server: McpServer): void {
       sendAndWait({
         type: "inspect-instances",
         data: {
-          paths,
+          ...(paths ? { paths } : {}),
+          ...(targets ? { targets } : {}),
           ...(properties ? { properties } : {}),
           includeAttributes,
           includeTags,

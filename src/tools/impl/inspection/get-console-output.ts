@@ -21,6 +21,7 @@ export default function register(server: McpServer): void {
           .describe("The order of the logs to return (default: NewestFirst)")
           .optional()
           .default("NewestFirst"),
+        sinceCursor: z.string().describe("Cursor returned by create-console-cursor; when set, only newer log entries are considered.").optional(),
         filter: z
           .string()
           .describe("Optional string filter; only logs containing this text are returned")
@@ -33,10 +34,10 @@ export default function register(server: McpServer): void {
         maxOutputChars: maxOutputCharsSchema,
       }),
     },
-    async ({ limit, logsOrder, filter, summaryOnly, maxOutputChars }) =>
+    async ({ limit, logsOrder, sinceCursor, filter, summaryOnly, maxOutputChars }) =>
       sendAndWait({
         type: "get-console-output",
-        data: { limit, logsOrder, filter, summaryOnly },
+        data: { limit, logsOrder, sinceCursor, filter, summaryOnly },
         maxOutputChars,
         stampClient: true,
         truncationHint: "Rerun get-console-output with a filter, lower limit, or summaryOnly=true.",

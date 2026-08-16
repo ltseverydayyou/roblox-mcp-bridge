@@ -15,3 +15,9 @@ export const maxOutputCharsSchema = z
   )
   .optional()
   .default(6000);
+
+export const userConfirmedRiskSchema = z
+  .literal(true)
+  .describe(
+    "Set true only after the user explicitly confirms this potentially detectable executor-introspection/hooking step. If the user already approved the same risky methods for the current workflow, that approval may be reused for follow-up calls in that workflow."
+  );

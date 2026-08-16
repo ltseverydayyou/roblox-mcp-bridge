@@ -362,6 +362,21 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
       "get-descendants-tree": "get-descendants-tree",
       "get-game-info": "get-game-info",
       "remote-spy": "remote-spy",
+      "get-executor-capabilities": "get-executor-capabilities",
+      "create-console-cursor": "create-console-cursor",
+      "recover-nil-scripts": "recover-nil-scripts",
+      "search-runtime-objects": "search-runtime-objects",
+      "inspect-runtime-object": "inspect-runtime-object",
+      "inspect-connections": "inspect-connections",
+      "inspect-module": "inspect-module",
+      "search-loaded-modules": "inspect-loaded-modules",
+      "inspect-visible-gui": "inspect-visible-gui",
+      "get-player-state": "get-player-state",
+      "inspect-animations": "inspect-animations",
+      "inspect-sounds": "inspect-sounds",
+      "get-performance-stats": "get-performance-stats",
+      "state-observation": "state-observation",
+      "observe-action": "state-observation",
     };
 
     const robloxType = dispatchTypes[type];
@@ -370,7 +385,25 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
     // Build data for the client
     const data: Record<string, unknown> = {};
 
-    if (type === "remote-spy") {
+    const passthroughTypes = new Set([
+      "remote-spy",
+      "get-executor-capabilities",
+      "create-console-cursor",
+      "recover-nil-scripts",
+      "search-runtime-objects",
+      "inspect-runtime-object",
+      "inspect-connections",
+      "inspect-module",
+      "search-loaded-modules",
+      "inspect-visible-gui",
+      "get-player-state",
+      "inspect-animations",
+      "inspect-sounds",
+      "get-performance-stats",
+      "state-observation",
+      "observe-action",
+    ]);
+    if (passthroughTypes.has(type)) {
       Object.assign(data, params);
     }
 
@@ -379,6 +412,7 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
       if (!code) return jsonErr(res, "Missing 'code' parameter.");
       const timeout = Math.min(Math.max(Number(params.timeout) || 15000, 1000), 120000);
       data.source = `setthreadidentity(8);${code}`;
+      if (params.userConfirmedRisk === true) data.userConfirmedRisk = true;
       const callId = SendArbitraryDataToClient(robloxType, data, undefined, target.clientId);
       if (!callId) return jsonErr(res, "Failed to dispatch to client.");
       if (callId === "INVALID_CLIENT") return jsonErr(res, "Invalid client.");
@@ -400,6 +434,7 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
         return jsonErr(res, "Execute Code input exceeds the 8 MiB limit.");
       }
       data.source = `setthreadidentity(8);${code}`;
+      if (params.userConfirmedRisk === true) data.userConfirmedRisk = true;
       const callId = SendArbitraryDataToClient(robloxType, data, undefined, target.clientId);
       if (!callId) return jsonErr(res, "Failed to dispatch to client.");
       if (callId === "INVALID_CLIENT") return jsonErr(res, "Invalid client.");
@@ -413,15 +448,27 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
       data.root = params.root || "game";
       data.limit = numberParam(params.limit, 20, 1, 100);
     } else if (type === "inspect-instances") {
-      if (!Array.isArray(params.paths) || params.paths.length === 0) {
-        return jsonErr(res, "Missing non-empty 'paths' array.");
+      const targets = Array.isArray(params.targets)
+        ? params.targets
+            .filter((value): value is Record<string, unknown> => value !== null && typeof value === "object")
+            .map((value) => ({
+              ...(typeof value.path === "string" && value.path.trim() ? { path: value.path.trim() } : {}),
+              ...(typeof value.debugId === "string" && value.debugId.trim() ? { debugId: value.debugId.trim() } : {}),
+            }))
+            .filter((value) => value.path || value.debugId)
+            .slice(0, 25)
+        : [];
+      const paths = Array.isArray(params.paths)
+        ? params.paths
+            .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+            .map((value) => value.trim())
+            .slice(0, 25)
+        : [];
+      if (targets.length === 0 && paths.length === 0) {
+        return jsonErr(res, "Missing non-empty 'targets' or 'paths'.");
       }
-      data.paths = params.paths
-        .filter((value): value is string => typeof value === "string" && value.trim() !== "")
-        .slice(0, 25);
-      if ((data.paths as string[]).length === 0) {
-        return jsonErr(res, "The 'paths' array contains no valid paths.");
-      }
+      if (targets.length > 0) data.targets = targets;
+      else data.paths = paths;
       if (Array.isArray(params.properties)) {
         data.properties = params.properties
           .filter((value): value is string => typeof value === "string" && value.trim() !== "")
@@ -435,6 +482,7 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
       data.limit = numberParam(params.limit, 10, 1, 200);
       if (typeof params.logsOrder === "string") data.logsOrder = params.logsOrder;
       if (typeof params.filter === "string") data.filter = params.filter;
+      if (typeof params.sinceCursor === "string") data.sinceCursor = params.sinceCursor;
       if (typeof params.summaryOnly === "boolean") data.summaryOnly = params.summaryOnly;
     } else if (type === "get-descendants-tree") {
       const root = params.root as string;
@@ -452,7 +500,10 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
     if (!callId) return jsonErr(res, "Failed to dispatch to client.");
     if (callId === "INVALID_CLIENT") return jsonErr(res, "Invalid client.");
 
-    const response = await GetResponseOfIdFromClient(callId, 15000);
+    const responseTimeout = type === "recover-nil-scripts"
+      ? 120000
+      : (["search-runtime-objects", "search-loaded-modules", "inspect-connections", "remote-spy"].includes(type) ? 30000 : 15000);
+    const response = await GetResponseOfIdFromClient(callId, responseTimeout);
     if (response.error) return jsonErr(res, response.error);
     return jsonOk(res, {
       result: resultText(

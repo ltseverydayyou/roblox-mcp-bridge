@@ -6,7 +6,7 @@
 
 An MCP server that allows Agents to interact with a running Roblox game client — execute code, inspect scripts, spy on remotes, and more.
 
-> This repository is a maintained mirror of the original `notpoiu/roblox-executor-mcp` project. The original Git history and [MIT license](LICENSE) are preserved.
+> This repository is an improved continuation of the original `notpoiu/roblox-executor-mcp` project, with additional client-inspection, observation, safety, and dashboard tooling. The original Git history and [MIT license](LICENSE) are preserved.
 
 ## Dashboard
 
@@ -16,7 +16,7 @@ Roblox Executor MCP includes a local web dashboard at:
 http://localhost:16384/
 ```
 
-Use it to see connected Roblox clients, inspect scripts, run tools, view server logs, configure semantic search, and index games for semantic script search. The Execute Code panel accepts typed code or a locally selected/dropped `.lua`, `.luau`, or UTF-8 `.txt` file; loading a file never executes it until you click **Send**.
+Use it to see connected Roblox clients, inspect scripts, run tools, view server logs, configure semantic search, and index games for semantic script search. The Tools dashboard groups search, client, instance, observation, remote, runtime, and execution utilities, with filtering, response copy/clear controls, and explicit confirmation before risk-sensitive executor operations. The Execute Code panel accepts typed code or a locally selected/dropped `.lua`, `.luau`, or UTF-8 `.txt` file; loading a file never executes it until you click **Send**.
 
 ## Features
 
@@ -25,7 +25,7 @@ Use it to see connected Roblox clients, inspect scripts, run tools, view server 
 - **Script Inspection** — Decompile scripts and search across all sources.
 - **Instance Search** — CSS-like selectors and hierarchy trees.
 - **Typed Instance Inspection** — Batch-read useful properties, attributes, tags, stable debug IDs, and child summaries without arbitrary code.
-- **Remote Spy** — Intercept, log, block, and ignore Remotes/Bindables via [Cobalt](https://github.com/notpoiu/cobalt).
+- **Remote Spy** — Intercept, log, block, and ignore Remotes/Bindables via [Cobalt](https://gitlab.com/upio/cobalt).
 - **GUI Interaction** — Click buttons and type into text boxes.
 - **Screenshot** — Capture Roblox window screenshots (Windows only).
 - **Multi-Client** — Connect multiple Roblox clients at once.
@@ -443,3 +443,19 @@ Have a suggestion or need help? Join the [Discord server](https://discord.gg/FJc
 ## License
 
 [MIT](LICENSE)
+
+
+## AI-oriented inspection additions
+
+The connector includes bounded, structured tools intended for agent-driven client debugging:
+
+- `get-executor-capabilities` detects executor API support before a tool chooses a strategy.
+- `recover-nil-scripts` is an explicit-only heavy recovery operation. Startup and ordinary DebugId/script inspection do not call `getnilinstances`, `getgc`, or registry enumeration. When explicitly invoked after user confirmation, it uses bounded nil/runtime/registry discovery and returns the original nil scripts by DebugId; it does not clone or reparent them.
+- Instance-facing inspection/UI tools accept stable `DebugId` targets where applicable.
+- `create-console-cursor` + `get-console-output.sinceCursor` return only new console entries.
+- `remote-spy` supports `mark`, `sinceCursor`, and `profile`; list ranking is applied after scanning all matching remotes.
+- `search-runtime-objects`, `inspect-runtime-object`, and `inspect-function` provide bounded getgc/closure inspection through opaque handles. Detection-prone executor enumeration/introspection requires explicit user confirmation via `userConfirmedRisk=true`.
+- Risk-aware MCP policy: before calling `getgc`, `getnilinstances`, `getconnections`, `getloadedmodules`, registry/debug closure APIs, hook APIs, or starting Cobalt remote spying, the AI should ask the user whether to continue. Generic execution tools also scan submitted source for these method calls and refuse unconfirmed risky code. `remote-spy status` is safe and does not load Cobalt; action observation keeps remote capture off by default.
+- `inspect-connections`, `search-loaded-modules`, and `inspect-module` expose structured signal/module inspection.
+- `inspect-visible-gui`, `get-player-state`, `inspect-animations`, `inspect-sounds`, and `get-performance-stats` avoid repetitive arbitrary-code probes.
+- `state-observation` and `observe-action` support before/after diffs across selected properties, LocalPlayer state, console growth, remote traffic, visible GUI, playing sounds, and animations.

@@ -10,7 +10,8 @@ export default function register(server: McpServer): void {
       description:
         "Enter text into a Roblox TextBox by path. Can simulate keystrokes or set Text directly based on useKeyPress.",
       inputSchema: z.object({
-        path: z.string().describe("The instance path to the TextBox"),
+        path: z.string().describe("The instance path to the TextBox").optional(),
+        debugId: z.string().describe("Stable DebugId from search/GUI inspection; preferred when paths are ambiguous.").optional(),
         text: z.string().describe("The string to type into the TextBox"),
         enter: z
           .boolean()
@@ -26,10 +27,10 @@ export default function register(server: McpServer): void {
           .default(true),
       }),
     },
-    async ({ path, text, enter, useKeyPress }) =>
+    async ({ path, debugId, text, enter, useKeyPress }) =>
       sendAndWait({
         type: "type-text-box",
-        data: { path, text, string: text, enter, useKeyPress },
+        data: { path, debugId, text, string: text, enter, useKeyPress },
         failureField: "error",
         failureMessage: (response) =>
           "Failed to type into TextBox: " + describeResponse(response),
