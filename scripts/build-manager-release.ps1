@@ -2,7 +2,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) "release"),
+    [string]$OutputDirectory = "",
 
     [string]$BridgeAddress = "localhost:16384",
 
@@ -16,9 +16,21 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$repositoryDirectory = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$scriptDirectory = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($scriptDirectory)) {
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if (-not [string]::IsNullOrWhiteSpace($scriptPath)) {
+        $scriptDirectory = Split-Path -Parent $scriptPath
+    }
+}
+if ([string]::IsNullOrWhiteSpace($scriptDirectory)) {
+    $scriptDirectory = (Get-Location).Path
+}
+
+$scriptDirectory = [IO.Path]::GetFullPath($scriptDirectory)
+$repositoryDirectory = [IO.Path]::GetFullPath((Join-Path $scriptDirectory ".."))
 $manifestPath = Join-Path $repositoryDirectory "package.json"
-$launcherPath = Join-Path $PSScriptRoot "create-windows-launcher.ps1"
+$launcherPath = Join-Path $scriptDirectory "create-windows-launcher.ps1"
 
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "package.json was not found at $manifestPath"
@@ -32,7 +44,16 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     throw "package.json does not contain a version."
 }
 
-$outputPath = [IO.Path]::GetFullPath($OutputDirectory)
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $repositoryDirectory "release"
+}
+
+if ([IO.Path]::IsPathRooted($OutputDirectory)) {
+    $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
+} else {
+    $outputPath = [IO.Path]::GetFullPath((Join-Path (Get-Location).Path $OutputDirectory))
+}
+
 if (-not (Test-Path -LiteralPath $outputPath -PathType Container)) {
     New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
 }
@@ -56,7 +77,7 @@ Move-Item -LiteralPath $plainExe -Destination $releaseExe -Force
 $hash = (Get-FileHash -LiteralPath $releaseExe -Algorithm SHA256).Hash.ToLowerInvariant()
 $size = (Get-Item -LiteralPath $releaseExe).Length
 
-Write-Host "" 
+Write-Host ""
 Write-Host "Release manager built:" -ForegroundColor Green
 Write-Host "  $releaseExe"
 Write-Host "Version: v$version"
