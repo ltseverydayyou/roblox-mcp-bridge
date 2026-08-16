@@ -227,7 +227,13 @@ Git, Node.js, and the MCP build are required. The ChatGPT tunnel client, tunnel 
 
 For plugin connection creation, the current official OpenAI route is **ChatGPT Settings → Security and login → Developer mode**, then **ChatGPT Plugins → + → Tunnel**. Plugins are officially supported on multiple ChatGPT and Codex surfaces; “ChatGPT Classic” is not documented as a requirement. If a Codex/Worker view gets in the way, switch to the normal Chat/Plugins surface for connection creation. See [OpenAI's connect-and-test guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 
-To create or recreate it directly from an existing checkout:
+To build the release-ready versioned EXE from an existing checkout, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-manager-release.ps1
+```
+
+This writes `release\RobloxMcpManager-vX.Y.Z.exe` using the version from `package.json` and prints its SHA-256. To create or recreate the unversioned launcher directly instead:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\create-windows-launcher.ps1 `
@@ -247,7 +253,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\create-windows-lau
   -OutputDirectory "D:\Roblox MCP Manager"
 ```
 
-The generated `.exe` now embeds its manager UI and works by itself. It uses a modern dark control-panel layout and embeds the official Luau logo from the same [`luau-lang/site` source](https://github.com/luau-lang/site/blob/master/logo.svg) used by this project's author profile. Starting with v2.3.6, the manager checks GitHub releases for its own updates, verifies the published SHA-256 digest, atomically replaces its launcher while preserving a `.previous-...exe` backup, and offers to restart itself. `RobloxMcpManager.config.json` is optional and only prefills non-secret paths/settings; if it is missing, the manager starts with safe defaults and can install or locate everything. No third-party EXE-builder module is downloaded.
+The generated `.exe` now embeds its manager UI and works by itself. It uses a modern dark control-panel layout and embeds the official Luau logo from the same [`luau-lang/site` source](https://github.com/luau-lang/site/blob/master/logo.svg) used by this project's author profile. Starting with v2.3.6, the manager checks GitHub releases for its own updates, verifies the published SHA-256 digest, atomically replaces its launcher while preserving a `.previous-...exe` backup, and offers to restart itself. The updater also compares the running EXE against the release asset SHA-256 when the version number is unchanged, so a rebuilt/replaced `RobloxMcpManager-vX.Y.Z.exe` asset is detected without requiring another version bump. `RobloxMcpManager.config.json` is optional and only prefills non-secret paths/settings; if it is missing, the manager starts with safe defaults and can install or locate everything. No third-party EXE-builder module is downloaded.
 
 ### Force-update recovery (Windows)
 

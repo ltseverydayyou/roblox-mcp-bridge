@@ -216,7 +216,7 @@ function Get-RemoteVersion {
 
 function Compare-VersionText {
     param([string]$Local, [string]$Remote)
-    try { return ([version]$Remote).CompareTo([version]$Local) } catch { return 0 }
+    try { return ([version]$Local).CompareTo([version]$Remote) } catch { return 0 }
 }
 
 function Get-NodeVersion {
@@ -887,23 +887,66 @@ function Install-ManagerRelease {
     }
 }
 
+function Get-InstalledManagerSha256 {
+    if ([string]::IsNullOrWhiteSpace($script:ManagerExecutable) -or -not (Test-ExistingFile $script:ManagerExecutable)) {
+        return $null
+    }
+    try {
+        return (Get-FileHash -LiteralPath $script:ManagerExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    catch {
+        Add-Log "Could not hash the installed manager executable: $($_.Exception.Message)" "WARN"
+        return $null
+    }
+}
+
 function Check-ManagerUpdate {
     param([bool]$Manual = $false)
     if ($script:ManagerVersion -eq "source") {
         if ($Manual) { throw "Self-update is available in the generated/downloaded manager EXE, not when running windows-mcp-manager.ps1 directly." }
         return
     }
+
     $release = Get-LatestManagerRelease $Manual
     $comparison = Compare-VersionText $script:ManagerVersion $release.Version
-    if ($comparison -ge 0) {
+    $sameVersionRefresh = $false
+    $installedHash = $null
+
+    if ($comparison -gt 0) {
         if ($Manual) {
-            [Windows.Forms.MessageBox]::Show("Roblox MCP Manager v$($script:ManagerVersion) is current.", "Manager is up to date", 0, 64) | Out-Null
+            [Windows.Forms.MessageBox]::Show("Roblox MCP Manager v$($script:ManagerVersion) is newer than the latest published release (v$($release.Version)).", "Manager is up to date", 0, 64) | Out-Null
         }
         return
     }
 
+    if ($comparison -eq 0) {
+        $installedHash = Get-InstalledManagerSha256
+        if (-not $installedHash) {
+            if ($Manual) { throw "The installed manager executable could not be hashed, so same-version release freshness could not be verified." }
+            return
+        }
+        if ($installedHash -eq $release.Sha256) {
+            if ($Manual) {
+                [Windows.Forms.MessageBox]::Show("Roblox MCP Manager v$($script:ManagerVersion) is current and matches the published SHA-256.", "Manager is up to date", 0, 64) | Out-Null
+            }
+            return
+        }
+        $sameVersionRefresh = $true
+    }
+
     $script:PromptedForManagerUpdate = $true
-    if ([Windows.Forms.MessageBox]::Show("Roblox MCP Manager v$($release.Version) is available (installed: v$($script:ManagerVersion)).`r`n`r`nDownload, verify, and install it now?", "Manager update available", 4, 64) -eq "Yes") {
+    if ($sameVersionRefresh) {
+        $installedShort = $installedHash.Substring(0, 12)
+        $publishedShort = $release.Sha256.Substring(0, 12)
+        $message = "A refreshed build of Roblox MCP Manager v$($release.Version) is available even though the version number is unchanged.`r`n`r`nInstalled SHA-256: $installedShort...`r`nPublished SHA-256: $publishedShort...`r`n`r`nDownload, verify, and install the refreshed build now?"
+        $title = "Manager build update available"
+    }
+    else {
+        $message = "Roblox MCP Manager v$($release.Version) is available (installed: v$($script:ManagerVersion)).`r`n`r`nDownload, verify, and install it now?"
+        $title = "Manager update available"
+    }
+
+    if ([Windows.Forms.MessageBox]::Show($message, $title, 4, 64) -eq "Yes") {
         Install-ManagerRelease $release
     }
 }
