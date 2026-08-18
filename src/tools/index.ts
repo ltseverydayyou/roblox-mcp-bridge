@@ -26,9 +26,11 @@ import registerClickButton from "./impl/gui/click-button.js";
 import registerScreenshotWindow from "./impl/windows/screenshot-window.js";
 import registerListRobloxWindows from "./impl/windows/list-roblox-windows.js";
 import registerCheckForUpdates from "./impl/server/check-for-updates.js";
+import registerRobloxApiResources from "./impl/server/roblox-api-resources.js";
 
 export function registerAllTools(server: McpServer): void {
   registerCheckForUpdates(server);
+  registerRobloxApiResources(server);
 
   registerSetActiveClient(server);
 

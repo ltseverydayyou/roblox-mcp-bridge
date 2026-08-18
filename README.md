@@ -6,7 +6,7 @@
 
 An MCP server that allows Agents to interact with a running Roblox game client — execute code, inspect scripts, spy on remotes, and more.
 
-> This repository is an improved continuation of the original `notpoiu/roblox-executor-mcp` project, with additional client-inspection, observation, safety, and dashboard tooling. The original Git history and [MIT license](LICENSE) are preserved.
+> This repository is an improved continuation of the original `notpoiu/roblox-executor-mcp` project, with additional client-inspection, observation, safety, and dashboard tooling. The original [MIT license](LICENSE) is preserved.
 
 ## Dashboard
 
@@ -487,6 +487,8 @@ Have a suggestion or need help? Join the [Discord server](https://discord.gg/FJc
 The connector includes bounded, structured tools intended for agent-driven client debugging:
 
 - `get-executor-capabilities` detects executor API support before a tool chooses a strategy.
+- `search-executor-functions` safely searches callable paths in `getgenv()`, `getfenv(0)`, and `_G` without invoking them; use a narrow query such as `websocket`, `crypt`, `request`, `file`, or `drawing` when the fixed capability list is not enough. The scan is cycle-safe, bounded, and deduplicates function aliases by default.
+- `get-roblox-api-resources` gives agents a curated directory of official Creator Hub/Luau references plus Roblox API Reference, MaximumADHD API History/Client Tracker, raw API dumps, and historical community references. `fetch-roblox-api-reference` can read those vetted public sources directly through MCP without sending cookies or credentials. See [Roblox API reference sources](docs/roblox-api-resources.md).
 - `recover-nil-scripts` is an explicit-only heavy recovery operation. Startup and ordinary DebugId/script inspection do not call `getnilinstances`, `getgc`, or registry enumeration. When explicitly invoked after user confirmation, it uses bounded nil/runtime/registry discovery and returns the original nil scripts by DebugId; it does not clone or reparent them.
 - Instance-facing inspection/UI tools accept stable `DebugId` targets where applicable.
 - `create-console-cursor` + `get-console-output.sinceCursor` return only new console entries.

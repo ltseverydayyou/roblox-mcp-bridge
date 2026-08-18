@@ -1393,6 +1393,26 @@ const toolDefs = {
         desc: 'Check which executor APIs exist without invoking heavy enumeration or hook functions.',
         fields: [], buildPayload() { return { type: 'get-executor-capabilities' }; }
     },
+    'search-executor-functions': {
+        name: 'Executor Function Search', category: 'Client',
+        desc: 'Search getgenv/getfenv/_G for callable executor APIs without invoking them.',
+        fields: [
+            { key: 'query', label: 'Function / Path Filter', type: 'text', placeholder: 'e.g. websocket, crypt, request' },
+            { key: 'limit', label: 'Max Results', type: 'text', default: '100' },
+            { key: 'maxDepth', label: 'Max Table Depth', type: 'text', default: '6' },
+            { key: 'includeAliases', label: 'Include Aliases', type: 'select', options: TOOL_BOOL_OPTIONS, default: 'false' },
+        ],
+        buildPayload(vals) {
+            const p = {
+                type: 'search-executor-functions',
+                limit: toolInt(vals.limit, 100),
+                maxDepth: toolInt(vals.maxDepth, 6),
+                includeAliases: toolBool(vals.includeAliases, false),
+            };
+            if (vals.query) p.query = vals.query;
+            return p;
+        }
+    },
 
     'search-instances': {
         name: 'Search Instances', category: 'Instances',

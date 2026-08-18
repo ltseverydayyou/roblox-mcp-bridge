@@ -363,6 +363,7 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
       "get-game-info": "get-game-info",
       "remote-spy": "remote-spy",
       "get-executor-capabilities": "get-executor-capabilities",
+      "search-executor-functions": "search-executor-functions",
       "create-console-cursor": "create-console-cursor",
       "recover-nil-scripts": "recover-nil-scripts",
       "search-runtime-objects": "search-runtime-objects",
@@ -388,6 +389,7 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
     const passthroughTypes = new Set([
       "remote-spy",
       "get-executor-capabilities",
+      "search-executor-functions",
       "create-console-cursor",
       "recover-nil-scripts",
       "search-runtime-objects",

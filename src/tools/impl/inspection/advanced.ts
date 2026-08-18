@@ -24,6 +24,15 @@ function tool(server: McpServer, name: string, title: string, description: strin
 
 export default function register(server: McpServer): void {
   tool(server, "get-executor-capabilities", "Get executor capabilities", "Detect executor APIs so the model can choose compatible inspection techniques instead of guessing.", z.object({ maxOutputChars: maxOutputCharsSchema }));
+  tool(server, "search-executor-functions", "Search executor functions", "Safely search getgenv/getfenv/_G for available executor functions by full path without invoking them. Use this when the fixed capability list does not include an API you need. Results are cycle-safe, deduplicated by default, and bounded to avoid flooding context.", z.object({
+    query: z.string().max(200).optional().describe("Case-insensitive substring of the function path, for example websocket, hook, file, crypt, drawing, or request."),
+    limit: z.number().int().min(1).max(500).optional().default(100),
+    maxDepth: z.number().int().min(0).max(12).optional().default(6),
+    maxTables: z.number().int().min(1).max(2000).optional().default(400),
+    maxEntriesPerTable: z.number().int().min(1).max(1000).optional().default(250),
+    includeAliases: z.boolean().optional().default(false).describe("Include additional paths that reference the same function."),
+    maxOutputChars: maxOutputCharsSchema,
+  }));
   tool(server, "create-console-cursor", "Create console cursor", "Mark the current developer-console position. Pass the returned cursor to get-console-output to fetch only newer entries.", z.object({ maxOutputChars: maxOutputCharsSchema }));
   tool(server, "recover-nil-scripts", "Recover nil scripts", "RISKY / EXPLICIT ONLY. Before calling, ask the user for confirmation because this invokes getnilinstances and may also invoke getloadedmodules, getgc(false), getreg/getregistry, debug.getregistry, and bounded debug.getupvalue traversal. It returns the original nil LuaSourceContainers by DebugId; it does NOT clone or reparent them. Never runs at startup or during ordinary inspection.", z.object({ userConfirmedRisk: userConfirmedRiskSchema, maxOutputChars: maxOutputCharsSchema }));
   tool(server, "search-runtime-objects", "Search runtime objects", "RISKY / EXPLICIT ONLY. Before calling, ask the user for confirmation because this invokes getgc. Bounded search returns opaque handles rather than dumping the GC. Do not call merely because it is available.", z.object({

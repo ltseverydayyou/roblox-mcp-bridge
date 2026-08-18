@@ -243,6 +243,161 @@ local function AssertRiskConfirmed(data, methods)
     error("Risk confirmation required before using potentially detectable executor methods: " .. methodText .. ". Ask the user before continuing.")
 end
 
+local RiskyFunctionNames = {}
+for _, name in ipairs(RiskySourceMethods) do
+    RiskyFunctionNames[string.lower(name)] = true
+end
+for _, name in ipairs({ "getupvalue", "getregistry" }) do
+    RiskyFunctionNames[string.lower(name)] = true
+end
+
+local function AppendExecutorPath(base, key)
+    local keyType = typeof(key)
+    if keyType == "string" then
+        if string.match(key, "^[%a_][%w_]*$") then
+            return base == "" and key or (base .. "." .. key)
+        end
+        return base .. "[" .. string.format("%q", key) .. "]"
+    elseif keyType == "number" then
+        return base .. "[" .. tostring(key) .. "]"
+    end
+    return base .. "[" .. string.format("%q", tostring(key)) .. "]"
+end
+
+local function SearchExecutorFunctions(data)
+    data = data or {}
+
+    local query = typeof(data.query) == "string" and string.lower(data.query) or ""
+    local limit = math.clamp(tonumber(data.limit) or 100, 1, 500)
+    local maxDepth = math.clamp(tonumber(data.maxDepth) or 6, 0, 12)
+    local maxTables = math.clamp(tonumber(data.maxTables) or 400, 1, 2000)
+    local maxEntriesPerTable = math.clamp(tonumber(data.maxEntriesPerTable) or 250, 1, 1000)
+    local includeAliases = data.includeAliases == true
+
+    local roots = {}
+    local rootTables = {}
+
+    local function addRoot(source, value)
+        if typeof(value) ~= "table" or rootTables[value] then return end
+        rootTables[value] = true
+        roots[#roots + 1] = { value = value, path = "", depth = 0, source = source }
+    end
+
+    if typeof(getgenv) == "function" then
+        local ok, env = pcall(getgenv)
+        if ok then addRoot("getgenv", env) end
+    end
+    if typeof(getfenv) == "function" then
+        local ok, env = pcall(getfenv, 0)
+        if ok then addRoot("getfenv", env) end
+    end
+    if typeof(_G) == "table" then
+        addRoot("_G", _G)
+    end
+
+    local visitedTables = {}
+    local seenFunctions = {}
+    local results = {}
+    local queue = {}
+    local queueIndex = 1
+    local scannedTables = 0
+    local scannedEntries = 0
+    local matchedPaths = 0
+    local uniqueFunctions = 0
+    local truncated = false
+
+    for _, root in ipairs(roots) do
+        queue[#queue + 1] = root
+    end
+
+    while queueIndex <= #queue and scannedTables < maxTables and #results < limit do
+        local item = queue[queueIndex]
+        queueIndex += 1
+
+        local tbl = item.value
+        if visitedTables[tbl] then
+            continue
+        end
+        visitedTables[tbl] = true
+        scannedTables += 1
+
+        local key = nil
+        local entriesInTable = 0
+        while entriesInTable < maxEntriesPerTable and #results < limit do
+            local ok, nextKey, value = pcall(next, tbl, key)
+            if not ok or nextKey == nil then
+                break
+            end
+            key = nextKey
+            entriesInTable += 1
+            scannedEntries += 1
+
+            local path = AppendExecutorPath(item.path, nextKey)
+            local valueType = typeof(value)
+
+            if valueType == "function" then
+                local loweredPath = string.lower(path)
+                if query == "" or string.find(loweredPath, query, 1, true) then
+                    matchedPaths += 1
+                    local firstSeen = not seenFunctions[value]
+                    if firstSeen then
+                        seenFunctions[value] = true
+                        uniqueFunctions += 1
+                    end
+
+                    if firstSeen or includeAliases then
+                        local leaf = typeof(nextKey) == "string" and string.lower(nextKey)
+                            or string.match(loweredPath, "([%w_]+)$")
+                            or loweredPath
+                        results[#results + 1] = {
+                            path = path,
+                            source = item.source,
+                            alias = not firstSeen,
+                            riskConfirmationRequired = RiskyFunctionNames[leaf] == true
+                                or string.find(loweredPath, "debug.get", 1, true) ~= nil,
+                        }
+                    end
+                end
+            elseif valueType == "table" and item.depth < maxDepth and not visitedTables[value] then
+                queue[#queue + 1] = {
+                    value = value,
+                    path = path,
+                    depth = item.depth + 1,
+                    source = item.source,
+                }
+            end
+
+            if scannedEntries % 400 == 0 then
+                task.wait()
+            end
+        end
+
+        if entriesInTable >= maxEntriesPerTable then
+            truncated = true
+        end
+    end
+
+    if queueIndex <= #queue or scannedTables >= maxTables or #results >= limit then
+        truncated = true
+    end
+
+    table.sort(results, function(a, b)
+        return a.path < b.path
+    end)
+
+    return {
+        query = query ~= "" and data.query or nil,
+        resultCount = #results,
+        matchedPaths = matchedPaths,
+        uniqueFunctions = uniqueFunctions,
+        scannedTables = scannedTables,
+        scannedEntries = scannedEntries,
+        truncated = truncated,
+        functions = results,
+        hint = truncated and "Narrow query or raise bounded limits if you need more results." or nil,
+    }
+end
+
 local function StableValue(value)
     local t = typeof(value)
     if t == "Instance" then return SafeFullName(value) end
@@ -2414,7 +2569,19 @@ while true do
         caps.filesystem = caps.writefile and caps.readfile and caps.isfile
         caps.drawing = (typeof(Drawing) == "table" and typeof(Drawing.new) == "function")
         local executorName, executorVersion = GetExecutorInfo()
-        return { executor = executorName, version = executorVersion, capabilities = caps }
+        return {
+            executor = executorName,
+            version = executorVersion,
+            capabilities = caps,
+            functionDiscovery = {
+                tool = "search-executor-functions",
+                description = "Search getgenv/getfenv/_G recursively for available executor functions without invoking them.",
+            },
+        }
+    end)
+
+    Bridge:BindToType("search-executor-functions", function(data)
+        return SearchExecutorFunctions(data)
     end)
 
     Bridge:BindToType("recover-nil-scripts", function(data)
