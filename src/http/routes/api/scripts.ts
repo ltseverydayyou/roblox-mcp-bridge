@@ -43,10 +43,13 @@ export async function GET(req: IncomingMessage, res: ServerResponse, url: URL): 
       scripts: index.scripts.map((s) => ({
         debugId: s.debugId,
         path: s.path,
-        lines: s.source.split("\n").length,
+        className: s.className,
+        sourceAvailable: s.sourceAvailable,
+        sourceError: s.sourceError,
+        lines: s.sourceAvailable ? s.source.split("\n").length : 0,
         bytes: s.source.length,
         updatedAt: s.updatedAt,
-        hasEmbeddings: canRead
+        hasEmbeddings: s.sourceAvailable && canRead
           ? getScriptIndexStatus(s.debugId, index, settings).isFullyIndexed
           : false,
       })),

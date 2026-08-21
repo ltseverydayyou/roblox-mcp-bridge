@@ -122,7 +122,7 @@ function chunkScript(script: StoredScriptSource): ScriptChunk[] {
 }
 
 function buildChunks(scripts: StoredScriptSource[]): ScriptChunk[] {
-  return scripts.flatMap(chunkScript);
+  return scripts.filter((script) => script.sourceAvailable).flatMap(chunkScript);
 }
 
 function getOrCreateSession(key: string): SemanticVectorSession {
@@ -663,7 +663,7 @@ export function getScriptIndexStatus(
   settings: SemanticSettings
 ): { totalChunks: number; embeddedChunks: number; isFullyIndexed: boolean } {
   const script = index.scripts.find((s) => s.debugId === debugId);
-  if (!script) return { totalChunks: 0, embeddedChunks: 0, isFullyIndexed: false };
+  if (!script?.sourceAvailable) return { totalChunks: 0, embeddedChunks: 0, isFullyIndexed: false };
 
   const templates = chunkTemplatesForSource(script);
   const key = sessionKey(index, settings);

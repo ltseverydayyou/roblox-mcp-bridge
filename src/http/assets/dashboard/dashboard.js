@@ -10,6 +10,25 @@ let semanticSearchEnabled = true;
 let settingsProvider = 'openai';
 let decompilerSettings = null;
 let decompilerRuntimeAdvancedOpen = false;
+const DASHBOARD_PREFERENCES_KEY = 'roblox-mcp-dashboard-preferences';
+const DASHBOARD_LAST_CLIENT_KEY = 'roblox-mcp-last-client';
+const DEFAULT_DASHBOARD_PREFERENCES = {
+    accent: '#3b82f6',
+    density: 'comfortable',
+    corners: 'rounded',
+    codeFontSize: 13,
+    motion: true,
+    wrapToolOutput: true,
+    statusRefreshMs: 2000,
+    scriptsRefreshMs: 5000,
+    defaultClientView: 'overview',
+    maxOutputChars: 6000,
+    rememberClient: true
+};
+let dashboardPreferences = loadDashboardPreferences();
+let statusRefreshTimer = null;
+let scriptsRefreshTimer = null;
+let rememberedClientSuppressed = false;
 
 let startTime = Date.now();
 
@@ -67,6 +86,106 @@ const scriptsCodeMenu = $('scriptsCodeMenu');
 const scriptsCodeSaveBtn = $('scriptsCodeSaveBtn');
 const scriptsCodeView = $('scriptsCodeView');
 const scriptsExportBtn = $('scriptsExportBtn');
+
+function normalizeDashboardPreferences(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    const accent = /^#[0-9a-f]{6}$/i.test(source.accent || '') ? source.accent.toLowerCase() : DEFAULT_DASHBOARD_PREFERENCES.accent;
+    const density = ['comfortable', 'compact'].includes(source.density) ? source.density : DEFAULT_DASHBOARD_PREFERENCES.density;
+    const corners = ['rounded', 'soft', 'square'].includes(source.corners) ? source.corners : DEFAULT_DASHBOARD_PREFERENCES.corners;
+    const defaultClientView = ['overview', 'scripts', 'tools'].includes(source.defaultClientView) ? source.defaultClientView : DEFAULT_DASHBOARD_PREFERENCES.defaultClientView;
+    const statusRefreshMs = [1000, 2000, 5000, 10000].includes(Number(source.statusRefreshMs)) ? Number(source.statusRefreshMs) : DEFAULT_DASHBOARD_PREFERENCES.statusRefreshMs;
+    const scriptsRefreshMs = [2000, 5000, 10000, 30000].includes(Number(source.scriptsRefreshMs)) ? Number(source.scriptsRefreshMs) : DEFAULT_DASHBOARD_PREFERENCES.scriptsRefreshMs;
+    const codeFontSize = Math.min(18, Math.max(11, Math.round(Number(source.codeFontSize) || DEFAULT_DASHBOARD_PREFERENCES.codeFontSize)));
+    const maxOutputChars = Math.min(32000, Math.max(1000, Math.round(Number(source.maxOutputChars) || DEFAULT_DASHBOARD_PREFERENCES.maxOutputChars)));
+    return {
+        accent,
+        density,
+        corners,
+        codeFontSize,
+        motion: source.motion !== false,
+        wrapToolOutput: source.wrapToolOutput !== false,
+        statusRefreshMs,
+        scriptsRefreshMs,
+        defaultClientView,
+        maxOutputChars,
+        rememberClient: source.rememberClient !== false
+    };
+}
+
+function loadDashboardPreferences() {
+    try {
+        return normalizeDashboardPreferences(JSON.parse(localStorage.getItem(DASHBOARD_PREFERENCES_KEY) || '{}'));
+    } catch {
+        return { ...DEFAULT_DASHBOARD_PREFERENCES };
+    }
+}
+
+function accentRgba(hex, alpha) {
+    const value = parseInt(hex.slice(1), 16);
+    return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
+}
+
+function applyDashboardPreferences() {
+    const root = document.documentElement;
+    const radii = {
+        rounded: ['8px', '12px'],
+        soft: ['5px', '8px'],
+        square: ['1px', '2px']
+    }[dashboardPreferences.corners];
+    root.style.setProperty('--blue', dashboardPreferences.accent);
+    root.style.setProperty('--blue-dim', accentRgba(dashboardPreferences.accent, 0.12));
+    root.style.setProperty('--radius', radii[0]);
+    root.style.setProperty('--radius-lg', radii[1]);
+    root.style.setProperty('--code-font-size', `${dashboardPreferences.codeFontSize}px`);
+    document.body.classList.toggle('dashboard-density-compact', dashboardPreferences.density === 'compact');
+    document.body.classList.toggle('dashboard-motion-off', dashboardPreferences.motion === false);
+    document.body.classList.toggle('dashboard-tool-nowrap', dashboardPreferences.wrapToolOutput === false);
+}
+
+function populateDashboardPreferenceControls() {
+    if (!$('settingsAccentColor')) return;
+    $('settingsAccentColor').value = dashboardPreferences.accent;
+    $('settingsDensity').value = dashboardPreferences.density;
+    $('settingsCorners').value = dashboardPreferences.corners;
+    $('settingsCodeFontSize').value = String(dashboardPreferences.codeFontSize);
+    $('settingsCodeFontSizeValue').textContent = `${dashboardPreferences.codeFontSize}px`;
+    $('settingsMotion').checked = dashboardPreferences.motion;
+    $('settingsWrapToolOutput').checked = dashboardPreferences.wrapToolOutput;
+    $('settingsStatusRefresh').value = String(dashboardPreferences.statusRefreshMs);
+    $('settingsScriptsRefresh').value = String(dashboardPreferences.scriptsRefreshMs);
+    $('settingsDefaultClientView').value = dashboardPreferences.defaultClientView;
+    $('settingsMaxOutputChars').value = String(dashboardPreferences.maxOutputChars);
+    $('settingsRememberClient').checked = dashboardPreferences.rememberClient;
+    $('settingsAccentPresets').querySelectorAll('[data-accent]').forEach(button => {
+        button.classList.toggle('active', button.dataset.accent.toLowerCase() === dashboardPreferences.accent);
+    });
+}
+
+function readDashboardPreferenceControls() {
+    return normalizeDashboardPreferences({
+        accent: $('settingsAccentColor').value,
+        density: $('settingsDensity').value,
+        corners: $('settingsCorners').value,
+        codeFontSize: $('settingsCodeFontSize').value,
+        motion: $('settingsMotion').checked,
+        wrapToolOutput: $('settingsWrapToolOutput').checked,
+        statusRefreshMs: $('settingsStatusRefresh').value,
+        scriptsRefreshMs: $('settingsScriptsRefresh').value,
+        defaultClientView: $('settingsDefaultClientView').value,
+        maxOutputChars: $('settingsMaxOutputChars').value,
+        rememberClient: $('settingsRememberClient').checked
+    });
+}
+
+function saveDashboardPreferences(message) {
+    dashboardPreferences = readDashboardPreferenceControls();
+    localStorage.setItem(DASHBOARD_PREFERENCES_KEY, JSON.stringify(dashboardPreferences));
+    if (!dashboardPreferences.rememberClient) localStorage.removeItem(DASHBOARD_LAST_CLIENT_KEY);
+    applyDashboardPreferences();
+    populateDashboardPreferenceControls();
+    restartDashboardRefreshTimers();
+    showToast(message, 'success');
+}
 
 const SHINY_LOCAL_ENDPOINT = 'http://localhost:3000/luau/decompile';
 const SHINY_HOSTED_ENDPOINT = 'https://medal.upio.dev/decompile';
@@ -315,6 +434,7 @@ bindSidebarNav(sidebarNavHome);
 bindSidebarNav(sidebarNavClient);
 
 topbarBack.addEventListener('click', () => {
+    rememberedClientSuppressed = true;
     selectedClientId = null;
     resetScriptsState();
     clientSelectorName.textContent = 'Select Client';
@@ -1131,14 +1251,16 @@ if (addClientBody) {
 /* ── Select client ───────────────────────────────────────── */
 function selectClient(clientId) {
     if (selectedClientId !== clientId) resetScriptsState();
+    rememberedClientSuppressed = false;
     selectedClientId = clientId;
     const c = clients.find(x => x.clientId === clientId);
     if (c) {
         clientSelectorName.textContent = c.username;
         clientSelectorAvatar.innerHTML = avatarHtml(c.userId, c.username, 24);
+        if (dashboardPreferences.rememberClient) localStorage.setItem(DASHBOARD_LAST_CLIENT_KEY, c.username);
     }
     setSidebarMode('client');
-    showView('overview');
+    showView(dashboardPreferences.defaultClientView);
     updateOverview();
 }
 
@@ -2000,6 +2122,7 @@ toolRunBtn.addEventListener('click', async () => {
     }
 
     payload.clientId = selectedClientId;
+    if (payload.maxOutputChars == null) payload.maxOutputChars = dashboardPreferences.maxOutputChars;
 
     toolRunBtn.disabled = true;
     toolRunBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-dasharray="50" stroke-dashoffset="20"/></svg> Running…';
@@ -2101,6 +2224,7 @@ let scriptsSearchTimer = null;
 let scriptsBrowsePath = []; // current folder path segments
 let scriptsViewingFile = null; // currently viewing file debugId
 let scriptsViewingFileHasEmbeddings = false;
+let scriptsViewingFileSourceAvailable = true;
 let scriptsScrollPos = 0; // saved scroll position for the file list
 let scriptsDisplayInfo = new Map();
 
@@ -2133,6 +2257,7 @@ function resetScriptsState() {
     scriptsBrowsePath = [];
     scriptsViewingFile = null;
     scriptsViewingFileHasEmbeddings = false;
+    scriptsViewingFileSourceAvailable = true;
     scriptsScrollPos = 0;
     scriptsDisplayInfo = new Map();
 
@@ -2222,9 +2347,20 @@ async function fetchScripts() {
         const res = await fetch(`/api/scripts?clientId=${selectedClientId}`);
         const data = await res.json();
         const newScripts = Array.isArray(data) ? data : (data.scripts || []);
-        
-        // Update and re-render if count changed or if currently viewing the empty state
-        if (newScripts.length !== scriptsData.length || (newScripts.length > 0 && $('scriptsFileList').querySelector('.logs-empty'))) {
+
+        const previousScripts = new Map(scriptsData.map(script => [script.debugId, script]));
+        const scriptsChanged = newScripts.length !== scriptsData.length || newScripts.some(script => {
+            const previous = previousScripts.get(script.debugId);
+            return !previous ||
+                previous.path !== script.path ||
+                previous.updatedAt !== script.updatedAt ||
+                previous.sourceAvailable !== script.sourceAvailable ||
+                previous.sourceError !== script.sourceError ||
+                previous.lines !== script.lines ||
+                previous.bytes !== script.bytes;
+        });
+
+        if (scriptsChanged || (newScripts.length > 0 && $('scriptsFileList').querySelector('.logs-empty'))) {
             scriptsData = newScripts;
             if (scriptsSearchQuery) {
                 renderScriptsSearchResults();
@@ -2248,21 +2384,6 @@ function scriptPathParts(path) {
 
 function scriptPathKey(parts) {
     return parts.join('\u0000');
-}
-
-function collectParentScriptPathKeys(scripts) {
-    const scriptPaths = new Set(scripts.map(s => scriptPathKey(scriptPathParts(s.path))));
-    const parents = new Set();
-
-    for (const script of scripts) {
-        const parts = scriptPathParts(script.path);
-        for (let i = 1; i < parts.length; i++) {
-            const parentKey = scriptPathKey(parts.slice(0, i));
-            if (scriptPaths.has(parentKey)) parents.add(parentKey);
-        }
-    }
-
-    return parents;
 }
 
 function ensureLuauFileName(name) {
@@ -2293,15 +2414,13 @@ function uniqueScriptDisplayName(name, debugId, usedNames) {
 
 function buildScriptDisplayInfo(scripts) {
     const sorted = [...scripts].sort((a, b) => a.path.localeCompare(b.path) || a.debugId.localeCompare(b.debugId));
-    const parentKeys = collectParentScriptPathKeys(sorted);
     const usedNamesByFolder = new Map();
     const info = new Map();
 
     for (const script of sorted) {
         const parts = scriptPathParts(script.path);
-        const hasChildren = parentKeys.has(scriptPathKey(parts));
-        const folderPath = hasChildren ? parts : parts.slice(0, -1);
-        const baseName = hasChildren ? 'init' : (parts[parts.length - 1] || 'script');
+        const folderPath = parts.slice(0, -1);
+        const baseName = parts[parts.length - 1] || 'script';
         const folderKey = scriptPathKey(folderPath);
         let usedNames = usedNamesByFolder.get(folderKey);
 
@@ -2314,6 +2433,7 @@ function buildScriptDisplayInfo(scripts) {
         info.set(script.debugId, {
             folderPath,
             name,
+            childFolderName: parts[parts.length - 1] || 'script',
             displayPath: [...folderPath, name].join('/')
         });
     }
@@ -2331,6 +2451,7 @@ function getScriptDisplayInfo(script) {
     return scriptsDisplayInfo.get(script.debugId) || {
         folderPath: scriptPathParts(script.path).slice(0, -1),
         name: ensureLuauFileName(scriptPathParts(script.path).pop() || 'script'),
+        childFolderName: scriptPathParts(script.path).pop() || 'script',
         displayPath: ensureLuauFileName(scriptPathParts(script.path).join('/') || 'script')
     };
 }
@@ -2429,9 +2550,13 @@ function buildScriptTree(scripts) {
             node = node.children[seg];
         }
 
-        node.scripts.push({ ...s, name: info.name, displayPath: info.displayPath });
+        node.scripts.push({ ...s, name: info.name, childFolderName: info.childFolderName, displayPath: info.displayPath });
     }
     return root;
+}
+
+function getScriptChildNode(node, script) {
+    return node.children[script.childFolderName] || null;
 }
 
 function getNodeAt(tree, pathSegs) {
@@ -2470,7 +2595,14 @@ function showCodeMode() {
 
 function setCodeTab(tab) {
     const tabs = document.querySelectorAll('.scripts-code-tab');
+    if (tab === 'edit' && !scriptsViewingFileSourceAvailable) tab = 'code';
     tabs.forEach(t => t.classList.toggle('scripts-code-tab--active', t.dataset.tab === tab));
+    tabs.forEach(t => {
+        if (t.dataset.tab === 'edit') {
+            t.disabled = !scriptsViewingFileSourceAvailable;
+            t.title = scriptsViewingFileSourceAvailable ? '' : 'Source was unavailable from the executor';
+        }
+    });
     const codeEl = $('scriptsCodeBody');
     const isEdit = tab === 'edit';
     
@@ -2531,8 +2663,13 @@ function renderScriptsBrowser() {
         return;
     }
 
-    const folderNames = Object.keys(node.children).sort((a, b) => a.localeCompare(b));
     const scripts = [...node.scripts].sort((a, b) => a.name.localeCompare(b.name));
+    const scriptChildFolders = new Set(
+        scripts.filter(script => getScriptChildNode(node, script)).map(script => script.childFolderName)
+    );
+    const folderNames = Object.keys(node.children)
+        .filter(name => !scriptChildFolders.has(name))
+        .sort((a, b) => a.localeCompare(b));
 
     if (folderNames.length === 0 && scripts.length === 0) {
         list.innerHTML = '<div class="logs-empty">No scripts indexed yet</div>';
@@ -2559,11 +2696,18 @@ function renderScriptsBrowser() {
 
     // Scripts
     for (const s of scripts) {
-        html += '<div class="scripts-frow scripts-frow--file" data-debug-id="' + escapeHtml(s.debugId) + '" data-path="' + escapeHtml(s.path) + '">';
-        html += '<div class="scripts-fname">' + FILE_ICON + '<span class="scripts-fname-text">' + escapeHtml(s.name) + '</span></div>';
-        html += '<div class="scripts-fmeta">' + s.lines + '</div>';
-        html += '<div class="scripts-fmeta">' + formatBytes(s.bytes) + '</div>';
-        html += '<div class="scripts-fmeta scripts-factions"><button class="scripts-menu-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button></div>';
+        const childNode = getScriptChildNode(node, s);
+        const childCount = childNode ? countScriptsRecursive(childNode) : 0;
+        const sourceAvailable = s.sourceAvailable !== false;
+        html += '<div class="scripts-frow scripts-frow--file' + (childNode ? ' scripts-frow--hybrid' : '') + (sourceAvailable ? '' : ' scripts-frow--unavailable') + '" data-debug-id="' + escapeHtml(s.debugId) + '" data-path="' + escapeHtml(s.path) + '">';
+        html += '<div class="scripts-fname">' + FILE_ICON + '<span class="scripts-fname-text">' + escapeHtml(s.name) + '</span>' + (childCount ? '<span class="scripts-fname-count">' + childCount + ' children</span>' : '') + (sourceAvailable ? '' : '<span class="scripts-source-unavailable">source unavailable</span>') + '</div>';
+        html += '<div class="scripts-fmeta">' + (sourceAvailable ? s.lines : '—') + '</div>';
+        html += '<div class="scripts-fmeta">' + (sourceAvailable ? formatBytes(s.bytes) : '—') + '</div>';
+        html += '<div class="scripts-fmeta scripts-factions">';
+        if (childNode) {
+            html += '<button class="scripts-child-nav" data-child-folder="' + escapeHtml(s.childFolderName) + '" title="Open ' + childCount + ' child scripts" aria-label="Open child scripts"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>';
+        }
+        html += '<button class="scripts-menu-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button></div>';
         html += '</div>';
     }
 
@@ -2716,6 +2860,14 @@ function openScriptFromSearch(debugId, lineNumber = null) {
 
 // Navigation clicks
 $('scriptsFileList').addEventListener('click', (e) => {
+    const childNav = e.target.closest('.scripts-child-nav');
+    if (childNav) {
+        e.stopPropagation();
+        scriptsBrowsePath.push(childNav.dataset.childFolder);
+        renderScriptsBrowser();
+        return;
+    }
+
     // Three-dot menu button clicks
     const menuBtn = e.target.closest('.scripts-menu-btn');
     if (menuBtn) {
@@ -2792,6 +2944,7 @@ async function openScriptSource(debugId, lineNumber = null) {
         if (data.error) { showToast(data.error, 'error'); return; }
 
         scriptsViewingFile = debugId;
+        scriptsViewingFileSourceAvailable = data.sourceAvailable !== false;
         const lines = data.source.split('\n');
 
         // Track whether this script has embeddings
@@ -2804,7 +2957,9 @@ async function openScriptSource(debugId, lineNumber = null) {
         renderBreadcrumb(fileName);
 
         // Update code info bar
-        $('scriptsCodeInfo').textContent = lines.length + ' lines (' + lines.filter(l => l.trim()).length + ' loc) · ' + formatBytes(data.source.length);
+        $('scriptsCodeInfo').textContent = scriptsViewingFileSourceAvailable
+            ? lines.length + ' lines (' + lines.filter(l => l.trim()).length + ' loc) · ' + formatBytes(data.source.length)
+            : 'Source unavailable from executor';
 
         // Build line number gutter
         let gutterHtml = '';
@@ -2815,7 +2970,9 @@ async function openScriptSource(debugId, lineNumber = null) {
 
         // Set code and highlight
         const codeEl = $('scriptsCodeBody');
-        codeEl.textContent = data.source;
+        codeEl.textContent = scriptsViewingFileSourceAvailable
+            ? data.source
+            : '-- Source unavailable\n-- ' + (data.sourceError || 'The executor could not read or decompile this script.');
         codeEl.className = 'language-lua';
         
         if (typeof hljs !== 'undefined') {
@@ -3221,6 +3378,7 @@ function showToast(message, type = 'info', duration = 3500) {
 }
 
 async function loadSettings() {
+    populateDashboardPreferenceControls();
     await Promise.allSettled([
         loadSemanticSettings(),
         loadDecompilerSettings()
@@ -4316,6 +4474,32 @@ $('settingsSemanticEnabled').addEventListener('change', () => {
     semanticSearchEnabled = $('settingsSemanticEnabled').checked;
     updateSemanticSearchVisibility();
 });
+$('settingsAccentPresets').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-accent]');
+    if (!button) return;
+    $('settingsAccentColor').value = button.dataset.accent;
+    dashboardPreferences = normalizeDashboardPreferences({ ...readDashboardPreferenceControls(), accent: button.dataset.accent });
+    applyDashboardPreferences();
+    populateDashboardPreferenceControls();
+});
+$('settingsAccentColor').addEventListener('input', () => {
+    dashboardPreferences = normalizeDashboardPreferences({ ...readDashboardPreferenceControls(), accent: $('settingsAccentColor').value });
+    applyDashboardPreferences();
+    populateDashboardPreferenceControls();
+});
+$('settingsCodeFontSize').addEventListener('input', () => {
+    $('settingsCodeFontSizeValue').textContent = `${$('settingsCodeFontSize').value}px`;
+});
+$('saveDashboardAppearanceBtn').addEventListener('click', () => saveDashboardPreferences('Dashboard appearance saved'));
+$('saveMcpPreferencesBtn').addEventListener('click', () => saveDashboardPreferences('MCP defaults saved'));
+$('resetDashboardPreferencesBtn').addEventListener('click', () => {
+    dashboardPreferences = { ...DEFAULT_DASHBOARD_PREFERENCES };
+    localStorage.removeItem(DASHBOARD_PREFERENCES_KEY);
+    applyDashboardPreferences();
+    populateDashboardPreferenceControls();
+    restartDashboardRefreshTimers();
+    showToast('Dashboard preferences reset', 'success');
+});
 $('saveSemanticEnabledBtn').addEventListener('click', () => saveSettings({enabled:$('settingsSemanticEnabled').checked}));
 $('saveProviderBtn').addEventListener('click', () => saveSettings({provider:settingsProvider}));
 $('saveOpenaiBtn').addEventListener('click', () => {
@@ -4524,6 +4708,12 @@ async function updateStatus() {
         if (data.startedAt) startTime = data.startedAt;
         renderUpdatePrompt(data.update);
 
+        if (!selectedClientId && dashboardPreferences.rememberClient && !rememberedClientSuppressed) {
+            const rememberedUsername = localStorage.getItem(DASHBOARD_LAST_CLIENT_KEY);
+            const rememberedClient = rememberedUsername ? clients.find(client => client.username === rememberedUsername) : null;
+            if (rememberedClient) selectClient(rememberedClient.clientId);
+        }
+
         // Overview tiles
         const cb = $('connBadge'); if(cb) { cb.textContent = data.connected?'Active':'Inactive'; cb.className='status-tile-badge '+(data.connected?'status-tile-badge--green':''); }
 
@@ -4550,14 +4740,19 @@ async function updateStatus() {
     } catch (e) {}
 }
 
-setInterval(updateStatus, 2000);
-setInterval(() => {
-    if (dashboardMode === 'client' && currentView === 'scripts' && !scriptsViewingFile) {
-        fetchScripts();
-    }
-}, 5000);
+function restartDashboardRefreshTimers() {
+    if (statusRefreshTimer) clearInterval(statusRefreshTimer);
+    if (scriptsRefreshTimer) clearInterval(scriptsRefreshTimer);
+    statusRefreshTimer = setInterval(updateStatus, dashboardPreferences.statusRefreshMs);
+    scriptsRefreshTimer = setInterval(() => {
+        if (dashboardMode === 'client' && currentView === 'scripts' && !scriptsViewingFile) fetchScripts();
+    }, dashboardPreferences.scriptsRefreshMs);
+}
+
 setInterval(refreshDecompilerHealth, 2000);
 
+applyDashboardPreferences();
+restartDashboardRefreshTimers();
 loadSemanticSettings();
 updateStatus();
 setSidebarMode('home');

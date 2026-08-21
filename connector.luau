@@ -1029,6 +1029,8 @@ local MarkScriptProcessed
 local ActiveBridge = nil
 local ScriptSourceCacheByHash = {}
 local ScriptHashByDebugId = {}
+local ReconcileScriptHierarchyMetadata
+local QueueScriptForMapping
 
 local function IsScriptMappingTransportReady(clientId)
     return (
@@ -1081,18 +1083,18 @@ local function StartUploadQueue()
             end
 
             local batch = {}
-            local debugIds = {}
+            local uploadedItems = {}
             while #UploadQueue > 0 and #batch < UploadBatchMax do
                 local item = table.remove(UploadQueue, 1)
                 table.insert(batch, item)
-                table.insert(debugIds, item.debugId)
+                table.insert(uploadedItems, item)
                 UploadQueueDebugIds[item.debugId] = nil
             end
 
             local uploaded = UploadScriptSourceBatch(ScriptSourceUploadClientId, batch, false)
             if uploaded then
-                for _, debugId in debugIds do
-                    MarkScriptProcessed(debugId, true)
+                for _, item in uploadedItems do
+                    MarkScriptProcessed(item.debugId, item.sourceAvailable ~= false)
                 end
             else
                 for idx = #batch, 1, -1 do
@@ -1358,6 +1360,10 @@ local function DecompileScriptSource(script, prepared)
         prepared, prepareError = PrepareScriptForMapping(script, true)
     end
     if not prepared then
+        local builtinSource = TryBuiltInDecompile(script)
+        if builtinSource then
+            return builtinSource, nil, GetScriptHashForInstance(script)
+        end
         return nil, prepareError or "Failed to prepare script for decompile."
     end
 
@@ -1369,15 +1375,17 @@ local function DecompileScriptSource(script, prepared)
     end
 
     local source, errorMessage, needsBuiltin = RequestServerDecompile(prepared.bytecode)
-    if needsBuiltin then
+    if not source then
         local builtinSource, builtinLatencyMs = TryBuiltInDecompile(script)
         if builtinSource then
-            source, errorMessage = RequestServerDecompile(prepared.bytecode, {
+            local normalizedSource = RequestServerDecompile(prepared.bytecode, {
                 requestedProvider = "builtin",
                 builtinSource = builtinSource,
                 builtinLatencyMs = builtinLatencyMs,
             })
-        else
+            source = normalizedSource or builtinSource
+            errorMessage = nil
+        elseif needsBuiltin then
             source, errorMessage = RequestServerDecompile(prepared.bytecode, {
                 disabledProviders = { "builtin" },
             })
@@ -1405,6 +1413,9 @@ MarkScriptProcessed = function(debugId, uploaded)
 
     if SourcesProcessed >= SourcesToMap then
         PublishScriptMappingStatus(true)
+        if ReconcileScriptHierarchyMetadata then
+            task.delay(0.5, ReconcileScriptHierarchyMetadata, ScriptSourceUploadClientId)
+        end
     end
 end
 
@@ -1413,11 +1424,7 @@ local function MapScriptSource(script, prepared)
     if MappedScriptIds[debugId] then return end
     if not IsScriptMappingTransportReady(ScriptSourceUploadClientId) then return end
 
-    local source, _, scriptHash = DecompileScriptSource(script, prepared)
-    if not source then
-        MarkScriptProcessed(debugId, false)
-        return
-    end
+    local source, sourceError, scriptHash = DecompileScriptSource(script, prepared)
 
     ScriptInstanceMap[debugId] = script
     script.Destroying:Once(function()
@@ -1429,7 +1436,10 @@ local function MapScriptSource(script, prepared)
     table.insert(UploadQueue, {
         debugId = debugId,
         path = script:GetFullName(),
-        source = source,
+        className = script.ClassName,
+        source = source or "",
+        sourceAvailable = source ~= nil,
+        sourceError = source and nil or tostring(sourceError or "Source could not be decompiled."),
         scriptHash = scriptHash,
         attempts = 0,
     })
@@ -1472,14 +1482,6 @@ local function GetScriptByDebugId(debugId)
 end
 
 local function IsCandidateScriptForMapping(script)
-    local IsServerScript = (
-        script:IsA("Script") and (
-            script.RunContext == Enum.RunContext.Server or
-            script.RunContext == Enum.RunContext.Legacy
-        )
-    )
-    if IsServerScript then return false end
-
     local IsRobloxScript = (
         script.RobloxLocked or
         script:IsDescendantOf(CoreGui) or
@@ -1487,6 +1489,14 @@ local function IsCandidateScriptForMapping(script)
         script:IsDescendantOf(ScriptContext)
     )
     if IsRobloxScript then return false end
+
+    local IsServerScript = (
+        script:IsA("Script") and (
+            script.RunContext == Enum.RunContext.Server or
+            script.RunContext == Enum.RunContext.Legacy
+        )
+    )
+    if IsServerScript then return false end
 
     local debugId = script:GetDebugId()
     local IsAlreadyMapped = MappedScriptIds[debugId]
@@ -1498,16 +1508,80 @@ local function IsCandidateScriptForMapping(script)
     return true
 end
 
-local function QueueScriptForMapping(script, prepared)
+local function IsVisibleScriptForHierarchy(script)
+    return not (
+        script.RobloxLocked or
+        script:IsDescendantOf(CoreGui) or
+        script:IsDescendantOf(CorePackages) or
+        script:IsDescendantOf(ScriptContext)
+    )
+end
+
+local function ScriptMetadataEntry(script, sourceError)
+    return {
+        debugId = script:GetDebugId(),
+        path = script:GetFullName(),
+        className = script.ClassName,
+        sourceAvailable = false,
+        sourceError = sourceError or "Source mapping pending.",
+    }
+end
+
+local function UploadScriptMetadata(clientId, scripts)
+    local function uploadWithRetry(batch)
+        for attempt = 1, UploadMaxAttempts do
+            if UploadScriptSourceBatch(clientId, batch, false) then
+                return true
+            end
+            if attempt < UploadMaxAttempts then
+                task.wait(0.25 * attempt)
+            end
+        end
+        return false
+    end
+
+    local batch = {}
+    for _, script in scripts do
+        local sourceError = IsCandidateScriptForMapping(script)
+            and "Source mapping pending."
+            or "Source is unavailable in the current client context."
+        table.insert(batch, ScriptMetadataEntry(script, sourceError))
+        if #batch >= 64 then
+            uploadWithRetry(batch)
+            table.clear(batch)
+        end
+    end
+    if #batch > 0 then uploadWithRetry(batch) end
+end
+
+ReconcileScriptHierarchyMetadata = function(clientId)
+    if not IsScriptMappingTransportReady(clientId) then return end
+
+    local visibleScripts = {}
+    for _, script in game:QueryDescendants("LuaSourceContainer") do
+        if script:IsA("LuaSourceContainer") and IsVisibleScriptForHierarchy(script) then
+            table.insert(visibleScripts, script)
+        end
+    end
+
+    UploadScriptMetadata(clientId, visibleScripts)
+
+    for _, script in visibleScripts do
+        if IsCandidateScriptForMapping(script) then
+            QueueScriptForMapping(script)
+        end
+    end
+
+    PublishScriptMappingStatus(ScriptMappingFinished)
+end
+
+QueueScriptForMapping = function(script, prepared)
     if not IsScriptMappingTransportReady(ScriptSourceUploadClientId) then return end
 
     local debugId = script:GetDebugId()
     if MappedScriptIds[debugId] or QueuedScriptIds[debugId] then return end
 
-    if not prepared then
-        prepared = PrepareScriptForMapping(script, true)
-    end
-    if not prepared then return end
+    if not prepared then prepared = PrepareScriptForMapping(script, true) end
 
     QueuedScriptIds[debugId] = true
     SourcesToMap += 1
@@ -1528,6 +1602,8 @@ local function StartScriptMapping(clientId)
             return
         end
 
+        if not IsVisibleScriptForHierarchy(script) then return end
+        UploadScriptSourceBatch(clientId, { ScriptMetadataEntry(script) }, false)
         if not IsCandidateScriptForMapping(script) then return end
         QueueScriptForMapping(script)
     end)
@@ -1540,15 +1616,20 @@ local function StartScriptMapping(clientId)
     task.spawn(function()
         if not IsScriptMappingTransportReady(clientId) then return end
 
+        local VisibleScripts = {}
         local CandidateScripts = {}
         for _, category in CategoriesToMap do
             for _, script in category do
                 if not script:IsA("LuaSourceContainer") then continue end
+                if not IsVisibleScriptForHierarchy(script) then continue end
+                table.insert(VisibleScripts, script)
                 if not IsCandidateScriptForMapping(script) then continue end
 
                 table.insert(CandidateScripts, script)
             end
         end
+
+        UploadScriptMetadata(clientId, VisibleScripts)
 
         local hashesToFetch = {}
         for _, script in ipairs(CandidateScripts) do
@@ -1559,22 +1640,20 @@ local function StartScriptMapping(clientId)
         end
         FetchCachedScriptSources(clientId, hashesToFetch)
 
-        local ValidScripts = {}
+        local ScriptsToMap = {}
         for _, script in ipairs(CandidateScripts) do
             local prepared = PrepareScriptForMapping(script, false)
-            if prepared then
-                QueuedScriptIds[script:GetDebugId()] = true
-                table.insert(ValidScripts, {
-                    script = script,
-                    prepared = prepared,
-                })
-            end
+            QueuedScriptIds[script:GetDebugId()] = true
+            table.insert(ScriptsToMap, {
+                script = script,
+                prepared = prepared,
+            })
         end
 
-        SourcesToMap += #ValidScripts
+        SourcesToMap += #ScriptsToMap
         PublishScriptMappingStatus(false)
 
-        for idx, item in ValidScripts do
+        for idx, item in ScriptsToMap do
             task.defer(MappedSourceLimiter.QueueOperation, MappedSourceLimiter, item.script, item.prepared)
             if idx % 250 == 0 then task.wait(0.1) end
         end

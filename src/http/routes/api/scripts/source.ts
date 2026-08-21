@@ -45,6 +45,9 @@ export function GET(req: IncomingMessage, res: ServerResponse, url: URL): void {
       debugId: script.debugId,
       path: script.path,
       source: script.source,
+      sourceAvailable: script.sourceAvailable,
+      sourceError: script.sourceError,
+      className: script.className,
       sourceHash: script.sourceHash,
       updatedAt: script.updatedAt,
     })

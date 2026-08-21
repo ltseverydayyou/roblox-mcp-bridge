@@ -317,7 +317,7 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
           scriptProxyMatch ? s.debugId === scriptProxyMatch[1] : s.path === scriptPath
         );
 
-        if (stored) {
+        if (stored?.sourceAvailable) {
           return jsonOk(res, {
             result: resultText(
               formatSourceRange(stored.source, startLine, endLine, maxLines),

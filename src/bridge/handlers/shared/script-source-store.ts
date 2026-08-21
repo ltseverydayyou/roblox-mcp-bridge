@@ -5,6 +5,9 @@ export interface StoredScriptSource {
   debugId: string;
   path: string;
   source: string;
+  sourceAvailable: boolean;
+  sourceError?: string;
+  className?: string;
   scriptHash?: string;
   sourceHash: string;
   updatedAt: number;
@@ -47,6 +50,9 @@ export interface UpsertScriptSourcesInput {
     debugId?: unknown;
     path?: unknown;
     source?: unknown;
+    sourceAvailable?: unknown;
+    sourceError?: unknown;
+    className?: unknown;
     scriptHash?: unknown;
   }[];
 }
@@ -71,6 +77,13 @@ function normalizeScriptHash(value: unknown): string | undefined {
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > 512) return undefined;
   return trimmed;
+}
+
+function normalizeShortText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLength);
 }
 
 function getOrCreateStore(identity: ScriptSourceStoreIdentity): ClientScriptSourceStore {
@@ -117,19 +130,34 @@ export function upsertScriptSources(
     if (
       typeof script.debugId !== "string" ||
       typeof script.path !== "string" ||
-      typeof script.source !== "string"
+      (script.sourceAvailable !== false && typeof script.source !== "string")
     ) {
       continue;
     }
 
     const existing = store.scripts.get(script.debugId);
-    const sourceHash = hashSource(script.source);
+    const sourceAvailable = script.sourceAvailable !== false;
+    const source = typeof script.source === "string" ? script.source : "";
+    const sourceHash = hashSource(source);
     const scriptHash = normalizeScriptHash(script.scriptHash);
+    const sourceError = normalizeShortText(script.sourceError, 1000);
+    const className = normalizeShortText(script.className, 100);
 
-    if (existing && existing.sourceHash === sourceHash) {
+    if (existing?.sourceAvailable && !sourceAvailable) {
       store.scripts.set(script.debugId, {
         ...existing,
         path: script.path,
+        className: className ?? existing.className,
+      });
+      continue;
+    }
+
+    if (existing && existing.sourceHash === sourceHash && existing.sourceAvailable === sourceAvailable) {
+      store.scripts.set(script.debugId, {
+        ...existing,
+        path: script.path,
+        className: className ?? existing.className,
+        sourceError,
         scriptHash: scriptHash ?? existing.scriptHash,
       });
       continue;
@@ -138,7 +166,10 @@ export function upsertScriptSources(
     store.scripts.set(script.debugId, {
       debugId: script.debugId,
       path: script.path,
-      source: script.source,
+      source,
+      sourceAvailable,
+      sourceError,
+      className,
       scriptHash,
       sourceHash,
       updatedAt: Date.now(),
@@ -165,7 +196,7 @@ export function getCachedScriptSourcesByScriptHash(
   const matched = new Set<string>();
   const scripts = [...store.scripts.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   for (const script of scripts) {
-    if (!script.scriptHash || !wanted.has(script.scriptHash) || matched.has(script.scriptHash)) {
+    if (!script.sourceAvailable || !script.scriptHash || !wanted.has(script.scriptHash) || matched.has(script.scriptHash)) {
       continue;
     }
 
@@ -190,7 +221,7 @@ export function getScriptSourceIndex(identity: ScriptSourceStoreIdentity): Scrip
     placeId: store.placeId,
     jobId: store.jobId,
     hasFinishedMapping: store.hasFinishedMapping,
-    mappedSources: store.scripts.size,
+    mappedSources: [...store.scripts.values()].filter((script) => script.sourceAvailable).length,
     processedSources: Math.max(store.processedSources, store.scripts.size),
     skippedSources: store.skippedSources,
     sourcesToMap: store.sourcesToMap,

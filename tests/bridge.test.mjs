@@ -25,6 +25,11 @@ import {
 } from "../dist/files/chatgpt-file.js";
 import { compareVersions } from "../dist/update/checker.js";
 import { SERVER_VERSION } from "../dist/version.js";
+import {
+  clearScriptSourceIndex,
+  getScriptSourceIndex,
+  upsertScriptSources,
+} from "../dist/bridge/handlers/shared/script-source-store.js";
 
 class FakeWebSocket extends EventEmitter {
   sent = [];
@@ -67,10 +72,107 @@ test("server and package versions stay synchronized", () => {
   assert.equal(SERVER_VERSION, manifest.version);
 });
 
+test("metadata-only scripts preserve hierarchy without counting as mapped source", () => {
+  const identity = { clientId: "metadata-client", placeId: 2, jobId: "metadata-job" };
+  clearScriptSourceIndex(identity.clientId);
+  upsertScriptSources(identity, {
+    processedSources: 1,
+    skippedSources: 1,
+    sourcesToMap: 1,
+    scripts: [{
+      debugId: "metadata-script",
+      path: "Players.Player.PlayerGui.MainUI.Initiator",
+      className: "LocalScript",
+      sourceAvailable: false,
+      sourceError: "Unable to get script bytecode.",
+    }],
+  });
+
+  const index = getScriptSourceIndex(identity);
+  assert.equal(index.mappedSources, 0);
+  assert.equal(index.scripts.length, 1);
+  assert.equal(index.scripts[0].sourceAvailable, false);
+  assert.equal(index.scripts[0].source, "");
+  assert.equal(index.scripts[0].className, "LocalScript");
+  clearScriptSourceIndex(identity.clientId);
+});
+
 test("the MCP updater only requires the documented Node.js runtime", () => {
   const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.match(manifest.scripts.update, /^node\s/);
   assert.doesNotMatch(manifest.scripts.update, /^bun\s/);
+});
+
+test("the connector publishes script hierarchy metadata before source mapping", () => {
+  const connector = readFileSync(new URL("../connector.luau", import.meta.url), "utf8");
+  assert.match(connector, /function UploadScriptMetadata/);
+  assert.match(connector, /local QueueScriptForMapping/);
+  assert.match(connector, /QueueScriptForMapping = function/);
+  assert.doesNotMatch(connector, /local function QueueScriptForMapping/);
+  assert.match(connector, /function uploadWithRetry/);
+  assert.match(connector, /sourceAvailable = false/);
+  assert.match(connector, /className = script\.ClassName/);
+  assert.match(connector, /UploadScriptMetadata\(clientId, VisibleScripts\)/);
+  assert.match(connector, /ReconcileScriptHierarchyMetadata = function/);
+  assert.match(connector, /task\.delay\(0\.5, ReconcileScriptHierarchyMetadata/);
+  assert.match(connector, /if IsCandidateScriptForMapping\(script\) then\s+QueueScriptForMapping\(script\)/);
+  assert.match(connector, /if not source then\s+local builtinSource, builtinLatencyMs = TryBuiltInDecompile\(script\)/);
+  assert.match(connector, /source = normalizedSource or builtinSource/);
+});
+
+test("metadata reconciliation cannot downgrade a mapped source or replace its source error", () => {
+  const identity = { clientId: "reconcile-client", placeId: 2, jobId: "reconcile-job" };
+  clearScriptSourceIndex(identity.clientId);
+  upsertScriptSources(identity, {
+    scripts: [{
+      debugId: "hybrid-script",
+      path: "Players.Player.PlayerGui.MainUI.Initiator",
+      className: "LocalScript",
+      source: "print('mapped')",
+      sourceAvailable: true,
+    }],
+  });
+  upsertScriptSources(identity, {
+    scripts: [{
+      debugId: "hybrid-script",
+      path: "Players.Player.PlayerGui.MainUI.Initiator",
+      className: "LocalScript",
+      sourceAvailable: false,
+      sourceError: "Source mapping pending.",
+    }],
+  });
+
+  const script = getScriptSourceIndex(identity).scripts[0];
+  assert.equal(script.sourceAvailable, true);
+  assert.equal(script.source, "print('mapped')");
+  assert.equal(script.sourceError, undefined);
+  clearScriptSourceIndex(identity.clientId);
+});
+
+test("dashboard assets disable browser caching during local development", () => {
+  const dashboardJsRoute = readFileSync(new URL("../src/http/routes/(dashboard)/dashboard.js.ts", import.meta.url), "utf8");
+  const dashboardCssRoute = readFileSync(new URL("../src/http/routes/(dashboard)/dashboard.css.ts", import.meta.url), "utf8");
+  const dashboardJs = readFileSync(new URL("../src/http/assets/dashboard/dashboard.js", import.meta.url), "utf8");
+  assert.match(dashboardJsRoute, /"Cache-Control": "no-store"/);
+  assert.match(dashboardCssRoute, /"Cache-Control": "no-store"/);
+  assert.match(dashboardJs, /previous\.sourceAvailable !== script\.sourceAvailable/);
+  assert.match(dashboardJs, /previous\.updatedAt !== script\.updatedAt/);
+});
+
+test("dashboard preferences are persisted and applied to MCP tool defaults", () => {
+  const dashboardHtml = readFileSync(new URL("../src/http/assets/dashboard/index.html", import.meta.url), "utf8");
+  const dashboardJs = readFileSync(new URL("../src/http/assets/dashboard/dashboard.js", import.meta.url), "utf8");
+  const dashboardCss = readFileSync(new URL("../src/http/assets/dashboard/dashboard.css", import.meta.url), "utf8");
+  assert.match(dashboardHtml, /id="settingsAccentColor"/);
+  assert.match(dashboardHtml, /id="settingsStatusRefresh"/);
+  assert.match(dashboardHtml, /id="settingsMaxOutputChars"/);
+  assert.match(dashboardHtml, /id="settingsRememberClient"/);
+  assert.match(dashboardJs, /roblox-mcp-dashboard-preferences/);
+  assert.match(dashboardJs, /payload\.maxOutputChars = dashboardPreferences\.maxOutputChars/);
+  assert.match(dashboardJs, /setInterval\(updateStatus, dashboardPreferences\.statusRefreshMs\)/);
+  assert.match(dashboardJs, /showView\(dashboardPreferences\.defaultClientView\)/);
+  assert.match(dashboardCss, /body\.dashboard-density-compact/);
+  assert.match(dashboardCss, /body\.dashboard-motion-off/);
 });
 
 test("the Windows manager bootstraps updates outside the checked-out package script", () => {

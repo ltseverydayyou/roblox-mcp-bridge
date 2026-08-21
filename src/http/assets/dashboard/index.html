@@ -367,7 +367,38 @@
 
             <!-- ─── Settings view (home mode) ───────────────────── -->
             <div class="view" id="viewSettings" style="display:none">
-                <div class="settings-header"><h2 class="settings-title">Settings</h2><p class="settings-sub">Configure semantic search and decompiler fallbacks</p></div>
+                <div class="settings-header"><h2 class="settings-title">Settings</h2><p class="settings-sub">Customize the dashboard and configure MCP behavior</p></div>
+                <div class="settings-card">
+                    <div class="settings-card-body">
+                        <div class="settings-card-title">Dashboard appearance</div>
+                        <div class="settings-card-desc">Personalize the interface without changing bridge files.</div>
+                        <div class="settings-control-grid">
+                            <div class="settings-field"><label for="settingsAccentColor">Accent color</label><div class="settings-color-row"><input type="color" id="settingsAccentColor" value="#3b82f6"><div class="settings-color-presets" id="settingsAccentPresets"><button type="button" data-accent="#3b82f6" style="--preset:#3b82f6" aria-label="Blue"></button><button type="button" data-accent="#8b5cf6" style="--preset:#8b5cf6" aria-label="Purple"></button><button type="button" data-accent="#ec4899" style="--preset:#ec4899" aria-label="Pink"></button><button type="button" data-accent="#22c55e" style="--preset:#22c55e" aria-label="Green"></button><button type="button" data-accent="#f59e0b" style="--preset:#f59e0b" aria-label="Amber"></button></div></div></div>
+                            <div class="settings-field"><label for="settingsDensity">Interface density</label><select id="settingsDensity"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div>
+                            <div class="settings-field"><label for="settingsCorners">Corner style</label><select id="settingsCorners"><option value="rounded">Rounded</option><option value="soft">Soft</option><option value="square">Square</option></select></div>
+                            <div class="settings-field"><label for="settingsCodeFontSize">Code font size <span id="settingsCodeFontSizeValue">13px</span></label><input type="range" id="settingsCodeFontSize" min="11" max="18" step="1" value="13"></div>
+                        </div>
+                        <div class="settings-toggle-grid">
+                            <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="settingsMotion" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Interface animations</span></label>
+                            <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="settingsWrapToolOutput" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Wrap tool output</span></label>
+                        </div>
+                    </div>
+                    <div class="settings-card-footer"><button class="settings-delete-btn" id="resetDashboardPreferencesBtn">Reset</button><button class="settings-save-btn" id="saveDashboardAppearanceBtn">Save appearance</button></div>
+                </div>
+                <div class="settings-card">
+                    <div class="settings-card-body">
+                        <div class="settings-card-title">MCP defaults</div>
+                        <div class="settings-card-desc">Set dashboard polling and response defaults used for future tool calls.</div>
+                        <div class="settings-control-grid">
+                            <div class="settings-field"><label for="settingsStatusRefresh">Connection refresh</label><select id="settingsStatusRefresh"><option value="1000">1 second</option><option value="2000">2 seconds</option><option value="5000">5 seconds</option><option value="10000">10 seconds</option></select></div>
+                            <div class="settings-field"><label for="settingsScriptsRefresh">Script refresh</label><select id="settingsScriptsRefresh"><option value="2000">2 seconds</option><option value="5000">5 seconds</option><option value="10000">10 seconds</option><option value="30000">30 seconds</option></select></div>
+                            <div class="settings-field"><label for="settingsDefaultClientView">Open clients on</label><select id="settingsDefaultClientView"><option value="overview">Overview</option><option value="scripts">Scripts</option><option value="tools">Tools</option></select></div>
+                            <div class="settings-field"><label for="settingsMaxOutputChars">Default response limit</label><input type="number" id="settingsMaxOutputChars" min="1000" max="32000" step="1000" value="6000"></div>
+                        </div>
+                        <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="settingsRememberClient" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Remember and reopen the last connected client</span></label>
+                    </div>
+                    <div class="settings-card-footer"><span class="settings-card-footer-hint">Saved in this browser only.</span><button class="settings-save-btn" id="saveMcpPreferencesBtn">Save MCP defaults</button></div>
+                </div>
                 <div class="settings-card">
                     <div class="settings-card-body">
                         <div class="settings-card-heading-row">
