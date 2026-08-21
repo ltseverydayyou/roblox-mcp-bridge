@@ -27,6 +27,16 @@ $script:PromptedForUpdate = $false
 $script:PromptedForManagerUpdate = $false
 $script:LatestManagerRelease = $null
 $script:Busy = $false
+$script:TunnelProcess = $null
+$script:TunnelWindow = $null
+$script:TunnelLogBox = $null
+$script:TunnelStatus = $null
+$script:TunnelTimer = $null
+$script:TunnelOutputSource = "RobloxMcpManager.Tunnel.Output"
+$script:TunnelErrorSource = "RobloxMcpManager.Tunnel.Error"
+$script:ClosingManager = $false
+$script:RepositoryUpdatePanel = $null
+$script:RepositoryUpdateText = $null
 
 function Add-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -695,28 +705,16 @@ function Start-InteractiveUpdate {
     $updater = Join-Path $script:Config.RepositoryDirectory "scripts\install-harnesses.mjs"
     if (-not (Test-ExistingFile $updater)) { throw "The MCP updater script is missing. Choose a valid repository or reinstall the MCP." }
 
-    $repoLiteral = $script:Config.RepositoryDirectory.Replace("'", "''")
-    $gitLiteral = $git.Replace("'", "''")
-    $nodeLiteral = $node.Replace("'", "''")
-    $updaterLiteral = $updater.Replace("'", "''")
-    $command = @"
-`$Host.UI.RawUI.WindowTitle = 'Roblox MCP Bridge Updater'
-Write-Host 'Pulling the latest Roblox MCP Bridge...' -ForegroundColor Cyan
-& '$gitLiteral' -C '$repoLiteral' pull --ff-only
-if (`$LASTEXITCODE -ne 0) {
-    Write-Host 'Update stopped because Git could not fast-forward this checkout. Review the message above.' -ForegroundColor Red
-    return
-}
-Write-Host 'Rebuilding with Node.js...' -ForegroundColor Cyan
-& '$nodeLiteral' '$updaterLiteral' --update --yes --plain --server-root '$repoLiteral'
-if (`$LASTEXITCODE -ne 0) {
-    Write-Host 'The updater failed. Review the message above.' -ForegroundColor Red
-} else {
-    Write-Host 'Update complete. Restart the bridge to load the new version.' -ForegroundColor Green
-}
-"@
-    Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command)
-    Add-Log "Updater opened for $($script:Config.RepositoryDirectory). It will pull with Git and rebuild with Node.js." "OK"
+    if ($null -ne $script:RepositoryUpdatePanel) { $script:RepositoryUpdatePanel.Visible = $false }
+    Set-Busy $true "Updating the MCP repository..."
+    try {
+        Add-Log "Pulling the latest Roblox MCP Bridge..."
+        Invoke-ManagedProcess $git @("-C", $script:Config.RepositoryDirectory, "pull", "--ff-only") $script:Config.RepositoryDirectory | Out-Null
+        Add-Log "Rebuilding the updated MCP with Node.js..."
+        Invoke-ManagedProcess $node @($updater, "--update", "--yes", "--plain", "--server-root", $script:Config.RepositoryDirectory) $script:Config.RepositoryDirectory | Out-Null
+        Add-Log "MCP update completed. Reload the bridge to use the new build." "OK"
+    }
+    finally { Set-Busy $false "Ready" }
 }
 
 function Configure-Tunnel {
@@ -751,28 +749,170 @@ function Configure-Tunnel {
 function Start-Tunnel {
     Update-ConfigFromFields
     if (-not (Test-ExistingFile $script:Config.TunnelClientExecutable)) { throw "Install or browse to tunnel-client.exe first." }
+    Show-TunnelWindow
+    if ($null -ne $script:TunnelProcess -and -not $script:TunnelProcess.HasExited) {
+        $script:TunnelWindow.Show()
+        $script:TunnelWindow.Activate()
+        Add-Log "The tunnel is already running." "OK"
+        return
+    }
     if (-not (Test-RepositoryBuildFresh $script:Config.RepositoryDirectory)) {
         Add-Log "Source files are newer than dist; rebuilding before tunnel startup..." "WARN"
         Build-Repository
         Update-ConfigFromFields
     }
-    $startup = Join-Path $script:Config.RepositoryDirectory "scripts\start-chatgpt-tunnel.ps1"
-    if (-not (Test-Path -LiteralPath $startup -PathType Leaf)) { throw "The tunnel startup script is missing." }
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -File " + (Quote-ProcessArgument $startup) +
-        " -TunnelClientExecutable " + (Quote-ProcessArgument $script:Config.TunnelClientExecutable) +
-        " -ProfileName " + (Quote-ProcessArgument $script:Config.ProfileName)
     $runtimeKey = $script:RuntimeKeyBox.Text
-    $previous = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
+    if ([string]::IsNullOrWhiteSpace($runtimeKey)) { $runtimeKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process") }
+    if ([string]::IsNullOrWhiteSpace($runtimeKey)) { throw "Enter the OpenAI Platform runtime API key before starting the tunnel. It stays in memory and is never saved." }
+    Unregister-TunnelEvents
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $script:Config.TunnelClientExecutable
+    $start.Arguments = "run --profile " + (Quote-ProcessArgument $script:Config.ProfileName)
+    $start.WorkingDirectory = $script:Config.RepositoryDirectory
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.EnvironmentVariables["CONTROL_PLANE_API_KEY"] = $runtimeKey
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $start
     try {
-        if ($runtimeKey) { $env:CONTROL_PLANE_API_KEY = $runtimeKey }
-        Start-Process -FilePath "powershell.exe" -ArgumentList $arguments
-        Add-Log "Tunnel startup window opened. Keep that window running." "OK"
+        if (-not $process.Start()) { throw "Windows could not start tunnel-client.exe." }
+        $script:TunnelProcess = $process
+        Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -SourceIdentifier $script:TunnelOutputSource | Out-Null
+        Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -SourceIdentifier $script:TunnelErrorSource | Out-Null
+        $process.BeginOutputReadLine()
+        $process.BeginErrorReadLine()
+        $script:TunnelTimer.Start()
+        Set-TunnelStatus "RUNNING" $script:Colors.Success
+        Append-TunnelOutput "Tunnel profile '$($script:Config.ProfileName)' started. Live output appears here."
+        Add-Log "Tunnel started inside the manager. Open the tunnel window to view live output or stop it." "OK"
     }
     finally {
-        if ($null -eq $previous) { Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue } else { $env:CONTROL_PLANE_API_KEY = $previous }
+        if ($null -ne $start -and $start.EnvironmentVariables.ContainsKey("CONTROL_PLANE_API_KEY")) { $start.EnvironmentVariables["CONTROL_PLANE_API_KEY"] = "" }
         $runtimeKey = $null
         $script:RuntimeKeyBox.Clear()
     }
+}
+
+function Append-TunnelOutput {
+    param([string]$Text, [bool]$ErrorText = $false)
+    if ([string]::IsNullOrWhiteSpace($Text) -or $null -eq $script:TunnelLogBox) { return }
+    $script:TunnelLogBox.SelectionStart = $script:TunnelLogBox.TextLength
+    $script:TunnelLogBox.SelectionColor = if ($ErrorText) { $script:Colors.Danger } else { $script:Colors.Text }
+    $script:TunnelLogBox.AppendText("[$((Get-Date).ToString('HH:mm:ss'))] $Text" + [Environment]::NewLine)
+    $script:TunnelLogBox.SelectionStart = $script:TunnelLogBox.TextLength
+    $script:TunnelLogBox.ScrollToCaret()
+}
+
+function Set-TunnelStatus {
+    param([string]$Text, $Color)
+    if ($null -ne $script:TunnelStatus) {
+        $script:TunnelStatus.Text = $Text
+        $script:TunnelStatus.ForeColor = $Color
+    }
+}
+
+function Unregister-TunnelEvents {
+    foreach ($source in @($script:TunnelOutputSource, $script:TunnelErrorSource)) {
+        Unregister-Event -SourceIdentifier $source -ErrorAction SilentlyContinue
+        Get-Event -SourceIdentifier $source -ErrorAction SilentlyContinue | Remove-Event -ErrorAction SilentlyContinue
+    }
+}
+
+function Drain-TunnelOutput {
+    foreach ($item in @(
+        [pscustomobject]@{ Source = $script:TunnelOutputSource; ErrorText = $false },
+        [pscustomobject]@{ Source = $script:TunnelErrorSource; ErrorText = $true }
+    )) {
+        $events = @(Get-Event -SourceIdentifier $item.Source -ErrorAction SilentlyContinue)
+        foreach ($event in $events) {
+            $line = [string]$event.SourceEventArgs.Data
+            if (-not [string]::IsNullOrWhiteSpace($line)) { Append-TunnelOutput $line $item.ErrorText }
+            Remove-Event -EventIdentifier $event.EventIdentifier -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Update-TunnelProcessState {
+    Drain-TunnelOutput
+    if ($null -eq $script:TunnelProcess -or -not $script:TunnelProcess.HasExited) { return }
+    $exitCode = $script:TunnelProcess.ExitCode
+    $script:TunnelProcess.WaitForExit()
+    Drain-TunnelOutput
+    Unregister-TunnelEvents
+    $script:TunnelProcess.Dispose()
+    $script:TunnelProcess = $null
+    $script:TunnelTimer.Stop()
+    if ($exitCode -eq 0) {
+        Set-TunnelStatus "STOPPED" $script:Colors.Muted
+        Append-TunnelOutput "Tunnel stopped."
+    }
+    else {
+        Set-TunnelStatus "EXITED $exitCode" $script:Colors.Danger
+        Append-TunnelOutput "Tunnel exited with code $exitCode." $true
+    }
+    if (-not $script:ClosingManager) { Refresh-Status }
+}
+
+function Stop-Tunnel {
+    param([bool]$Quiet = $false)
+    if ($null -eq $script:TunnelProcess -or $script:TunnelProcess.HasExited) {
+        Update-TunnelProcessState
+        if (-not $Quiet) { Append-TunnelOutput "The tunnel is not running." }
+        return
+    }
+    try { $script:TunnelProcess.Kill() } catch { }
+    $script:TunnelProcess.WaitForExit(5000) | Out-Null
+    Update-TunnelProcessState
+    if (-not $Quiet) { Add-Log "Tunnel stopped from the manager." "OK" }
+}
+
+function Show-TunnelWindow {
+    if ($null -ne $script:TunnelWindow -and -not $script:TunnelWindow.IsDisposed) {
+        $script:TunnelWindow.Show()
+        $script:TunnelWindow.Activate()
+        return
+    }
+    $window = New-Object Windows.Forms.Form
+    $window.Text = "ChatGPT Tunnel"
+    $window.ClientSize = New-Object Drawing.Size(850, 520)
+    $window.MinimumSize = New-Object Drawing.Size(720, 460)
+    $window.StartPosition = "CenterParent"
+    $window.BackColor = $script:Colors.Background
+    $window.ForeColor = $script:Colors.Text
+    $window.Font = New-Object Drawing.Font("Segoe UI", 9)
+    if (Test-ExistingFile $IconPath) { try { $window.Icon = New-Object Drawing.Icon($IconPath) } catch { } }
+    New-UiLabel $window "TUNNEL CONSOLE" 24 18 240 24 9 $true $script:Colors.Muted | Out-Null
+    New-UiLabel $window "Live tunnel output stays inside the manager. No terminal window is opened." 24 44 650 24 11 $true | Out-Null
+    $script:TunnelStatus = New-UiLabel $window "STOPPED" 690 20 130 24 9 $true $script:Colors.Muted
+    $script:TunnelStatus.TextAlign = [Drawing.ContentAlignment]::MiddleRight
+    $logCard = New-Card $window 24 82 802 352
+    $script:TunnelLogBox = New-Object Windows.Forms.RichTextBox
+    $script:TunnelLogBox.ReadOnly = $true
+    $script:TunnelLogBox.BorderStyle = [Windows.Forms.BorderStyle]::None
+    $script:TunnelLogBox.Dock = [Windows.Forms.DockStyle]::Fill
+    $script:TunnelLogBox.BackColor = $script:Colors.Surface
+    $script:TunnelLogBox.ForeColor = $script:Colors.Text
+    $script:TunnelLogBox.Font = New-Object Drawing.Font("Cascadia Mono", 9)
+    $script:TunnelLogBox.DetectUrls = $false
+    $logCard.Padding = New-Object Windows.Forms.Padding(12)
+    $logCard.Controls.Add($script:TunnelLogBox)
+    New-UiButton $window "Start" 24 454 112 38 { Start-Tunnel } "Tunnel startup failed" $true | Out-Null
+    New-UiButton $window "Stop" 148 454 112 38 { Stop-Tunnel } "Tunnel stop failed" | Out-Null
+    New-UiButton $window "Clear output" 272 454 132 38 { $script:TunnelLogBox.Clear() } "Could not clear output" | Out-Null
+    New-UiButton $window "Hide" 714 454 112 38 { $script:TunnelWindow.Hide() } "Could not hide tunnel window" | Out-Null
+    $window.Add_FormClosing({
+        param($sender, $eventArgs)
+        if (-not $script:ClosingManager) {
+            $eventArgs.Cancel = $true
+            $sender.Hide()
+        }
+    })
+    $script:TunnelWindow = $window
+    if ($null -ne $script:TunnelProcess -and -not $script:TunnelProcess.HasExited) { Set-TunnelStatus "RUNNING" $script:Colors.Success }
+    $window.Show($script:Form)
 }
 
 function Copy-RobloxLoader {
@@ -964,6 +1104,15 @@ function Restart-AsAdministrator {
     $script:Form.Close()
 }
 
+function Show-RepositoryUpdateNotice {
+    param([string]$LocalVersion, [string]$RemoteVersion)
+    $script:PromptedForUpdate = $true
+    if ($null -eq $script:RepositoryUpdatePanel) { return }
+    $script:RepositoryUpdateText.Text = "MCP v$RemoteVersion is available. You have v$LocalVersion."
+    $script:RepositoryUpdatePanel.Visible = $true
+    $script:RepositoryUpdatePanel.BringToFront()
+}
+
 function Refresh-Status {
     Refresh-ProcessPath
     $git = Find-Git
@@ -972,6 +1121,7 @@ function Refresh-Status {
     $repoReady = Test-RepositoryDirectory $script:RepoBox.Text
     $buildReady = $repoReady -and (Test-RepositoryBuildFresh $script:RepoBox.Text)
     $tunnelReady = Test-ExistingFile $script:TunnelBox.Text
+    $tunnelRunning = $null -ne $script:TunnelProcess -and -not $script:TunnelProcess.HasExited
     $bridgeRunning = Test-BridgeRunning $script:AddressBox.Text
     $localVersion = if ($repoReady) { Get-LocalVersion $script:RepoBox.Text } else { $null }
     $remoteVersion = if ($localVersion) { Get-RemoteVersion } else { $null }
@@ -982,7 +1132,7 @@ function Refresh-Status {
     Set-StatusValue "MCP" $(if ($repoReady -and $buildReady) { "Ready v$localVersion" } elseif ($repoReady) { "Build needed" } else { "Not installed" }) $(if ($repoReady -and $buildReady) { "Good" } elseif ($repoReady) { "Warn" } else { "Bad" })
     Set-StatusValue "Update" $updateText $(if ($updateText -eq "current") { "Good" } elseif ($updateText -match "available|failed") { "Warn" } else { "Muted" })
     Set-StatusValue "Bridge" $(if ($bridgeRunning) { "Running" } else { "Stopped" }) $(if ($bridgeRunning) { "Good" } else { "Muted" })
-    Set-StatusValue "Tunnel" $(if ($tunnelReady) { "Client ready" } else { "Optional" }) $(if ($tunnelReady) { "Good" } else { "Muted" })
+    Set-StatusValue "Tunnel" $(if ($tunnelRunning) { "Running" } elseif ($tunnelReady) { "Client ready" } else { "Optional" }) $(if ($tunnelRunning -or $tunnelReady) { "Good" } else { "Muted" })
     Set-StatusValue "Access" $(if (Test-IsAdministrator) { "Administrator" } else { "Standard user" }) $(if (Test-IsAdministrator) { "Good" } else { "Muted" })
 
     $ready = $repoReady -and $buildReady -and $git -and $nodeReady
@@ -993,8 +1143,7 @@ function Refresh-Status {
     $script:HealthSubtitle.Text = if ($ready) { "Start the bridge when you are ready." } else { "Use Quick setup below to finish installation." }
 
     if (-not $script:PromptedForUpdate -and $localVersion -and $remoteVersion -and (Compare-VersionText $localVersion $remoteVersion) -lt 0) {
-        $script:PromptedForUpdate = $true
-        if ([Windows.Forms.MessageBox]::Show("Version $remoteVersion is available (installed: $localVersion). Open the updater?", "Update available", 4, 64) -eq "Yes") { Start-InteractiveUpdate }
+        Show-RepositoryUpdateNotice $localVersion $remoteVersion
     }
 }
 
@@ -1211,6 +1360,10 @@ $script:Form.ForeColor = $script:Colors.Text
 $script:Form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
 $script:Form.MaximizeBox = $false
 
+$script:TunnelTimer = New-Object Windows.Forms.Timer
+$script:TunnelTimer.Interval = 150
+$script:TunnelTimer.Add_Tick({ Update-TunnelProcessState })
+
 if (Test-ExistingFile $IconPath) {
     try { $script:Form.Icon = New-Object Drawing.Icon($IconPath) } catch { Add-Log "Window icon could not be loaded: $($_.Exception.Message)" "WARN" }
 }
@@ -1327,7 +1480,28 @@ $script:LogBox.Font = New-Object Drawing.Font("Cascadia Mono", 8)
 $script:LogBox.DetectUrls = $false
 $logCard.Controls.Add($script:LogBox)
 
+$script:RepositoryUpdatePanel = New-Card $script:Form 576 102 564 86
+$script:RepositoryUpdatePanel.BackColor = $script:Colors.WarningDark
+$script:RepositoryUpdatePanel.Visible = $false
+New-UiLabel $script:RepositoryUpdatePanel "MCP UPDATE AVAILABLE" 18 12 190 18 8 $true $script:Colors.Warning | Out-Null
+$script:RepositoryUpdateText = New-UiLabel $script:RepositoryUpdatePanel "A newer MCP version is ready." 18 34 300 34 9.5 $true $script:Colors.Text
+New-UiButton $script:RepositoryUpdatePanel "Update now" 330 25 112 36 {
+    $script:RepositoryUpdatePanel.Visible = $false
+    Start-InteractiveUpdate
+} "MCP update failed" $true | Out-Null
+New-UiButton $script:RepositoryUpdatePanel "Later" 452 25 92 36 {
+    $script:PromptedForUpdate = $true
+    $script:RepositoryUpdatePanel.Visible = $false
+} "Could not dismiss update" | Out-Null
+
 Add-Log "Manager started. Your OpenAI runtime key is memory-only and is never written to disk."
+$script:Form.Add_FormClosing({
+    $script:ClosingManager = $true
+    if ($null -ne $script:TunnelTimer) { $script:TunnelTimer.Stop() }
+    Stop-Tunnel $true
+    Unregister-TunnelEvents
+    if ($null -ne $script:TunnelWindow -and -not $script:TunnelWindow.IsDisposed) { $script:TunnelWindow.Dispose() }
+})
 $script:Form.Add_Shown({
     if ($PreviewPath) { $script:PromptedForUpdate = $true; $script:PromptedForManagerUpdate = $true }
     Refresh-Status

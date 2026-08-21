@@ -136,6 +136,7 @@ internal static class RobloxMcpManagerLauncher
             start.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + script + "\" -ConfigPath \"" + config + "\"";
             start.UseShellExecute = false;
             start.CreateNoWindow = true;
+            start.WindowStyle = ProcessWindowStyle.Hidden;
             start.EnvironmentVariables["ROBLOX_MCP_MANAGER_ICON"] = icon;
             start.EnvironmentVariables["ROBLOX_MCP_MANAGER_EXE"] = Application.ExecutablePath;
             start.EnvironmentVariables["ROBLOX_MCP_MANAGER_VERSION"] = "$managerVersion";

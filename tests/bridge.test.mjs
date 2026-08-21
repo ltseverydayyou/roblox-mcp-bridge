@@ -178,9 +178,9 @@ test("dashboard preferences are persisted and applied to MCP tool defaults", () 
 test("the Windows manager bootstraps updates outside the checked-out package script", () => {
   const manager = readFileSync(new URL("../scripts/windows-mcp-manager.ps1", import.meta.url), "utf8");
   assert.doesNotMatch(manager, /npm run update/);
-  assert.match(manager, /pull --ff-only/);
+  assert.match(manager, /"pull", "--ff-only"/);
   assert.match(manager, /install-harnesses\.mjs/);
-  assert.match(manager, /--update --yes --plain --server-root/);
+  assert.match(manager, /"--update", "--yes", "--plain", "--server-root"/);
   assert.match(manager, /node_modules\\npm\\bin\\npm-cli\.js/);
   assert.match(manager, /function Reload-Bridge/);
   assert.match(manager, /function Disconnect-Bridge/);
@@ -200,9 +200,20 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(manager, /sameVersionRefresh/);
   assert.match(manager, /matches the published SHA-256/);
   assert.match(manager, /"Update manager"/);
+  assert.match(manager, /function Show-RepositoryUpdateNotice/);
+  assert.match(manager, /"Update now"/);
+  assert.match(manager, /"Later"/);
+  assert.match(manager, /function Show-TunnelWindow/);
+  assert.match(manager, /RedirectStandardOutput = \$true/);
+  assert.match(manager, /RedirectStandardError = \$true/);
+  assert.match(manager, /WindowStyle = \[Diagnostics\.ProcessWindowStyle\]::Hidden/);
+  assert.doesNotMatch(manager, /-NoExit/);
   const launcher = readFileSync(new URL("../scripts/create-windows-launcher.ps1", import.meta.url), "utf8");
   assert.match(launcher, /ROBLOX_MCP_MANAGER_EXE/);
   assert.match(launcher, /ROBLOX_MCP_MANAGER_VERSION/);
+  assert.match(launcher, /\/target:winexe/);
+  assert.match(launcher, /CreateNoWindow = true/);
+  assert.match(launcher, /WindowStyle = ProcessWindowStyle\.Hidden/);
   const releaseBuilder = readFileSync(new URL("../scripts/build-manager-release.ps1", import.meta.url), "utf8");
   assert.match(releaseBuilder, /RobloxMcpManager-v\$version\.exe/);
   assert.match(releaseBuilder, /Get-FileHash.*SHA256/);
