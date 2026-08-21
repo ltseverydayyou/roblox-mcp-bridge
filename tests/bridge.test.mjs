@@ -215,6 +215,7 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(launcher, /using System\.Management\.Automation/);
   assert.match(launcher, /PowerShell\.Create\(\)/);
   assert.match(launcher, /host\.AddScript\(manager, false\)/);
+  assert.doesNotMatch(launcher, /GetPreamble\(\)/);
   assert.doesNotMatch(launcher, /start\.FileName = "powershell\.exe"/);
   assert.doesNotMatch(launcher, /Process\.Start\(start\)/);
   const releaseBuilder = readFileSync(new URL("../scripts/build-manager-release.ps1", import.meta.url), "utf8");

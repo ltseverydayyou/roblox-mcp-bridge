@@ -96,7 +96,7 @@ if (-not (Test-Path -LiteralPath $temporaryIcon -PathType Leaf)) {
 }
 
 $managerContent = [System.IO.File]::ReadAllText($managerSource)
-$managerBytes = [System.Text.Encoding]::UTF8.GetPreamble() + [System.Text.Encoding]::UTF8.GetBytes($managerContent)
+$managerBytes = [System.Text.Encoding]::UTF8.GetBytes($managerContent)
 $managerBase64 = [Convert]::ToBase64String($managerBytes)
 $iconBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($temporaryIcon))
 
