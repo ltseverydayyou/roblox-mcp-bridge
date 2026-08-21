@@ -113,8 +113,10 @@ $bindHost = if ($hostName -in @("localhost", "127.0.0.1", "::1")) { "127.0.0.1" 
 
 $source = @"
 using System;
-using System.Diagnostics;
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Management.Automation;
+using System.Text;
 using System.Windows.Forms;
 
 internal static class RobloxMcpManagerLauncher
@@ -125,22 +127,29 @@ internal static class RobloxMcpManagerLauncher
         try
         {
             string directory = AppDomain.CurrentDomain.BaseDirectory;
-            string script = Path.Combine(Path.GetTempPath(), "RobloxMcpManager-$managerVersion.ps1");
             string icon = Path.Combine(Path.GetTempPath(), "RobloxMcpManager-$managerVersion.ico");
             string config = Path.Combine(directory, "RobloxMcpManager.config.json");
-            File.WriteAllBytes(script, Convert.FromBase64String("$managerBase64"));
             File.WriteAllBytes(icon, Convert.FromBase64String("$iconBase64"));
+            Environment.SetEnvironmentVariable("ROBLOX_MCP_MANAGER_ICON", icon, EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("ROBLOX_MCP_MANAGER_EXE", Application.ExecutablePath, EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("ROBLOX_MCP_MANAGER_VERSION", "$managerVersion", EnvironmentVariableTarget.Process);
 
-            ProcessStartInfo start = new ProcessStartInfo();
-            start.FileName = "powershell.exe";
-            start.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + script + "\" -ConfigPath \"" + config + "\"";
-            start.UseShellExecute = false;
-            start.CreateNoWindow = true;
-            start.WindowStyle = ProcessWindowStyle.Hidden;
-            start.EnvironmentVariables["ROBLOX_MCP_MANAGER_ICON"] = icon;
-            start.EnvironmentVariables["ROBLOX_MCP_MANAGER_EXE"] = Application.ExecutablePath;
-            start.EnvironmentVariables["ROBLOX_MCP_MANAGER_VERSION"] = "$managerVersion";
-            Process.Start(start);
+            string manager = Encoding.UTF8.GetString(Convert.FromBase64String("$managerBase64"));
+            using (PowerShell host = PowerShell.Create())
+            {
+                host.AddScript(manager, false).AddParameter("ConfigPath", config).AddParameter("IconPath", icon);
+                Collection<PSObject> output = host.Invoke();
+                if (host.HadErrors)
+                {
+                    StringBuilder message = new StringBuilder();
+                    foreach (ErrorRecord error in host.Streams.Error)
+                    {
+                        if (message.Length > 0) message.AppendLine();
+                        message.Append(error.ToString());
+                    }
+                    throw new InvalidOperationException(message.Length > 0 ? message.ToString() : "The manager UI stopped unexpectedly.");
+                }
+            }
         }
         catch (Exception error)
         {
@@ -160,7 +169,9 @@ try {
     $parameters.OutputAssembly = $temporaryExe
     $parameters.CompilerOptions = "/target:winexe /optimize+ /win32icon:`"$temporaryIcon`""
     $parameters.ReferencedAssemblies.Add("System.dll") | Out-Null
+    $parameters.ReferencedAssemblies.Add("System.Core.dll") | Out-Null
     $parameters.ReferencedAssemblies.Add("System.Windows.Forms.dll") | Out-Null
+    $parameters.ReferencedAssemblies.Add([System.Management.Automation.PSObject].Assembly.Location) | Out-Null
     $result = $provider.CompileAssemblyFromSource($parameters, $source)
     if ($result.Errors.HasErrors) {
         $messages = @($result.Errors | ForEach-Object { "line $($_.Line): $($_.ErrorText)" }) -join [Environment]::NewLine

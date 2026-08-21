@@ -212,8 +212,11 @@ test("the Windows manager bootstraps updates outside the checked-out package scr
   assert.match(launcher, /ROBLOX_MCP_MANAGER_EXE/);
   assert.match(launcher, /ROBLOX_MCP_MANAGER_VERSION/);
   assert.match(launcher, /\/target:winexe/);
-  assert.match(launcher, /CreateNoWindow = true/);
-  assert.match(launcher, /WindowStyle = ProcessWindowStyle\.Hidden/);
+  assert.match(launcher, /using System\.Management\.Automation/);
+  assert.match(launcher, /PowerShell\.Create\(\)/);
+  assert.match(launcher, /host\.AddScript\(manager, false\)/);
+  assert.doesNotMatch(launcher, /start\.FileName = "powershell\.exe"/);
+  assert.doesNotMatch(launcher, /Process\.Start\(start\)/);
   const releaseBuilder = readFileSync(new URL("../scripts/build-manager-release.ps1", import.meta.url), "utf8");
   assert.match(releaseBuilder, /RobloxMcpManager-v\$version\.exe/);
   assert.match(releaseBuilder, /Get-FileHash.*SHA256/);
