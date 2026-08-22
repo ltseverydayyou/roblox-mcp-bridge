@@ -125,6 +125,9 @@ test("Android MCP HTTP transport is enabled only in the embedded runtime and res
   assert.match(entrypoint, /ROBLOX_MCP_HTTP = "true"/);
   assert.match(primaryServer, /isAndroidMcpRequest/);
   assert.match(androidMcp, /StreamableHTTPServerTransport/);
+  assert.match(androidMcp, /sessionIdGenerator: undefined/);
+  assert.doesNotMatch(androidMcp, /const sessions = new Map/);
+  assert.match(androidMcp, /Stateless Android MCP accepts POST requests only/);
   assert.match(androidMcp, /isLoopback\(req\.socket\.remoteAddress\)/);
   assert.match(androidMcp, /restricted to localhost/);
   assert.match(androidMcp, /oauth-protected-resource/);

@@ -62,6 +62,8 @@ The APK packages the official ARM64 OpenAI `tunnel-client` executable as an app-
 
 Launching the process is not treated as a successful connection. The manager monitors the tunnel client's local `/readyz` endpoint: `CONNECTING` and `NOT READY` mean ChatGPT cannot use the tunnel yet, while `READY` confirms that the client completed its first successful OpenAI control-plane poll. The runtime key remains memory-only, is removed from the screen when Doctor or Start begins, and is never written to preferences or logs.
 
+The phone-local `/mcp` endpoint uses stateless Streamable HTTP. Each tunneled JSON-RPC POST receives a fresh server transport, so restarting the bridge does not leave ChatGPT stuck with a stale `Mcp-Session-Id`. GET and DELETE are intentionally rejected with `405 Method Not Allowed` because the tunnel workflow does not require a persistent server-side session.
+
 ## Build the APK
 
 Requirements:
