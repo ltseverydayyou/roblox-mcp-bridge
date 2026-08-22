@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.IBinder;
+import android.os.Handler;
 import android.os.Process;
 import android.util.Log;
 
@@ -29,7 +30,9 @@ public final class BridgeService extends Service {
     private static final int NOTIFICATION_ID = 16384;
     static final String STATUS_FILE = "bridge-service-status.txt";
     static final String SERVICE_LOG_FILE = "bridge-service.log";
+    private static final long RUNTIME_UPDATE_INTERVAL_MS = 6L * 60L * 60L * 1000L;
     private boolean started;
+    private Handler runtimeUpdateHandler;
 
     static void start(Context context, int port, String host, String lanToken) {
         Intent intent = new Intent(context, BridgeService.class).setAction(ACTION_START)
@@ -42,17 +45,44 @@ public final class BridgeService extends Service {
         context.startService(intent);
     }
 
+    static boolean shouldBeRunning(Context context) {
+        return context.getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE).getBoolean("desiredRunning", false);
+    }
+
     @Override public void onCreate() {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Embedded MCP bridge", NotificationManager.IMPORTANCE_LOW));
         writeState("SERVICE_CREATED");
+        runtimeUpdateHandler = new Handler(getMainLooper());
+        runtimeUpdateHandler.postDelayed(this::checkRuntimeUpdateInBackground, 10_000);
+    }
+
+    private void checkRuntimeUpdateInBackground() {
+        RuntimeUpdateChecker.check((result, error) -> {
+            if (error == null && result != null) {
+                if (RuntimeUpdateChecker.isCurrent(this, result)) RuntimeUpdateChecker.clearNotification(this);
+                else RuntimeUpdateChecker.notifyAvailable(this, result);
+            }
+            if (runtimeUpdateHandler != null) {
+                runtimeUpdateHandler.postDelayed(this::checkRuntimeUpdateInBackground, RUNTIME_UPDATE_INTERVAL_MS);
+            }
+        });
+    }
+
+    @Override public void onDestroy() {
+        if (runtimeUpdateHandler != null) {
+            runtimeUpdateHandler.removeCallbacksAndMessages(null);
+            runtimeUpdateHandler = null;
+        }
+        super.onDestroy();
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         SharedPreferences serviceSettings = getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE);
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             serviceSettings.edit().putBoolean("desiredRunning", false).commit();
+            writeState("STOPPED");
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             Process.killProcess(Process.myPid());

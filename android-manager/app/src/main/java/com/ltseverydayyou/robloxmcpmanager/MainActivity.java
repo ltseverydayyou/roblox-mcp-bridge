@@ -51,6 +51,9 @@ public final class MainActivity extends Activity {
     private TextView lanAddressText;
     private TextView backgroundStatus;
     private TextView tunnelStatus;
+    private TextView runtimeSourceStatus;
+    private boolean automaticRuntimeCheckStarted;
+    private boolean runtimeUpdateCheckRunning;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -84,6 +87,10 @@ public final class MainActivity extends Activity {
         updateBackgroundStatus();
         updateTunnelStatus();
         refreshStatus(false);
+        if (!automaticRuntimeCheckStarted) {
+            automaticRuntimeCheckStarted = true;
+            checkRuntimeUpdate(false);
+        }
         try {
             ManagerUpdateChecker.resumePendingInstall(this);
         } catch (Exception error) {
@@ -108,6 +115,7 @@ public final class MainActivity extends Activity {
         lanAddressText = findViewById(R.id.lanAddressText);
         backgroundStatus = findViewById(R.id.backgroundStatus);
         tunnelStatus = findViewById(R.id.tunnelStatus);
+        runtimeSourceStatus = findViewById(R.id.runtimeSourceStatus);
     }
 
     private void loadSettings() {
@@ -125,6 +133,7 @@ public final class MainActivity extends Activity {
 
     private void wireActions() {
         findViewById(R.id.prepareRuntimeButton).setOnClickListener(v -> prepareRuntime());
+        findViewById(R.id.runtimeUpdateButton).setOnClickListener(v -> checkRuntimeUpdate(true));
         findViewById(R.id.refreshButton).setOnClickListener(v -> refreshStatus(true));
         findViewById(R.id.startBridgeButton).setOnClickListener(v -> startBridge());
         findViewById(R.id.stopBridgeButton).setOnClickListener(v -> {
@@ -258,6 +267,8 @@ public final class MainActivity extends Activity {
         runtimeStatus.setText((runtime.isFile() ? "EMBEDDED NODE: READY" : "EMBEDDED NODE: BUNDLED — TAP PREPARE")
             + "\nOPENAI TUNNEL-CLIENT " + TunnelClient.VERSION + ": " + (tunnelBundled ? "READY" : "MISSING"));
         runtimeStatus.setTextColor(getColor(runtime.isFile() && tunnelBundled ? R.color.success : R.color.warning));
+        runtimeSourceStatus.setText("MCP SOURCE: " + RuntimeUpdateChecker.currentUpdateId(this));
+        runtimeSourceStatus.setTextColor(getColor(R.color.muted));
     }
 
     private void readLogs() {
@@ -629,6 +640,106 @@ public final class MainActivity extends Activity {
         }));
     }
 
+    private void checkRuntimeUpdate(boolean userInitiated) {
+        if (runtimeUpdateCheckRunning) {
+            if (userInitiated) toast("MCP source check is already running");
+            return;
+        }
+        runtimeUpdateCheckRunning = true;
+        runtimeSourceStatus.setText("MCP SOURCE: CHECKING FOR UPDATES…");
+        runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+        if (userInitiated) appendOutput("\nChecking GitHub for an MCP source update...");
+        RuntimeUpdateChecker.check((result, error) -> runOnUiThread(() -> {
+            runtimeUpdateCheckRunning = false;
+            if (error != null) {
+                runtimeSourceStatus.setText("MCP SOURCE: UPDATE CHECK FAILED");
+                runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+                if (userInitiated) showMessage("MCP source update", error.getMessage());
+                return;
+            }
+
+            String current = RuntimeUpdateChecker.currentUpdateId(this);
+            if (RuntimeUpdateChecker.isCurrent(this, result)) {
+                RuntimeUpdateChecker.clearNotification(this);
+                runtimeSourceStatus.setText("MCP SOURCE: CURRENT · " + current);
+                runtimeSourceStatus.setTextColor(getColor(R.color.success));
+                if (userInitiated) showMessage("MCP source update", "The installed MCP source is current.\n\nRevision: " + current);
+                return;
+            }
+
+            runtimeSourceStatus.setText("MCP SOURCE UPDATE AVAILABLE · " + result.updateId);
+            runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+            RuntimeUpdateChecker.notifyAvailable(this, result);
+            String dismissed = preferences.getString("dismissedRuntimeUpdate", "");
+            if (!userInitiated && result.updateId.equals(dismissed)) return;
+            showRuntimeUpdatePrompt(result, current);
+        }));
+    }
+
+    private void showRuntimeUpdatePrompt(RuntimeUpdateChecker.Result result, String current) {
+        String verification = result.digest.isEmpty() ? "" : "\n\nThe download will be checked against GitHub's SHA-256 digest before activation.";
+        new AlertDialog.Builder(this)
+            .setTitle("MCP source update available")
+            .setMessage("Installed: " + current + "\nAvailable: " + result.updateId
+                + "\n\nThis updates only the MCP bridge source. The APK itself will not be reinstalled. The bridge will restart if it is running."
+                + verification)
+            .setNegativeButton("Later", (dialog, which) ->
+                preferences.edit().putString("dismissedRuntimeUpdate", result.updateId).apply())
+            .setPositiveButton("Update MCP", (dialog, which) -> downloadRuntimeUpdate(result))
+            .show();
+    }
+
+    private void downloadRuntimeUpdate(RuntimeUpdateChecker.Result result) {
+        runtimeSourceStatus.setText("MCP SOURCE: DOWNLOADING " + result.updateId + "…");
+        runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+        appendOutput("\nDownloading and verifying MCP source " + result.updateId + "...");
+        RuntimeUpdateChecker.downloadAndPrepare(this, result, (prepared, error) -> runOnUiThread(() -> {
+            if (error != null) {
+                runtimeSourceStatus.setText("MCP SOURCE: UPDATE FAILED");
+                showMessage("MCP source update failed", error.getMessage());
+                appendOutput("\nMCP source update failed: " + error.getMessage());
+                return;
+            }
+
+            boolean restartBridge = BridgeService.shouldBeRunning(this);
+            int restartPort = port();
+            boolean restartLan = lanModeCheckbox.isChecked();
+            String restartToken = restartLan ? lanToken() : "";
+            if (restartBridge) BridgeService.stop(this);
+            runtimeSourceStatus.setText("MCP SOURCE: ACTIVATING " + result.updateId + "…");
+
+            new Thread(() -> {
+                try {
+                    if (restartBridge) Thread.sleep(1200);
+                    RuntimeUpdateChecker.activate(this, prepared);
+                    runOnUiThread(() -> {
+                        preferences.edit().remove("dismissedRuntimeUpdate").apply();
+                        runtimeSourceStatus.setText("MCP SOURCE: CURRENT · " + result.updateId);
+                        runtimeSourceStatus.setTextColor(getColor(R.color.success));
+                        appendOutput("\nMCP source updated to " + result.updateId + ".");
+                        if (restartBridge) {
+                            new File(getFilesDir(), BridgeService.STATUS_FILE).delete();
+                            BridgeService.start(this, restartPort, restartLan ? "0.0.0.0" : "127.0.0.1", restartToken);
+                            appendOutput("\nRestarting the bridge with the updated MCP source...");
+                            healthSummary.postDelayed(() -> refreshStatus(true, 30), 1000);
+                        }
+                        toast("MCP source updated");
+                    });
+                } catch (Exception activationError) {
+                    runOnUiThread(() -> {
+                        if (restartBridge) {
+                            BridgeService.start(this, restartPort, restartLan ? "0.0.0.0" : "127.0.0.1", restartToken);
+                            appendOutput("\nRestored the previous MCP runtime and restarted the bridge.");
+                        }
+                        runtimeSourceStatus.setText("MCP SOURCE: ACTIVATION FAILED");
+                        runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+                        showMessage("MCP source activation failed", activationError.getMessage());
+                    });
+                }
+            }, "runtime-update-activate").start();
+        }));
+    }
+
     private void downloadManagerUpdate(ManagerUpdateChecker.Result result) {
         appendOutput("\nDownloading manager v" + result.version + " inside the app...");
         toast("Downloading and verifying update");
@@ -680,8 +791,8 @@ public final class MainActivity extends Activity {
 
     private static String healthBase() {
         return "Node.js: EMBEDDED 18.17.1 ✓\n"
-            + "Git: NOT REQUIRED — APK-managed updates\n"
-            + "Repository: BUNDLED MCP v2.4.5\n"
+            + "Git: NOT REQUIRED — verified source updates\n"
+            + "Repository: MCP v2.4.6\n"
             + "Tunnel: OFFICIAL OPENAI " + TunnelClient.VERSION + " ARM64 ✓";
     }
 

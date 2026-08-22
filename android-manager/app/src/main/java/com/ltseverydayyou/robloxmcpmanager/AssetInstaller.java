@@ -18,9 +18,12 @@ final class AssetInstaller {
     static File install(Context context) throws IOException {
         File runtime = new File(context.getFilesDir(), "embedded-runtime");
         String bundledVersion = readAsset(context.getAssets(), ASSET_ROOT + "/runtime-version.txt").trim();
+        String bundledUpdateId = bundledUpdateId(context);
         File marker = new File(runtime, ".installed-version");
         if (new File(runtime, "main.mjs").isFile() && marker.isFile()
             && readFile(marker).trim().equals(bundledVersion)) {
+            File updateMarker = new File(runtime, RuntimeUpdateChecker.UPDATE_ID_MARKER);
+            if (!updateMarker.isFile()) writeFile(updateMarker, bundledUpdateId);
             return runtime;
         }
 
@@ -31,6 +34,7 @@ final class AssetInstaller {
         try (FileOutputStream output = new FileOutputStream(new File(staging, ".installed-version"))) {
             output.write(bundledVersion.getBytes(StandardCharsets.UTF_8));
         }
+        writeFile(new File(staging, RuntimeUpdateChecker.UPDATE_ID_MARKER), bundledUpdateId);
 
         File previous = new File(context.getFilesDir(), "embedded-runtime-previous");
         deleteRecursively(previous);
@@ -41,6 +45,10 @@ final class AssetInstaller {
         }
         deleteRecursively(previous);
         return runtime;
+    }
+
+    static String bundledUpdateId(Context context) throws IOException {
+        return readAsset(context.getAssets(), ASSET_ROOT + "/runtime-update-id.txt").trim();
     }
 
     private static void copyTree(AssetManager assets, String assetPath, File destination) throws IOException {
@@ -68,6 +76,12 @@ final class AssetInstaller {
     private static String readFile(File file) throws IOException {
         try (InputStream input = new java.io.FileInputStream(file)) {
             return readUtf8(input);
+        }
+    }
+
+    private static void writeFile(File file, String value) throws IOException {
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write((value + "\n").getBytes(StandardCharsets.UTF_8));
         }
     }
 

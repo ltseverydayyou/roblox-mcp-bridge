@@ -1,0 +1,75 @@
+name: Publish Android MCP runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "connector.luau"
+      - "package.json"
+      - "package-lock.json"
+      - "android-manager/runtime/**"
+      - "scripts/copy-assets.mjs"
+      - "scripts/prepare-android-runtime-release.mjs"
+      - ".github/workflows/publish-android-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-mcp-runtime
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Package runtime source
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="$RUNNER_TEMP/roblox-mcp-runtime"
+          metadata="$(node scripts/prepare-android-runtime-release.mjs --output "$bundle_dir")"
+          asset_name="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.assetName)' "$metadata")"
+          asset_path="$RUNNER_TEMP/$asset_name"
+          (cd "$bundle_dir" && zip -q -r "$asset_path" .)
+          echo "asset_name=$asset_name" >> "$GITHUB_OUTPUT"
+          echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
+
+      - name: Publish rolling runtime release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_NAME: ${{ steps.package.outputs.asset_name }}
+          ASSET_PATH: ${{ steps.package.outputs.asset_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view runtime-latest >/dev/null 2>&1; then
+            gh release view runtime-latest --json assets --jq '.assets[].name' | while IFS= read -r old_asset; do
+              [ -z "$old_asset" ] || gh release delete-asset runtime-latest "$old_asset" --yes
+            done
+            gh release edit runtime-latest \
+              --title "Latest Android MCP runtime" \
+              --notes "Rolling, SHA-256 verified MCP source bundle for the Android manager. The APK prompts before installing it."
+          else
+            gh release create runtime-latest \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Latest Android MCP runtime" \
+              --notes "Rolling, SHA-256 verified MCP source bundle for the Android manager. The APK prompts before installing it."
+          fi
+          gh release upload runtime-latest "$ASSET_PATH#$ASSET_NAME"

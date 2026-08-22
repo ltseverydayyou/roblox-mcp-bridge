@@ -62,7 +62,7 @@ final class ManagerUpdateChecker {
             HttpURLConnection connection = null;
             try {
                 connection = (HttpURLConnection) new URL(
-                    "https://api.github.com/repos/ltseverydayyou/roblox-mcp-bridge/releases/latest"
+                    "https://api.github.com/repos/ltseverydayyou/roblox-mcp-bridge/releases?per_page=20"
                 ).openConnection();
                 connection.setConnectTimeout(10_000);
                 connection.setReadTimeout(10_000);
@@ -77,32 +77,36 @@ final class ManagerUpdateChecker {
                     String line;
                     while ((line = reader.readLine()) != null) json.append(line);
                 }
-                JSONObject release = new JSONObject(json.toString());
-                JSONArray assets = release.optJSONArray("assets");
-                if (assets == null) throw new IllegalStateException("Latest release has no assets.");
-                Result debugFallback = null;
-                for (int i = 0; i < assets.length(); i++) {
-                    JSONObject asset = assets.getJSONObject(i);
-                    String name = asset.optString("name", "");
-                    Matcher match = APK_NAME.matcher(name);
-                    if (match.matches()) {
-                        Result result = new Result(
-                            match.group(1),
-                            asset.getString("browser_download_url"),
-                            asset.optString("digest", "")
-                        );
-                        if (match.group(2) == null) {
-                            callback.complete(result, null);
-                            return;
+                JSONArray releases = new JSONArray(json.toString());
+                for (int releaseIndex = 0; releaseIndex < releases.length(); releaseIndex++) {
+                    JSONObject release = releases.getJSONObject(releaseIndex);
+                    if (release.optBoolean("draft", false) || release.optBoolean("prerelease", false)) continue;
+                    JSONArray assets = release.optJSONArray("assets");
+                    if (assets == null) continue;
+                    Result debugFallback = null;
+                    for (int i = 0; i < assets.length(); i++) {
+                        JSONObject asset = assets.getJSONObject(i);
+                        String name = asset.optString("name", "");
+                        Matcher match = APK_NAME.matcher(name);
+                        if (match.matches()) {
+                            Result result = new Result(
+                                match.group(1),
+                                asset.getString("browser_download_url"),
+                                asset.optString("digest", "")
+                            );
+                            if (match.group(2) == null) {
+                                callback.complete(result, null);
+                                return;
+                            }
+                            debugFallback = result;
                         }
-                        debugFallback = result;
+                    }
+                    if (debugFallback != null) {
+                        callback.complete(debugFallback, null);
+                        return;
                     }
                 }
-                if (debugFallback != null) {
-                    callback.complete(debugFallback, null);
-                    return;
-                }
-                throw new IllegalStateException("The latest release does not contain an Android manager APK yet.");
+                throw new IllegalStateException("No published release contains an Android manager APK yet.");
             } catch (Exception error) {
                 callback.complete(null, error);
             } finally {

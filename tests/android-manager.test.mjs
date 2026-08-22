@@ -21,10 +21,14 @@ const androidEntrypoint = read("src/android.ts");
 const prepare = read("android-manager/scripts/prepare-embedded-runtime.ps1");
 const updateChecker = read(`${javaRoot}/ManagerUpdateChecker.java`);
 const updateProvider = read(`${javaRoot}/UpdateFileProvider.java`);
+const runtimeUpdateChecker = read(`${javaRoot}/RuntimeUpdateChecker.java`);
 const primaryServer = read("src/bridge/handlers/server/primary.ts");
 const secondaryServer = read("src/bridge/handlers/server/secondary.ts");
 const androidMcp = read("src/http/android-mcp.ts");
 const buildAndroid = read("scripts/build-android-manager.ps1");
+const runtimeReleaseBuilder = read("scripts/prepare-android-runtime-release.mjs");
+const runtimeWorkflow = read(".github/workflows/publish-android-runtime.yml");
+const activityLayout = read("android-manager/app/src/main/res/layout/activity_main.xml");
 const packageVersion = JSON.parse(read("package.json")).version;
 
 test("Android manager owns an isolated embedded foreground service", () => {
@@ -49,12 +53,12 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(prepare, /Get-FileHash.*SHA256/);
   assert.match(prepare, /libc\+\+_shared\.so/);
   assert.match(prepare, /repoRoot "connector\.luau"/);
-  assert.match(prepare, /arm64-r8/);
+  assert.match(prepare, /arm64-r9/);
   assert.match(gradle, /jniLibs\/arm64-v8a\/libc\+\+_shared\.so/);
   assert.match(gradle, /assets\/nodejs-project\/connector\.luau/);
   assert.match(mainActivity, /Node\.js: EMBEDDED 18\.17\.1/);
   assert.match(mainActivity, /Git: NOT REQUIRED/);
-  assert.match(mainActivity, new RegExp(`Repository: BUNDLED MCP v${packageVersion.replaceAll(".", "\\.")}`));
+  assert.match(mainActivity, new RegExp(`Repository: MCP v${packageVersion.replaceAll(".", "\\.")}`));
 });
 
 test("runtime asset activation preserves the previous working bundle", () => {
@@ -62,6 +66,29 @@ test("runtime asset activation preserves the previous working bundle", () => {
   assert.match(installer, /embedded-runtime-previous/);
   assert.match(installer, /previous\.renameTo\(runtime\)/);
   assert.match(installer, /\.installed-version/);
+  assert.match(installer, /runtime-update-id\.txt/);
+  assert.match(installer, /RuntimeUpdateChecker\.UPDATE_ID_MARKER/);
+});
+
+test("Android MCP source updates are prompted, verified, and atomically activated", () => {
+  assert.match(mainActivity, /checkRuntimeUpdate\(false\)/);
+  assert.match(mainActivity, /runtimeUpdateButton/);
+  assert.match(mainActivity, /MCP source update available/);
+  assert.match(runtimeUpdateChecker, /MCP source update available/);
+  assert.match(runtimeUpdateChecker, /NotificationManager/);
+  assert.match(bridgeService, /RUNTIME_UPDATE_INTERVAL_MS/);
+  assert.match(activityLayout, /Check MCP source update/);
+  assert.match(runtimeUpdateChecker, /releases\/tags\/runtime-latest/);
+  assert.match(runtimeUpdateChecker, /SHA-256/);
+  assert.match(runtimeUpdateChecker, /MAX_ARCHIVE_BYTES/);
+  assert.match(runtimeUpdateChecker, /runtime-update\.json/);
+  assert.match(runtimeUpdateChecker, /dist\/android\.js/);
+  assert.match(runtimeUpdateChecker, /embedded-runtime-before-source-update/);
+  assert.match(runtimeUpdateChecker, /renameTo\(runtime\)/);
+  assert.match(runtimeReleaseBuilder, /runtimeApi: 1/);
+  assert.match(runtimeReleaseBuilder, /RobloxMcpRuntime-v/);
+  assert.match(runtimeWorkflow, /Publish rolling runtime release/);
+  assert.match(runtimeWorkflow, /contents: write/);
 });
 
 test("embedded bridge and executor loader stay on Android localhost", () => {
@@ -178,6 +205,8 @@ test("built-in console keeps vertical touch gestures inside its own scroller", (
 
 test("app updates download, verify, and invoke Android's installer without a browser", () => {
   assert.match(updateChecker, /RobloxMcpManager-Android-v/);
+  assert.match(updateChecker, /releases\?per_page=20/);
+  assert.match(updateChecker, /optBoolean\("prerelease"/);
   assert.match(updateChecker, /debugFallback/);
   assert.match(updateChecker, /match\.group\(1\)/);
   assert.match(updateChecker, /Keep a trailing build-flavor "-debug" out of the manifest version group/);

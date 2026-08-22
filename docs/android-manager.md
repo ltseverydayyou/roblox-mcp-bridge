@@ -8,7 +8,8 @@ The Android manager runs the Roblox MCP bridge inside its own app process. It bu
 - The compiled MCP bridge and its JavaScript dependencies are APK assets. On first use they are atomically extracted to the app's private storage; a version marker avoids unnecessary copies and the previous runtime is retained until activation succeeds.
 - A `specialUse` foreground service runs Node in an isolated `:bridge` process. Closing the UI does not stop it; **Stop** terminates only that isolated process, allowing a clean later restart. Android can recreate an ordinarily evicted service with its last saved port, bind address, and relay token.
 - Node binds to Android localhost by default. It binds to all interfaces only when the user explicitly enables the authenticated trusted-LAN relay. The app performs a localhost HTTP health check and reads the runtime's append-only log into the built-in console.
-- Automatic source updates are disabled inside the embedded runtime. The app update checker downloads a new APK release, which keeps the native runtime and JavaScript bundle on the same tested version.
+- The embedded Node process does not run Git or overwrite itself. Instead, the manager checks a separate `runtime-latest` GitHub prerelease when the app opens and when the user taps **Check MCP source update**. A source update is shown before installation, downloaded only with approval, checked against GitHub's SHA-256 digest, extracted with path and size limits, and activated with a previous-runtime rollback directory. If the bridge was running, the manager restarts it after activation and the executor's reconnecting loader reconnects automatically.
+- APK updates remain separate under **App update**. Native libraries or runtime-dependency changes still require a newer APK; an incompatible source bundle is rejected with an instruction to install that APK first.
 
 The current APK targets 64-bit ARM phones. It will not install on 32-bit-only devices or x86 emulators.
 
@@ -20,6 +21,14 @@ The current APK targets 64-bit ARM phones. It will not install on 32-bit-only de
 4. Tap **Copy executor code**.
 5. Run the copied auto-reconnect code in the mobile executor. It repeatedly fetches `/script.luau` from `127.0.0.1:16384`, waits two seconds after a disconnect/failure, and reconnects without requiring another paste.
 6. Use **Dashboard** for the local web UI and **Refresh logs** for the built-in console.
+
+## Update MCP source without reinstalling the APK
+
+The manager performs a source check whenever its UI process opens. While the bridge foreground service is running, it also checks every six hours and posts an **MCP source update available** Android notification. Opening the manager shows **Later** and **Update MCP** choices. Choosing **Later** suppresses that revision's automatic in-app prompt; **Check MCP source update** always checks again and can reopen it. If notification permission is denied, the in-app prompt and manual button continue to work.
+
+Source bundles contain only the compiled `dist` tree, `connector.luau`, and a compatibility manifest. They do not contain native libraries, the OpenAI tunnel client, or an APK. The manager verifies the published size and SHA-256 digest, rejects ZIP path traversal and oversized extraction, confirms the runtime API and dependency fingerprint, preserves the current runtime, and swaps the staged source into app-private storage. A failed activation restores the previous runtime.
+
+Pushes to `main` that change MCP runtime files trigger `.github/workflows/publish-android-runtime.yml`, which builds the TypeScript source and replaces the asset on the `runtime-latest` prerelease. Ordinary documentation-only changes do not publish a runtime update.
 
 ## Connect a PC Codex or Claude MCP host
 
@@ -96,4 +105,4 @@ Public releases should use a private production keystore. The checked-in debug A
 - Stop kills only the isolated bridge service process, not the manager UI or another app.
 - The app never invokes a shell or grants another app command-execution access.
 - Runtime keys are not written to preferences or logs; Doctor and Start clear the field as soon as they begin.
-- Native and JavaScript runtime updates ship together through the APK update flow.
+- Compiled MCP source can update independently through the verified rolling runtime channel. Native libraries and runtime dependency changes continue to require a verified APK update.

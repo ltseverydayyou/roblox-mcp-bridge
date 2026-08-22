@@ -2,6 +2,14 @@ $ErrorActionPreference = "Stop"
 
 $managerRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $managerRoot
+$bridgeVersion = [string](Get-Content -LiteralPath (Join-Path $repoRoot "package.json") -Raw | ConvertFrom-Json).version
+$revision = [string]$env:GITHUB_SHA
+if ([string]::IsNullOrWhiteSpace($revision)) {
+    $revision = [string](& git -C $repoRoot rev-parse HEAD 2>$null)
+}
+$revision = $revision.Trim().ToLowerInvariant()
+if ($revision -notmatch '^[0-9a-f]{7,40}$') { throw "Could not determine the MCP source revision for the Android runtime." }
+$runtimeUpdateId = "v$bridgeVersion-$($revision.Substring(0, [Math]::Min(12, $revision.Length)))"
 $cacheRoot = Join-Path $managerRoot ".cache"
 $archive = Join-Path $cacheRoot "nodejs-mobile-v18.17.3-android.zip"
 $extracted = Join-Path $cacheRoot "nodejs-mobile-v18.17.3"
@@ -115,7 +123,12 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "dist") -Destination $assetTarget -R
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\node_modules") -Destination $assetTarget -Recurse
 [System.IO.File]::WriteAllText(
     (Join-Path $assetTarget "runtime-version.txt"),
-    "2.4.5-node18.17.1-tunnel0.0.12-arm64-r8`n",
+    "$bridgeVersion-node18.17.1-tunnel0.0.12-arm64-r9`n",
+    [System.Text.UTF8Encoding]::new($false)
+)
+[System.IO.File]::WriteAllText(
+    (Join-Path $assetTarget "runtime-update-id.txt"),
+    "$runtimeUpdateId`n",
     [System.Text.UTF8Encoding]::new($false)
 )
 
