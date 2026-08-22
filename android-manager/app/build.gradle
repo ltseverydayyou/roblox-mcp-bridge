@@ -10,8 +10,8 @@ android {
         applicationId "com.ltseverydayyou.robloxmcpmanager"
         minSdk 26
         targetSdk 35
-        versionCode 11
-        versionName "0.4.1"
+        versionCode 12
+        versionName "0.4.2"
 
         ndk {
             abiFilters "arm64-v8a"
@@ -62,7 +62,8 @@ tasks.register("verifyEmbeddedRuntime") {
             file("src/main/jniLibs/arm64-v8a/libc++_shared.so"),
             file("src/main/jniLibs/arm64-v8a/libtunnel-client.so"),
             file("src/main/cpp/node-include/node.h"),
-            file("src/main/assets/nodejs-project/main.mjs")
+            file("src/main/assets/nodejs-project/main.mjs"),
+            file("src/main/assets/nodejs-project/connector.luau")
         ]
         def missing = required.findAll { !it.exists() }
         if (!missing.isEmpty()) {

@@ -44,7 +44,10 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(prepare, /d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc/);
   assert.match(prepare, /Get-FileHash.*SHA256/);
   assert.match(prepare, /libc\+\+_shared\.so/);
+  assert.match(prepare, /repoRoot "connector\.luau"/);
+  assert.match(prepare, /arm64-r5/);
   assert.match(gradle, /jniLibs\/arm64-v8a\/libc\+\+_shared\.so/);
+  assert.match(gradle, /assets\/nodejs-project\/connector\.luau/);
   assert.match(mainActivity, /Node\.js: EMBEDDED 18\.17\.1/);
   assert.match(mainActivity, /Git: NOT REQUIRED/);
   assert.match(mainActivity, /Repository: BUNDLED MCP v2\.4\.4/);
@@ -64,11 +67,24 @@ test("embedded bridge and executor loader stay on Android localhost", () => {
   assert.match(mainActivity, /BridgeURL = \\"127\.0\.0\.1:/);
   assert.match(mainActivity, /http:\/\/127\.0\.0\.1:/);
   assert.match(mainActivity, /MCP_AutoReconnect/);
+  assert.match(mainActivity, /DisableWebSocket = true/);
+  assert.match(mainActivity, /Connector stopped:/);
   assert.match(mainActivity, /\/script\.luau/);
   assert.doesNotMatch(mainActivity, /raw\.githubusercontent\.com/);
   assert.match(entrypoint, /dist\/android\.js/);
   assert.doesNotMatch(androidEntrypoint, /StdioServerTransport/);
   assert.match(androidEntrypoint, /await boot\(\)/);
+});
+
+test("executor connector accepts mobile request API aliases and reports registration failures", () => {
+  const connector = read("connector.luau");
+  assert.match(connector, /ExecutorRequest = http_request/);
+  assert.match(connector, /ExecutorRequest = httprequest/);
+  assert.match(connector, /ExecutorRequest = syn\.request/);
+  assert.match(connector, /ExecutorRequest = http\.request/);
+  assert.match(connector, /HTTP bridge registration failed:/);
+  assert.match(connector, /GetResponseStatus/);
+  assert.match(connector, /GetResponseBody/);
 });
 
 test("trusted LAN relay is opt-in and bearer-token protected", () => {

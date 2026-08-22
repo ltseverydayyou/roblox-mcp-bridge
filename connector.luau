@@ -31,6 +31,24 @@ local UserInputService: UserInputService = SR.cs("UserInputService", cloneref)
 local RunService: RunService = SR.cs("RunService", cloneref)
 local Stats: Stats = SR.cs("Stats", cloneref)
 
+--// Executor HTTP compatibility \\--
+local ExecutorRequest = request
+if typeof(ExecutorRequest) ~= "function" then ExecutorRequest = http_request end
+if typeof(ExecutorRequest) ~= "function" then ExecutorRequest = httprequest end
+if typeof(ExecutorRequest) ~= "function" and typeof(syn) == "table" then ExecutorRequest = syn.request end
+if typeof(ExecutorRequest) ~= "function" and typeof(http) == "table" then ExecutorRequest = http.request end
+if typeof(ExecutorRequest) ~= "function" and typeof(fluxus) == "table" then ExecutorRequest = fluxus.request end
+
+local function GetResponseStatus(response)
+    if typeof(response) ~= "table" then return nil end
+    return tonumber(response.StatusCode or response.Status or response.status_code or response.status)
+end
+
+local function GetResponseBody(response)
+    if typeof(response) ~= "table" then return nil end
+    return response.Body or response.body
+end
+
 --// Libraries \\--
 
 local base64_encode
@@ -612,7 +630,7 @@ local BaseBridge = {}; do
         local success, result = pcall(function()
             local response
             local thread = task.spawn(function()
-                local success, data = pcall(request, {
+                local success, data = pcall(ExecutorRequest, {
                     Url = "http://" .. BridgeURL,
                     Method = "GET"
                 })
@@ -631,7 +649,8 @@ local BaseBridge = {}; do
             end
     
             -- 426 = Upgrade Required (WebSocket), 200 = HTTP mode
-            if response.StatusCode == 426 or response.StatusCode == 200 then
+            local status = GetResponseStatus(response)
+            if status == 426 or status == 200 then
                 return true
             end
     
@@ -780,18 +799,30 @@ local HTTPBridge = setmetatable({}, {__index = BaseBridge}); do
         self.ClientId = nil
 
         --// Register with the server \\--
-        pcall(function()
-            local regResponse = request({
+        local registered, registrationError = pcall(function()
+            local regResponse = ExecutorRequest({
                 Url = "http://" .. BridgeURL .. "/register",
                 Method = "POST",
                 Headers = { ["Content-Type"] = "application/json" },
                 Body = HttpService:JSONEncode(GetRegistrationInfo()),
             })
-            if regResponse.StatusCode == 200 and regResponse.Body then
-                local regData = HttpService:JSONDecode(regResponse.Body)
-                self.ClientId = regData.clientId
+            local status = GetResponseStatus(regResponse)
+            local body = GetResponseBody(regResponse)
+            if status ~= 200 then
+                error("bridge returned HTTP " .. tostring(status or "unknown"))
             end
+            if type(body) ~= "string" or body == "" then
+                error("bridge returned no registration body")
+            end
+            local regData = HttpService:JSONDecode(body)
+            if type(regData.clientId) ~= "string" or regData.clientId == "" then
+                error("bridge returned no clientId")
+            end
+            self.ClientId = regData.clientId
         end)
+        if not registered then
+            error("HTTP bridge registration failed: " .. tostring(registrationError))
+        end
     
         --// Start polling thread \\--
         self.PollThread = task.spawn(function()
@@ -804,13 +835,14 @@ local HTTPBridge = setmetatable({}, {__index = BaseBridge}); do
                     if self.ClientId then
                         pollUrl = pollUrl .. "?clientId=" .. self.ClientId
                     end
-                    local response = request({
+                    local response = ExecutorRequest({
                         Url = pollUrl,
                         Method = "GET"
                     })
 
                     --// Server might be down \\--
-                    if response.StatusCode ~= 204 and response.StatusCode ~= 200 then
+                    local status = GetResponseStatus(response)
+                    if status ~= 204 and status ~= 200 then
                         consecutiveFailures += 1
                         if consecutiveFailures >= 3 then
                             self.Connected = false
@@ -822,8 +854,9 @@ local HTTPBridge = setmetatable({}, {__index = BaseBridge}); do
                     consecutiveFailures = 0
     
                     --// Handle response \\--
-                    if response.Body and response.Body ~= "" then
-                        local data = HttpService:JSONDecode(response.Body)
+                    local responseBody = GetResponseBody(response)
+                    if responseBody and responseBody ~= "" then
+                        local data = HttpService:JSONDecode(responseBody)
                         local commands = {}
                         if typeof(data) == "table" and data.type == nil and #data > 0 then
                             commands = data
@@ -838,7 +871,7 @@ local HTTPBridge = setmetatable({}, {__index = BaseBridge}); do
                                 if result == nil then return end
 
                                 --// Send response back \\--
-                                request({
+                                ExecutorRequest({
                                     Url = "http://" .. BridgeURL .. "/respond",
                                     Method = "POST",
                                     Headers = {
@@ -876,6 +909,10 @@ end
 
 --// Create Bridge \\--
 local function CreateBridge()
+    if typeof(ExecutorRequest) ~= "function" then
+        error("Executor HTTP request API unavailable; expected request, http_request, httprequest, syn.request, or http.request")
+    end
+
     if WebSocketAvailable then
         local success, bridge = pcall(function()
             return WebSocketBridge.new()
@@ -1045,7 +1082,7 @@ local function UploadScriptSourceBatch(clientId, scripts, hasFinishedMapping)
     if not clientId then return false end
     if not IsScriptMappingTransportReady(clientId) then return false end
 
-    local ok, response = pcall(request, {
+    local ok, response = pcall(ExecutorRequest, {
         Url = "http://" .. BridgeURL .. "/script-sources",
         Method = "POST",
         Headers = {
@@ -1061,7 +1098,7 @@ local function UploadScriptSourceBatch(clientId, scripts, hasFinishedMapping)
         })
     })
 
-    return ok and response and response.StatusCode == 200
+    return ok and response and GetResponseStatus(response) == 200
 end
 
 local function PublishScriptMappingStatus(hasFinishedMapping)
@@ -1178,7 +1215,7 @@ end
 local function FetchCachedScriptSourceBatch(clientId, hashesToFetch)
     if #hashesToFetch == 0 then return end
 
-    local ok, response = pcall(request, {
+    local ok, response = pcall(ExecutorRequest, {
         Url = "http://" .. BridgeURL .. "/script-source-cache",
         Method = "POST",
         Headers = {
@@ -1191,12 +1228,13 @@ local function FetchCachedScriptSourceBatch(clientId, hashesToFetch)
         }),
     })
 
-    if not ok or type(response) ~= "table" or response.StatusCode ~= 200 or type(response.Body) ~= "string" then
+    local responseBody = GetResponseBody(response)
+    if not ok or type(response) ~= "table" or GetResponseStatus(response) ~= 200 or type(responseBody) ~= "string" then
         return
     end
 
     local decodedOk, decoded = pcall(function()
-        return HttpService:JSONDecode(response.Body)
+        return HttpService:JSONDecode(responseBody)
     end)
     if not decodedOk or type(decoded) ~= "table" or type(decoded.sources) ~= "table" then
         return
@@ -1210,7 +1248,7 @@ local function FetchCachedScriptSourceBatch(clientId, hashesToFetch)
 end
 
 local function FetchCachedScriptSources(clientId, scriptHashes)
-    if type(request) ~= "function" then return end
+    if type(ExecutorRequest) ~= "function" then return end
     if type(clientId) ~= "string" or clientId == "" then return end
     if type(scriptHashes) ~= "table" then return end
 
@@ -1260,8 +1298,8 @@ local function TryBuiltInDecompile(script)
 end
 
 local function RequestServerDecompile(bytecode, options)
-    if type(request) ~= "function" then
-        return nil, "request function is unavailable"
+    if type(ExecutorRequest) ~= "function" then
+        return nil, "executor HTTP request function is unavailable"
     end
 
     options = if type(options) == "table" then options else {}
@@ -1284,7 +1322,7 @@ local function RequestServerDecompile(bytecode, options)
     end
 
     local success, response = RunWithTimeout(ServerDecompileTimeoutSeconds, function()
-        return request({
+        return ExecutorRequest({
             Url = "http://" .. BridgeURL .. "/decompile",
             Method = "POST",
             Headers = {
@@ -1298,12 +1336,13 @@ local function RequestServerDecompile(bytecode, options)
         return nil, tostring(response)
     end
 
-    if type(response) ~= "table" or type(response.Body) ~= "string" then
+    local responseBody = GetResponseBody(response)
+    if type(response) ~= "table" or type(responseBody) ~= "string" then
         return nil, "Decompile server returned no response body."
     end
 
     local decodedOk, decoded = pcall(function()
-        return HttpService:JSONDecode(response.Body)
+        return HttpService:JSONDecode(responseBody)
     end)
     if not decodedOk or type(decoded) ~= "table" then
         return nil, "Decompile server returned invalid JSON."

@@ -18,6 +18,7 @@ export function buildLoaderSnippet(bridgeUrl = DEFAULT_BRIDGE_URL) {
   const normalized = normalizeBridgeUrl(bridgeUrl);
   const loaderAddress = normalized === DEFAULT_BRIDGE_URL ? "127.0.0.1:16384" : normalized;
   return `getgenv().BridgeURL = "${loaderAddress}"
+getgenv().DisableWebSocket = true
 
 if getgenv().MCP_AutoReconnect then
     return
@@ -31,20 +32,25 @@ while getgenv().MCP_AutoReconnect do
     end)
 
     if not Success or type(Source) ~= "string" or Source == "" then
+        warn("[Roblox MCP] Connector download failed: " .. tostring(Source))
         task.wait(2)
         continue
     end
 
-    local Bridge = loadstring(Source)
+    local Bridge, CompileError = loadstring(Source)
 
     if not Bridge then
+        warn("[Roblox MCP] Connector compile failed: " .. tostring(CompileError))
         task.wait(2)
         continue
     end
 
     getgenv().MCP_Loaded = false
 
-    pcall(Bridge)
+    local Ran, RuntimeError = pcall(Bridge)
+    if not Ran then
+        warn("[Roblox MCP] Connector stopped: " .. tostring(RuntimeError))
+    end
 
     getgenv().MCP_Loaded = false
 

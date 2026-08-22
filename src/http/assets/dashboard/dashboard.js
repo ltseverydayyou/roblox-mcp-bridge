@@ -575,7 +575,8 @@ function normalizeDashboardBridgeUrl(value) {
 function buildDashboardLoaderSnippet(bridgeUrl) {
     const normalized = normalizeDashboardBridgeUrl(bridgeUrl);
     const loaderAddress = normalized === 'localhost:16384' ? '127.0.0.1:16384' : normalized;
-    return 'getgenv().BridgeURL = "' + loaderAddress + '"\n\n' +
+    return 'getgenv().BridgeURL = "' + loaderAddress + '"\n' +
+        'getgenv().DisableWebSocket = true\n\n' +
         'if getgenv().MCP_AutoReconnect then\n' +
         '    return\n' +
         'end\n\n' +
@@ -585,16 +586,21 @@ function buildDashboardLoaderSnippet(bridgeUrl) {
         '        return game:HttpGet("http://" .. getgenv().BridgeURL .. "/script.luau")\n' +
         '    end)\n\n' +
         '    if not Success or type(Source) ~= "string" or Source == "" then\n' +
+        '        warn("[Roblox MCP] Connector download failed: " .. tostring(Source))\n' +
         '        task.wait(2)\n' +
         '        continue\n' +
         '    end\n\n' +
-        '    local Bridge = loadstring(Source)\n\n' +
+        '    local Bridge, CompileError = loadstring(Source)\n\n' +
         '    if not Bridge then\n' +
+        '        warn("[Roblox MCP] Connector compile failed: " .. tostring(CompileError))\n' +
         '        task.wait(2)\n' +
         '        continue\n' +
         '    end\n\n' +
         '    getgenv().MCP_Loaded = false\n\n' +
-        '    pcall(Bridge)\n\n' +
+        '    local Ran, RuntimeError = pcall(Bridge)\n' +
+        '    if not Ran then\n' +
+        '        warn("[Roblox MCP] Connector stopped: " .. tostring(RuntimeError))\n' +
+        '    end\n\n' +
         '    getgenv().MCP_Loaded = false\n\n' +
         '    task.wait(2)\n' +
         'end';

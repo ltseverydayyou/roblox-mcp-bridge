@@ -102,6 +102,7 @@ Copy-Item -LiteralPath (Join-Path $tunnelExtracted "tunnel-client") -Destination
 Copy-Item -Path (Join-Path $nodeRoot "include\node\*") -Destination $includeTarget -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\main.mjs") -Destination $assetTarget
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\package.json") -Destination $assetTarget
+Copy-Item -LiteralPath (Join-Path $repoRoot "connector.luau") -Destination $assetTarget
 foreach ($licenseFile in @(
     "LICENSE",
     "NOTICE",
@@ -114,7 +115,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "dist") -Destination $assetTarget -R
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\node_modules") -Destination $assetTarget -Recurse
 [System.IO.File]::WriteAllText(
     (Join-Path $assetTarget "runtime-version.txt"),
-    "2.4.4-node18.17.1-tunnel0.0.12-arm64-r4`n",
+    "2.4.4-node18.17.1-tunnel0.0.12-arm64-r5`n",
     [System.Text.UTF8Encoding]::new($false)
 )
 
