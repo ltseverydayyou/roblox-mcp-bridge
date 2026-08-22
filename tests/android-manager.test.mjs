@@ -18,6 +18,7 @@ const entrypoint = read("android-manager/runtime/main.mjs");
 const androidEntrypoint = read("src/android.ts");
 const prepare = read("android-manager/scripts/prepare-embedded-runtime.ps1");
 const updateChecker = read(`${javaRoot}/ManagerUpdateChecker.java`);
+const updateProvider = read(`${javaRoot}/UpdateFileProvider.java`);
 const primaryServer = read("src/bridge/handlers/server/primary.ts");
 const secondaryServer = read("src/bridge/handlers/server/secondary.ts");
 const androidMcp = read("src/http/android-mcp.ts");
@@ -124,8 +125,22 @@ test("built-in console keeps vertical touch gestures inside its own scroller", (
   assert.match(mainActivity, /canScrollVertically/);
 });
 
-test("app updates recognize Android production and debug APK names", () => {
+test("app updates download, verify, and invoke Android's installer without a browser", () => {
   assert.match(updateChecker, /RobloxMcpManager-Android-v/);
   assert.match(updateChecker, /debugFallback/);
   assert.match(updateChecker, /match\.group\(1\)/);
+  assert.match(updateChecker, /MessageDigest\.getInstance\("SHA-256"\)/);
+  assert.match(updateChecker, /GET_SIGNING_CERTIFICATES/);
+  assert.match(updateChecker, /sameSigners/);
+  assert.match(updateChecker, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
+  assert.match(updateChecker, /application\/vnd\.android\.package-archive/);
+  assert.match(updateChecker, /FLAG_GRANT_READ_URI_PERMISSION/);
+  assert.doesNotMatch(updateChecker, /openDownload/);
+  assert.match(updateProvider, /ParcelFileDescriptor\.MODE_READ_ONLY/);
+  assert.match(updateProvider, /Unsupported update URI/);
+  assert.match(manifest, /REQUEST_INSTALL_PACKAGES/);
+  assert.match(manifest, /android:name="\.UpdateFileProvider"/);
+  assert.match(manifest, /android:exported="false"/);
+  assert.match(mainActivity, /Download & install/);
+  assert.match(mainActivity, /resumePendingInstall/);
 });

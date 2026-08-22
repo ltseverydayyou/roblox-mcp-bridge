@@ -84,6 +84,11 @@ public final class MainActivity extends Activity {
         updateBackgroundStatus();
         updateTunnelStatus();
         refreshStatus(false);
+        try {
+            ManagerUpdateChecker.resumePendingInstall(this);
+        } catch (Exception error) {
+            appendOutput("\nCould not resume the pending update installer: " + error.getMessage());
+        }
     }
 
     @Override protected void onStop() {
@@ -589,9 +594,31 @@ public final class MainActivity extends Activity {
                 + (result.digest.isEmpty() ? "" : "\nVerified release digest: " + result.digest);
             AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle("Android manager release").setMessage(message);
             if (newer) dialog.setNegativeButton("Later", null)
-                .setPositiveButton("Download", (ignored, which) -> ManagerUpdateChecker.openDownload(this, result.downloadUrl));
+                .setPositiveButton("Download & install", (ignored, which) -> downloadManagerUpdate(result));
             else dialog.setPositiveButton("OK", null);
             dialog.show();
+        }));
+    }
+
+    private void downloadManagerUpdate(ManagerUpdateChecker.Result result) {
+        appendOutput("\nDownloading manager v" + result.version + " inside the app...");
+        toast("Downloading and verifying update");
+        ManagerUpdateChecker.download(this, result, (apk, error) -> runOnUiThread(() -> {
+            if (error != null) {
+                showMessage("Update download failed", error.getMessage());
+                appendOutput("\nUpdate failed: " + error.getMessage());
+                return;
+            }
+            appendOutput("\nUpdate downloaded and verified: " + result.digest);
+            try {
+                boolean installerOpened = ManagerUpdateChecker.beginInstall(this, apk);
+                if (!installerOpened) {
+                    appendOutput("\nAndroid opened “Install unknown apps.” Enable “Allow from this source,” then return; the verified update will open automatically.");
+                    toast("Allow installs, then return to the manager");
+                }
+            } catch (Exception installError) {
+                showMessage("Could not open Android installer", installError.getMessage());
+            }
         }));
     }
 
