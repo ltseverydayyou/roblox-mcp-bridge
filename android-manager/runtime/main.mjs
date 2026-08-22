@@ -23,6 +23,7 @@ process.env.HOME = runtimeDir;
 process.env.ROBLOX_MCP_HOST = bridgeHost;
 process.env.ROBLOX_MCP_PORT = String(Number.isInteger(port) ? port : 16384);
 process.env.ROBLOX_MCP_UPDATE_CHECK = "false";
+process.env.ROBLOX_MCP_HTTP = "true";
 if (lanToken) process.env.ROBLOX_MCP_LAN_TOKEN = lanToken;
 
 const logStream = fs.createWriteStream(logPath, { flags: "a" });

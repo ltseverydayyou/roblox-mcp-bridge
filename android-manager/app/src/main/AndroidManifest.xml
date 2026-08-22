@@ -33,5 +33,14 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-started persistent local MCP and WebSocket bridge for a connected Roblox client" />
         </service>
+        <service
+            android:name=".TunnelService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:process=":tunnel">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started OpenAI MCP tunnel forwarding the phone-local MCP endpoint" />
+        </service>
     </application>
 </manifest>

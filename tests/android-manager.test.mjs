@@ -9,6 +9,8 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const javaRoot = "android-manager/app/src/main/java/com/ltseverydayyou/robloxmcpmanager";
 const mainActivity = read(`${javaRoot}/MainActivity.java`);
 const bridgeService = read(`${javaRoot}/BridgeService.java`);
+const tunnelClient = read(`${javaRoot}/TunnelClient.java`);
+const tunnelService = read(`${javaRoot}/TunnelService.java`);
 const installer = read(`${javaRoot}/AssetInstaller.java`);
 const manifest = read("android-manager/app/src/main/AndroidManifest.xml");
 const gradle = read("android-manager/app/build.gradle");
@@ -18,6 +20,7 @@ const prepare = read("android-manager/scripts/prepare-embedded-runtime.ps1");
 const updateChecker = read(`${javaRoot}/ManagerUpdateChecker.java`);
 const primaryServer = read("src/bridge/handlers/server/primary.ts");
 const secondaryServer = read("src/bridge/handlers/server/secondary.ts");
+const androidMcp = read("src/http/android-mcp.ts");
 
 test("Android manager owns an isolated embedded foreground service", () => {
   assert.match(manifest, /android:name="\.BridgeService"/);
@@ -77,10 +80,32 @@ test("trusted LAN relay is opt-in and bearer-token protected", () => {
   assert.match(secondaryServer, /Authorization: `Bearer \$\{RELAY_TOKEN\}`/);
 });
 
-test("unfinished tunnel transport cannot persist a runtime key", () => {
+test("official ARM64 tunnel transport never persists a runtime key", () => {
   assert.doesNotMatch(mainActivity, /putString\("runtimeKey"/);
   assert.match(mainActivity, /runtimeKeyField\.setText\(""\)/);
-  assert.match(mainActivity, /Tunnel transport is not embedded yet/);
+  assert.doesNotMatch(mainActivity, /Tunnel transport is not embedded yet/);
+  assert.match(prepare, /tunnel-client-v\$tunnelVersion-linux-arm64\.zip/);
+  assert.match(prepare, /6813878a3edb82ebebb32fe5a859bc6327a81cce5bc7b635a2313174d26365d6/);
+  assert.match(gradle, /libtunnel-client\.so/);
+  assert.match(manifest, /android:name="\.TunnelService"/);
+  assert.match(manifest, /android:process=":tunnel"/);
+  assert.match(tunnelClient, /CONTROL_PLANE_API_KEY/);
+  assert.match(tunnelClient, /sample_mcp_remote_no_auth/);
+  assert.match(tunnelClient, /http:\/\/127\.0\.0\.1:.*\/mcp/);
+  assert.match(tunnelService, /START_NOT_STICKY/);
+  assert.match(tunnelService, /removeExtra\(EXTRA_RUNTIME_KEY\)/);
+  assert.doesNotMatch(tunnelService, /SharedPreferences/);
+});
+
+test("Android MCP HTTP transport is enabled only in the embedded runtime and restricted to loopback", () => {
+  assert.match(entrypoint, /ROBLOX_MCP_HTTP = "true"/);
+  assert.match(primaryServer, /isAndroidMcpRequest/);
+  assert.match(androidMcp, /StreamableHTTPServerTransport/);
+  assert.match(androidMcp, /isLoopback\(req\.socket\.remoteAddress\)/);
+  assert.match(androidMcp, /restricted to localhost/);
+  assert.match(androidMcp, /oauth-protected-resource/);
+  assert.match(primaryServer, /isAndroidOAuthDiscoveryRequest/);
+  assert.match(primaryServer, /res\.writeHead\(404/);
 });
 
 test("Android manager explains ChatGPT plugin setup and background survival", () => {

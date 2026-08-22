@@ -64,7 +64,7 @@
         <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ChatGPT plugin connection" />
             <TextView style="@style/HintText" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="ChatGPT cannot reach phone localhost directly. Create an OpenAI Platform runtime API key and tunnel, run this bridge and the matching tunnel ID, then add a custom plugin at ChatGPT Plugins. The current APK runs the bridge; its Android tunnel transport is still in progress." />
+                android:text="ChatGPT cannot reach phone localhost directly. This APK bundles the official OpenAI ARM64 tunnel-client and forwards it to the phone-local /mcp endpoint. Create a Platform runtime API key and tunnel, then keep both foreground services running." />
             <TextView style="@style/HintText" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="PLUGIN STEPS\n1. Create an API key and a tunnel; copy the tunnel_... ID.\n2. Start the local bridge and matching tunnel. Keep both running.\n3. Open ChatGPT Plugins and tap +.\n4. Choose Connection: Tunnel, select the same tunnel ID, and use No Auth.\n5. Review the custom-MCP warning, acknowledge it, and tap Create." />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
@@ -81,12 +81,14 @@
             <EditText android:id="@+id/tunnelIdField" style="@style/ManagerField" android:hint="tunnel_..." android:inputType="text" />
             <TextView style="@style/FieldLabel" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="PLATFORM RUNTIME API KEY (MEMORY ONLY)" />
             <EditText android:id="@+id/runtimeKeyField" style="@style/ManagerField" android:hint="Paste key" android:inputType="textPassword" />
+            <TextView android:id="@+id/tunnelStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp" android:text="TUNNEL-CLIENT: NOT STARTED" android:textColor="@color/warning" android:textStyle="bold" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
                 <Button android:id="@+id/configureTunnelButton" style="@style/ManagerButton.Secondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Configure" />
                 <Button android:id="@+id/doctorTunnelButton" style="@style/ManagerButton.Secondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Doctor" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/startTunnelButton" style="@style/ManagerButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Start tunnel (port pending)" />
+                <Button android:id="@+id/startTunnelButton" style="@style/ManagerButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Start tunnel" />
                 <Button android:id="@+id/stopTunnelButton" style="@style/ManagerButton.Danger" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Stop" />
             </LinearLayout>
         </LinearLayout>

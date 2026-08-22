@@ -64,7 +64,8 @@ try {
     foreach ($requiredLibrary in @(
         "lib/arm64-v8a/libnode.so",
         "lib/arm64-v8a/libnative-node.so",
-        "lib/arm64-v8a/libc++_shared.so"
+        "lib/arm64-v8a/libc++_shared.so",
+        "lib/arm64-v8a/libtunnel-client.so"
     )) {
         if ($entries -notcontains $requiredLibrary) {
             throw "APK is missing required native library: $requiredLibrary"

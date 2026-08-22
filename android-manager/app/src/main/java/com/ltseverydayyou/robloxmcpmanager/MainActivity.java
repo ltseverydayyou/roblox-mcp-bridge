@@ -50,6 +50,7 @@ public final class MainActivity extends Activity {
     private CheckBox lanModeCheckbox;
     private TextView lanAddressText;
     private TextView backgroundStatus;
+    private TextView tunnelStatus;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -72,6 +73,7 @@ public final class MainActivity extends Activity {
         });
         updateRuntimeStatus();
         updateBackgroundStatus();
+        updateTunnelStatus();
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
     }
 
@@ -80,6 +82,7 @@ public final class MainActivity extends Activity {
         updateRuntimeStatus();
         updateLanAddress();
         updateBackgroundStatus();
+        updateTunnelStatus();
         refreshStatus(false);
     }
 
@@ -99,6 +102,7 @@ public final class MainActivity extends Activity {
         lanModeCheckbox = findViewById(R.id.lanModeCheckbox);
         lanAddressText = findViewById(R.id.lanAddressText);
         backgroundStatus = findViewById(R.id.backgroundStatus);
+        tunnelStatus = findViewById(R.id.tunnelStatus);
     }
 
     private void loadSettings() {
@@ -135,8 +139,10 @@ public final class MainActivity extends Activity {
         findViewById(R.id.openChatGptPluginsButton).setOnClickListener(v -> openChatGptPlugins());
         findViewById(R.id.copyChatGptChecklistButton).setOnClickListener(v -> copyChatGptChecklist());
 
-        int[] tunnelButtons = { R.id.configureTunnelButton, R.id.doctorTunnelButton, R.id.startTunnelButton, R.id.stopTunnelButton };
-        for (int id : tunnelButtons) findViewById(id).setOnClickListener(v -> tunnelPrototypeNotice());
+        findViewById(R.id.configureTunnelButton).setOnClickListener(v -> configureTunnel());
+        findViewById(R.id.doctorTunnelButton).setOnClickListener(v -> doctorTunnel());
+        findViewById(R.id.startTunnelButton).setOnClickListener(v -> startTunnel());
+        findViewById(R.id.stopTunnelButton).setOnClickListener(v -> stopTunnel());
         lanModeCheckbox.setOnCheckedChangeListener((button, checked) -> {
             saveSettings();
             updateLanAddress();
@@ -210,7 +216,8 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     runtimeStatus.setText("EMBEDDED NODE: RUNNING");
                     runtimeStatus.setTextColor(getColor(R.color.success));
-                    healthSummary.setText(healthBase() + "\nBridge: RUNNING on 127.0.0.1:" + requestedPort + lanExposure());
+                    healthSummary.setText(healthBase() + "\nBridge: RUNNING on 127.0.0.1:" + requestedPort + lanExposure()
+                        + "\nTunnel: " + readTunnelState());
                     healthSummary.setTextColor(getColor(R.color.success));
                     if (reportFailure) appendOutput("\nBridge health check passed. " + compact(response));
                 });
@@ -221,13 +228,13 @@ public final class MainActivity extends Activity {
                     if (retriesRemaining > 0 && !fatal) {
                         runtimeStatus.setText("EMBEDDED NODE: STARTING");
                         runtimeStatus.setTextColor(getColor(R.color.warning));
-                        healthSummary.setText(healthBase() + "\nBridge: starting…\n" + serviceState);
+                        healthSummary.setText(healthBase() + "\nBridge: starting…\n" + serviceState + "\nTunnel: " + readTunnelState());
                         healthSummary.setTextColor(getColor(R.color.warning));
                         healthSummary.postDelayed(() -> refreshStatus(reportFailure, retriesRemaining - 1), 1000);
                         return;
                     }
                     updateRuntimeStatus();
-                    healthSummary.setText(healthBase() + "\nBridge: stopped\n" + serviceState);
+                    healthSummary.setText(healthBase() + "\nBridge: stopped\n" + serviceState + "\nTunnel: " + readTunnelState());
                     healthSummary.setTextColor(getColor(R.color.warning));
                     if (reportFailure) appendOutput("\nBridge failed to become ready: " + error.getMessage() + "\nService: " + serviceState);
                 });
@@ -239,20 +246,27 @@ public final class MainActivity extends Activity {
 
     private void updateRuntimeStatus() {
         File runtime = new File(getFilesDir(), "embedded-runtime/main.mjs");
-        runtimeStatus.setText(runtime.isFile() ? "EMBEDDED NODE: READY" : "EMBEDDED NODE: BUNDLED — TAP PREPARE");
-        runtimeStatus.setTextColor(getColor(runtime.isFile() ? R.color.success : R.color.warning));
+        boolean tunnelBundled = TunnelClient.binary(this).isFile();
+        runtimeStatus.setText((runtime.isFile() ? "EMBEDDED NODE: READY" : "EMBEDDED NODE: BUNDLED — TAP PREPARE")
+            + "\nOPENAI TUNNEL-CLIENT " + TunnelClient.VERSION + ": " + (tunnelBundled ? "READY" : "MISSING"));
+        runtimeStatus.setTextColor(getColor(runtime.isFile() && tunnelBundled ? R.color.success : R.color.warning));
     }
 
     private void readLogs() {
         File serviceLog = new File(getFilesDir(), BridgeService.SERVICE_LOG_FILE);
         File bridgeLog = new File(getFilesDir(), "bridge.log");
-        if (!serviceLog.isFile() && !bridgeLog.isFile()) { appendOutput("\nNo embedded bridge log exists yet. Service: " + readServiceState()); return; }
+        File tunnelLog = new File(getFilesDir(), TunnelService.LOG_FILE);
+        if (!serviceLog.isFile() && !bridgeLog.isFile() && !tunnelLog.isFile()) {
+            appendOutput("\nNo bridge or tunnel log exists yet. Bridge: " + readServiceState() + "\nTunnel: " + readTunnelState());
+            return;
+        }
         new Thread(() -> {
             StringBuilder lines = new StringBuilder();
             try {
                 appendLogFile(lines, "Android service", serviceLog);
                 appendLogFile(lines, "Embedded Node", bridgeLog);
-                runOnUiThread(() -> appendOutput("\n--- embedded bridge log ---\n" + lines));
+                appendLogFile(lines, "OpenAI tunnel-client", tunnelLog);
+                runOnUiThread(() -> appendOutput("\n--- bridge and tunnel logs ---\n" + lines));
             } catch (Exception error) {
                 runOnUiThread(() -> showMessage("Could not read bridge logs", error.getMessage()));
             }
@@ -284,18 +298,128 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void tunnelPrototypeNotice() {
+    private String readTunnelState() {
+        return TunnelClient.readState(new File(getFilesDir(), TunnelService.STATUS_FILE), "not started");
+    }
+
+    private void updateTunnelStatus() {
+        String state = readTunnelState();
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": " + state);
+        tunnelStatus.setTextColor(getColor(state.startsWith("RUNNING") ? R.color.success : R.color.warning));
+    }
+
+    private String validateTunnelInput(boolean requireKey) {
+        String validation = TunnelClient.validate(value(profileField), value(tunnelIdField));
+        if (validation != null) return validation;
+        if (!TunnelClient.binary(this).isFile()) return "The official ARM64 tunnel-client is missing from this APK.";
+        if (requireKey && value(runtimeKeyField).isEmpty()) return "Paste the OpenAI Platform runtime API key. It is used from memory and is not saved.";
+        return null;
+    }
+
+    private void configureTunnel() {
+        String validation = validateTunnelInput(false);
+        if (validation != null) { showMessage("Tunnel configuration", validation); return; }
+        saveSettings();
+        String profile = value(profileField);
+        String tunnelId = value(tunnelIdField);
+        int bridgePort = port();
+        appendOutput("\nConfiguring tunnel profile " + profile + " for localhost:" + bridgePort + "/mcp...");
+        new Thread(() -> {
+            try {
+                TunnelClient.Result result = TunnelClient.configure(this, profile, tunnelId, bridgePort);
+                runOnUiThread(() -> {
+                    appendOutput("\n" + result.output);
+                    if (result.exitCode == 0) toast("Tunnel profile configured");
+                    else showMessage("Tunnel configuration failed", result.output);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> showMessage("Tunnel configuration failed", error.getMessage()));
+            }
+        }, "tunnel-configure").start();
+    }
+
+    private void doctorTunnel() {
+        String validation = validateTunnelInput(true);
+        if (validation != null) { showMessage("Tunnel doctor", validation); return; }
+        if (!TunnelClient.profileFile(this, value(profileField)).isFile()) {
+            showMessage("Tunnel doctor", "Tap Configure first to create this profile.");
+            return;
+        }
+        String profile = value(profileField);
+        String runtimeKey = value(runtimeKeyField);
+        int bridgePort = port();
         runtimeKeyField.setText("");
-        showMessage("Tunnel transport is not embedded yet",
-            "The local Roblox bridge runs without Termux. The official tunnel client does not ship an Android binary, so Configure, Doctor, Start, and Stop remain disabled until the transport is ported and verified. You can still use the setup links and prepare the ChatGPT plugin. Your runtime key was cleared and was not stored.");
+        appendOutput("\nRunning tunnel doctor (runtime key cleared from the screen)...");
+        new Thread(() -> {
+            try {
+                if (!isLocalBridgeReady(bridgePort)) throw new IllegalStateException("Start the localhost bridge before running Doctor.");
+                TunnelClient.Result result = TunnelClient.doctor(this, profile, runtimeKey);
+                runOnUiThread(() -> {
+                    appendOutput("\n--- tunnel doctor ---\n" + result.output);
+                    if (result.exitCode == 0) toast("Tunnel doctor passed");
+                    else showMessage("Tunnel doctor failed", result.output);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> showMessage("Tunnel doctor failed", error.getMessage()));
+            }
+        }, "tunnel-doctor").start();
+    }
+
+    private void startTunnel() {
+        String validation = validateTunnelInput(true);
+        if (validation != null) { showMessage("Start tunnel", validation); return; }
+        String profile = value(profileField);
+        if (!TunnelClient.profileFile(this, profile).isFile()) {
+            showMessage("Start tunnel", "Tap Configure first to create this profile.");
+            return;
+        }
+        String runtimeKey = value(runtimeKeyField);
+        int bridgePort = port();
+        runtimeKeyField.setText("");
+        new File(getFilesDir(), TunnelService.STATUS_FILE).delete();
+        appendOutput("\nChecking the localhost MCP endpoint before starting the tunnel...");
+        new Thread(() -> {
+            try {
+                if (!isLocalBridgeReady(bridgePort)) throw new IllegalStateException("Start the localhost bridge first and wait for its health check to pass.");
+                runOnUiThread(() -> {
+                    TunnelService.start(this, profile, runtimeKey);
+                    appendOutput("\nStarting official OpenAI tunnel-client " + TunnelClient.VERSION + ". The runtime key was cleared and was not saved.");
+                    tunnelStatus.postDelayed(this::updateTunnelStatus, 1200);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> showMessage("Start tunnel", error.getMessage()));
+            }
+        }, "tunnel-preflight").start();
+    }
+
+    private void stopTunnel() {
+        TunnelService.stop(this);
+        runtimeKeyField.setText("");
+        appendOutput("\nStopping OpenAI tunnel-client...");
+        tunnelStatus.postDelayed(this::updateTunnelStatus, 800);
+    }
+
+    private boolean isLocalBridgeReady(int bridgePort) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL("http://127.0.0.1:" + bridgePort + "/api/status").openConnection();
+            connection.setConnectTimeout(1200);
+            connection.setReadTimeout(1800);
+            int code = connection.getResponseCode();
+            return code >= 200 && code < 300;
+        } catch (Exception ignored) {
+            return false;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
     }
 
     private void updateBackgroundStatus() {
         PowerManager power = getSystemService(PowerManager.class);
         boolean unrestricted = power != null && power.isIgnoringBatteryOptimizations(getPackageName());
         backgroundStatus.setText(unrestricted
-            ? "BATTERY: UNRESTRICTED ✓ — foreground bridge can stay active"
-            : "BATTERY: OPTIMIZED — Android or the phone vendor may stop the bridge");
+            ? "BATTERY: UNRESTRICTED ✓ — bridge and tunnel can stay active"
+            : "BATTERY: OPTIMIZED — Android or the phone vendor may stop the bridge or tunnel");
         backgroundStatus.setTextColor(getColor(unrestricted ? R.color.success : R.color.warning));
     }
 
@@ -501,7 +625,8 @@ public final class MainActivity extends Activity {
     private static String healthBase() {
         return "Node.js: EMBEDDED 18.17.1 ✓\n"
             + "Git: NOT REQUIRED — APK-managed updates\n"
-            + "Repository: BUNDLED MCP v2.4.4";
+            + "Repository: BUNDLED MCP v2.4.4\n"
+            + "Tunnel: OFFICIAL OPENAI " + TunnelClient.VERSION + " ARM64 ✓";
     }
 
     private static String value(EditText field) { return field.getText().toString().trim(); }

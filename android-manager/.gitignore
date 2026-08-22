@@ -7,6 +7,7 @@ local.properties
 .cache/
 app/src/main/jniLibs/
 app/src/main/assets/nodejs-project/
+app/src/main/assets/licenses/openai-tunnel-client/
 app/src/main/cpp/node-include/
 runtime/node_modules/
 runtime/package-lock.json

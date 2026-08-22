@@ -5,6 +5,11 @@ import { RELAY_TOKEN, SERVER_HOST, WS_PORT } from "../../../config.js";
 import { SERVER_VERSION } from "../../../version.js";
 import { dispatchHttp, dispatchWs, loadRoutes } from "../../../http/router.js";
 import {
+  handleAndroidMcp,
+  isAndroidMcpRequest,
+  isAndroidOAuthDiscoveryRequest,
+} from "../../../http/android-mcp.js";
+import {
   resetPrimaryState,
   setInstanceRole,
 } from "../shared/communication.js";
@@ -32,6 +37,15 @@ export async function startAsPrimary(): Promise<void> {
     resetPrimaryState();
 
     const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+      if (isAndroidOAuthDiscoveryRequest(req)) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("OAuth protected-resource metadata is not advertised.");
+        return;
+      }
+      if (isAndroidMcpRequest(req)) {
+        void handleAndroidMcp(req, res);
+        return;
+      }
       if (!hasValidRelayToken(req)) {
         res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("A valid LAN relay token is required.");
