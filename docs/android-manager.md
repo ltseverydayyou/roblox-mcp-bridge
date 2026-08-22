@@ -14,7 +14,7 @@ The current APK targets 64-bit ARM phones. It will not install on 32-bit-only de
 
 ## Phone setup
 
-1. Install `RobloxMcpManager-Android-v0.3.1-debug.apk`. Android may ask permission to install from the browser or file manager used to open it.
+1. Install `RobloxMcpManager-Android-v0.3.2-debug.apk`. Android may ask permission to install from the browser or file manager used to open it.
 2. Open the manager and tap **Prepare embedded runtime** once. This copies the bundled files; it does not download Termux or development tools.
 3. Tap **Start** and wait for the health panel to say `RUNNING`.
 4. Tap **Copy executor code**.
@@ -58,7 +58,7 @@ The app includes direct buttons for all three pages and a **Copy setup steps** a
 
 ## ChatGPT tunnel transport status
 
-The local Roblox bridge is self-contained in v0.3.1. The ChatGPT tunnel runtime is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The authenticated trusted-LAN relay is an alternative when Codex or Claude runs on a PC that can reach the phone. The old Termux prototype sometimes ran the tunnel's Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
+The local Roblox bridge is self-contained in v0.3.2. The APK bundles both `libnode.so` and its required ARM64 `libc++_shared.so` runtime. The ChatGPT tunnel runtime is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The authenticated trusted-LAN relay is an alternative when Codex or Claude runs on a PC that can reach the phone. The old Termux prototype sometimes ran the tunnel's Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
 
 The tunnel fields remain visible for the Android-native transport port. Pressing a tunnel action explains the limitation and immediately clears the runtime-key field. No runtime key is saved. Do not distribute this build as having working ChatGPT tunnel support until that transport passes an on-device end-to-end test.
 

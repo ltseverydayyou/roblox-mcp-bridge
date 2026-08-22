@@ -57,6 +57,23 @@ finally {
 $version = [string](Select-String -LiteralPath (Join-Path $project "app\build.gradle") -Pattern 'versionName\s+"([^"]+)"').Matches[0].Groups[1].Value
 $apk = Join-Path $project "app\build\distributions\RobloxMcpManager-Android-v$version-debug.apk"
 if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Expected APK was not produced: $apk" }
+[System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression.FileSystem") | Out-Null
+$archive = [System.IO.Compression.ZipFile]::OpenRead($apk)
+try {
+    $entries = @($archive.Entries | ForEach-Object { $_.FullName })
+    foreach ($requiredLibrary in @(
+        "lib/arm64-v8a/libnode.so",
+        "lib/arm64-v8a/libnative-node.so",
+        "lib/arm64-v8a/libc++_shared.so"
+    )) {
+        if ($entries -notcontains $requiredLibrary) {
+            throw "APK is missing required native library: $requiredLibrary"
+        }
+    }
+}
+finally {
+    $archive.Dispose()
+}
 $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Android manager APK built:" -ForegroundColor Green
 Write-Host "  $apk"

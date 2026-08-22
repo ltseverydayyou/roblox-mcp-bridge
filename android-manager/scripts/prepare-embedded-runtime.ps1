@@ -64,12 +64,22 @@ try {
 $jniTarget = Join-Path $managerRoot "app\src\main\jniLibs\arm64-v8a"
 $includeTarget = Join-Path $managerRoot "app\src\main\cpp\node-include"
 $assetTarget = Join-Path $managerRoot "app\src\main\assets\nodejs-project"
+$androidSdk = if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
+    [System.IO.Path]::GetFullPath($env:ANDROID_HOME)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "Android\Sdk"))
+}
+$cxxRuntime = Join-Path $androidSdk "ndk\27.0.12077973\toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\lib\aarch64-linux-android\libc++_shared.so"
+if (-not (Test-Path -LiteralPath $cxxRuntime -PathType Leaf)) {
+    throw "The ARM64 NDK C++ runtime was not found: $cxxRuntime"
+}
 New-Item -ItemType Directory -Force -Path $jniTarget | Out-Null
 New-Item -ItemType Directory -Force -Path $includeTarget | Out-Null
 Remove-GeneratedDirectory -Path $assetTarget
 New-Item -ItemType Directory -Force -Path $assetTarget | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $nodeRoot "bin\arm64-v8a\libnode.so") -Destination $jniTarget -Force
+Copy-Item -LiteralPath $cxxRuntime -Destination $jniTarget -Force
 Copy-Item -Path (Join-Path $nodeRoot "include\node\*") -Destination $includeTarget -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\main.mjs") -Destination $assetTarget
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\package.json") -Destination $assetTarget

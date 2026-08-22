@@ -14,6 +14,7 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Base64;
+import android.view.MotionEvent;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -59,6 +60,16 @@ public final class MainActivity extends Activity {
         wireActions();
         updateLanAddress();
         outputView.setMovementMethod(new ScrollingMovementMethod());
+        outputView.setOnTouchListener((view, event) -> {
+            boolean scrollable = view.canScrollVertically(-1) || view.canScrollVertically(1);
+            int action = event.getActionMasked();
+            if (scrollable && (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE)) {
+                view.getParent().requestDisallowInterceptTouchEvent(true);
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                view.getParent().requestDisallowInterceptTouchEvent(false);
+            }
+            return false;
+        });
         updateRuntimeStatus();
         updateBackgroundStatus();
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);

@@ -39,6 +39,8 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(prepare, /nodejs-mobile-v18\.17\.3-android\.zip/);
   assert.match(prepare, /d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc/);
   assert.match(prepare, /Get-FileHash.*SHA256/);
+  assert.match(prepare, /libc\+\+_shared\.so/);
+  assert.match(gradle, /jniLibs\/arm64-v8a\/libc\+\+_shared\.so/);
   assert.match(mainActivity, /Node\.js: EMBEDDED 18\.17\.1/);
   assert.match(mainActivity, /Git: NOT REQUIRED/);
   assert.match(mainActivity, /Repository: BUNDLED MCP v2\.4\.4/);
@@ -89,6 +91,12 @@ test("Android manager explains ChatGPT plugin setup and background survival", ()
   assert.match(mainActivity, /ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/);
   assert.match(mainActivity, /isIgnoringBatteryOptimizations/);
   assert.match(manifest, /REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/);
+});
+
+test("built-in console keeps vertical touch gestures inside its own scroller", () => {
+  assert.match(mainActivity, /ScrollingMovementMethod/);
+  assert.match(mainActivity, /requestDisallowInterceptTouchEvent\(true\)/);
+  assert.match(mainActivity, /canScrollVertically/);
 });
 
 test("app updates recognize Android production and debug APK names", () => {
