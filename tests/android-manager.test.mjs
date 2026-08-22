@@ -15,6 +15,13 @@ test("Android manager uses Termux's protected command contract", () => {
   assert.match(runner, /com\.termux\.RUN_COMMAND_PENDING_INTENT/);
   assert.match(runner, /com\.termux\.RUN_COMMAND_STDIN/);
 });
+
+test("Termux onboarding repairs the external-app property and explains the manual step", () => {
+  assert.match(mainActivity, /sed -i '\/\^\[\[:space:\]\]\*allow-external-apps/);
+  assert.match(mainActivity, /allow-external-apps=true/);
+  assert.match(mainActivity, /One Termux command still required/);
+  assert.match(mainActivity, /RUN COPIED COMMAND, THEN CONNECT/);
+});
 test("runtime key is not persisted or passed as a command argument", () => {
   assert.doesNotMatch(mainActivity, /putString\("runtimeKey"/);
   assert.match(mainActivity, /protectedInput = stdin == null \? null : stdin \+ "\\n"/);

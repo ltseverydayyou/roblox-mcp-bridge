@@ -15,7 +15,7 @@ Android prevents unrelated apps from executing each other's private native progr
 ## Phone setup
 
 1. Install Termux from its official GitHub release or F-Droid build, then open it once.
-2. In the manager, tap **Copy permission**, paste the copied one-time command into Termux, and run it.
+2. In the manager, tap **Copy permission**. Termux opens; paste and run the copied one-time command. Merely copying it is not enough.
 3. Return to the manager and grant **Run commands in Termux environment** when Android asks.
 4. Tap **Connect manager to Termux**.
 5. Tap **Install all required**. The manager installs Node.js and Git, clones this repository, installs dependencies, and builds `dist/index.js`.

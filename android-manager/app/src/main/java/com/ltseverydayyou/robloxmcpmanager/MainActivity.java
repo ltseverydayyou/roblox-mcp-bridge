@@ -246,6 +246,18 @@ public final class MainActivity extends Activity {
             runManager("status", new String[]{port()}, null);
             return;
         }
+        if ("bootstrap".equals(operation) && exitCode != 0
+            && combined.toString().contains("allow-external-apps")) {
+            preferences.edit().putBoolean("managerConnected", false).apply();
+            updateTermuxStatus();
+            new AlertDialog.Builder(this)
+                .setTitle("One Termux command still required")
+                .setMessage("Android granted the Run commands permission, but Termux has not enabled external apps yet. Tap Copy & open Termux, paste and run the command there, then return and tap Connect again.")
+                .setNegativeButton("Later", null)
+                .setPositiveButton("Copy & open Termux", (dialog, which) -> copyPermissionCommand())
+                .show();
+            return;
+        }
         if (operation != null && (operation.startsWith("tunnel-doctor") || operation.startsWith("tunnel-start"))) {
             runtimeKeyField.setText("");
         }
@@ -303,9 +315,12 @@ public final class MainActivity extends Activity {
         boolean installed = TermuxRunner.isInstalled(this);
         boolean permission = installed && TermuxRunner.hasPermission(this);
         boolean connected = permission && preferences.getBoolean("managerConnected", false);
+        boolean commandCopied = preferences.getBoolean("permissionCommandCopied", false);
         String status = !installed ? "TERMUX: NOT INSTALLED"
             : !permission ? "TERMUX: GRANT RUN COMMAND PERMISSION"
-            : connected ? "TERMUX: CONNECTED" : "TERMUX: READY TO CONNECT";
+            : connected ? "TERMUX: CONNECTED"
+            : commandCopied ? "TERMUX: RUN COPIED COMMAND, THEN CONNECT"
+            : "TERMUX: COPY AND RUN PERMISSION COMMAND";
         termuxStatus.setText(status);
         termuxStatus.setTextColor(getColor(connected ? R.color.success : R.color.warning));
     }
@@ -321,9 +336,12 @@ public final class MainActivity extends Activity {
 
     private void copyPermissionCommand() {
         String command = "mkdir -p ~/.termux && touch ~/.termux/termux.properties && "
-            + "grep -q '^allow-external-apps=true$' ~/.termux/termux.properties || "
-            + "printf '\\nallow-external-apps=true\\n' >> ~/.termux/termux.properties; termux-reload-settings";
+            + "sed -i '/^[[:space:]]*allow-external-apps[[:space:]]*=/d' ~/.termux/termux.properties && "
+            + "printf '\\nallow-external-apps=true\\n' >> ~/.termux/termux.properties && "
+            + "termux-reload-settings";
         copy("Termux permission setup", command);
+        preferences.edit().putBoolean("permissionCommandCopied", true).putBoolean("managerConnected", false).apply();
+        updateTermuxStatus();
         toast("One-time Termux command copied");
         openOrInstallTermux();
     }
