@@ -13,6 +13,7 @@ import {
   recordDecompilerProviderSuccess,
   shouldSkipDecompilerProvider,
 } from "./health.js";
+import { WebSocket } from "ws";
 
 export interface DecompileInput {
   bytecodeBase64: string;
@@ -60,6 +61,7 @@ const providerLoadById = new Map<DecompilerProviderId, ProviderLoadState>();
 function providerDisplayName(id: DecompilerProviderId, provider: DecompilerProviderSettings): string {
   if (id === "luaexpert") return "lua.expert";
   if (id === "shiny") return provider.options.mode === "hosted" ? "Shiny hosted" : "Shiny";
+  if (id === "luacid") return "Luacid";
   if (id === "oracle") return "Oracle";
   if (id === "konstant") return "Konstant";
   if (id === "fission") return "Fission";
@@ -177,7 +179,7 @@ async function withLuaExpertRateLimit<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function withQuery(endpoint: string, params: Record<string, string | number | null | undefined>): string {
+function withQuery(endpoint: string, params: Record<string, string | number | boolean | null | undefined>): string {
   try {
     const url = new URL(endpoint);
     for (const [key, value] of Object.entries(params)) {
@@ -323,6 +325,108 @@ async function runOracle(
   );
 }
 
+function luacidOptions(
+  provider: DecompilerProviderSettings
+): Record<string, string | number | boolean> {
+  return Object.fromEntries(Object.entries(provider.options).filter(
+    ([key, value]) =>
+      !["transport", "transportExplicit"].includes(key) &&
+      ["string", "number", "boolean"].includes(typeof value)
+  )) as Record<string, string | number | boolean>;
+}
+
+async function runLuacid(
+  provider: DecompilerProviderSettings,
+  bytecode: Buffer,
+  bytecodeBase64: string,
+  timeoutMs: number
+): Promise<ProviderRunResult> {
+  const options = luacidOptions(provider);
+  const explicitHttp =
+    provider.options.transport === "http" && provider.options.transportExplicit === true;
+  const useWebSocket =
+    provider.options.transport === "websocket" || (!explicitHttp && Boolean(provider.apiKey));
+
+  if (!useWebSocket) {
+    const headers: Record<string, string> = { "Content-Type": "application/octet-stream" };
+    if (provider.apiKey) headers.Authorization = `Bearer ${provider.apiKey}`;
+    return fetchText(
+      withQuery(resolveProviderEndpoint(provider.endpoint), options),
+      { method: "POST", headers, body: bufferToArrayBuffer(bytecode) },
+      timeoutMs
+    );
+  }
+
+  if (!provider.apiKey) {
+    return { ok: false, error: "Luacid WebSocket requires a paid API key.", latencyMs: 0 };
+  }
+
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    const websocketEndpoint = resolveProviderEndpoint(provider.endpoint)
+      .replace(/^http/, "ws")
+      .replace(/\/decompile\/?$/, "/decompile_ws");
+    const socket = new WebSocket(withQuery(websocketEndpoint, options), {
+      headers: { Authorization: `Bearer ${provider.apiKey}` },
+    });
+    let settled = false;
+    const finish = (result: ProviderRunResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.close();
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.terminate();
+      resolve({
+        ok: false,
+        error: `Timed out after ${Math.round(timeoutMs / 100) / 10}s.`,
+        timedOut: true,
+        latencyMs: Date.now() - startedAt,
+      });
+    }, timeoutMs);
+
+    socket.once("open", () => socket.send(JSON.stringify({
+      id: "decompile",
+      encoded_bytecode: bytecodeBase64,
+      ...options,
+    })));
+    socket.once("message", (data) => {
+      try {
+        const response = JSON.parse(data.toString()) as {
+          decompilation?: unknown;
+          error?: { message?: unknown };
+        };
+        if (typeof response.decompilation === "string") {
+          finish({ ok: true, result: response.decompilation, latencyMs: Date.now() - startedAt });
+        } else {
+          finish({
+            ok: false,
+            error: typeof response.error?.message === "string"
+              ? response.error.message
+              : "Invalid Luacid WebSocket response.",
+            latencyMs: Date.now() - startedAt,
+          });
+        }
+      } catch {
+        finish({
+          ok: false,
+          error: "Invalid Luacid WebSocket response.",
+          latencyMs: Date.now() - startedAt,
+        });
+      }
+    });
+    socket.once("error", (error) => finish({
+      ok: false,
+      error: error.message,
+      latencyMs: Date.now() - startedAt,
+    }));
+  });
+}
+
 async function runProvider(options: {
   id: DecompilerProviderId;
   provider: DecompilerProviderSettings;
@@ -354,6 +458,9 @@ async function runProvider(options: {
   }
   if (options.id === "shiny" || options.id === "fission") {
     return runPlainBase64(options.provider, options.bytecodeBase64, options.timeoutMs);
+  }
+  if (options.id === "luacid") {
+    return runLuacid(options.provider, options.bytecode, options.bytecodeBase64, options.timeoutMs);
   }
   if (options.id === "konstant") {
     return runPlainBytecode(options.provider, options.bytecode, options.timeoutMs);

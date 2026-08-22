@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
+import { resolvePackageCommand } from "./package-command.mjs";
 import {
   DEFAULT_BRIDGE_URL,
   SERVER_PORT,
@@ -1910,14 +1911,14 @@ async function run(command, args, options = {}) {
   let output = "";
   await new Promise((resolve, reject) => {
     const commandToRun = spawnCommand(command);
-    const useShell = process.platform === "win32" && commandToRun.endsWith(".cmd");
     let child;
     try {
-      child = spawn(commandToRun, args, {
+      const launch = resolvePackageCommand(commandToRun, args);
+      child = spawn(launch.command, launch.args, {
         cwd: options.cwd || process.cwd(),
         env: { ...process.env, CI: "true" },
         stdio: ["ignore", "pipe", "pipe"],
-        shell: useShell,
+        shell: launch.shell,
         windowsHide: true,
       });
     } catch (error) {
@@ -1957,14 +1958,14 @@ async function runForeground(command, args, options = {}) {
   log("run", options.label || [command, ...args].join(" "));
   await new Promise((resolve, reject) => {
     const commandToRun = spawnCommand(command);
-    const useShell = process.platform === "win32" && commandToRun.endsWith(".cmd");
     let child;
     try {
-      child = spawn(commandToRun, args, {
+      const launch = resolvePackageCommand(commandToRun, args);
+      child = spawn(launch.command, launch.args, {
         cwd: options.cwd || process.cwd(),
         env: process.env,
         stdio: "inherit",
-        shell: useShell,
+        shell: launch.shell,
         windowsHide: false,
       });
     } catch (error) {
@@ -3522,12 +3523,15 @@ function isGitRepository(dir) {
 }
 
 function commandExists(command) {
-  const probe = process.platform === "win32" ? "where" : "which";
-  return spawnSync(probe, [command], { stdio: "ignore", shell: false }).status === 0;
+  return Boolean(findOnPath(command));
 }
 
 function spawnCommand(command) {
   if (process.platform !== "win32") return command;
+  if (["npm", "pnpm", "code", "claude"].includes(command.toLowerCase())) {
+    const resolved = findOnPath(command);
+    if (resolved) return resolved;
+  }
   if (command.endsWith(".cmd") || command.endsWith(".exe")) return command;
   if (["npm", "pnpm", "yarn", "code", "claude"].includes(command)) return `${command}.cmd`;
   return command;

@@ -6,6 +6,7 @@ export const DECOMPILER_PROVIDER_IDS = [
   "builtin",
   "luaexpert",
   "shiny",
+  "luacid",
   "oracle",
   "konstant",
   "fission",
@@ -19,7 +20,7 @@ export interface DecompilerProviderInfo {
   description: string;
   local: boolean;
   requiresApiKey: boolean;
-  bodyFormat: "builtin" | "json-script" | "plain-base64" | "plain-bytecode" | "oracle-json";
+  bodyFormat: "builtin" | "json-script" | "plain-base64" | "plain-bytecode" | "luacid" | "oracle-json";
 }
 
 export interface DecompilerProviderSettings {
@@ -74,6 +75,28 @@ export const DECOMPILER_SETTINGS_PATH = path.join(
 );
 export const SHINY_LOCAL_ENDPOINT = "http://localhost:3000/luau/decompile";
 export const SHINY_HOSTED_ENDPOINT = "https://medal.upio.dev/decompile";
+export const LUACID_DEFAULT_OPTIONS: Record<string, unknown> = {
+  transport: "auto",
+  transportExplicit: false,
+  indent: "tab",
+  type_annotations: "functions",
+  discard_names: "named",
+  generated_names: "readable",
+  inferred_name_case: "preserve",
+  prefer_const: false,
+  if_expressions: true,
+  early_return: true,
+  early_continue: true,
+  interpolated_strings: true,
+  math_constants: true,
+  fold_single_use_temps: true,
+  uninline_local_functions: true,
+  reroll_unrolled_loops: true,
+  unfold_module_tables: false,
+  keep_dead_functions: true,
+  unicode_strings: true,
+  upvalue_comments: false,
+};
 
 export const DECOMPILER_PROVIDER_INFO: DecompilerProviderInfo[] = [
   {
@@ -99,6 +122,14 @@ export const DECOMPILER_PROVIDER_INFO: DecompilerProviderInfo[] = [
     local: false,
     requiresApiKey: false,
     bodyFormat: "plain-base64",
+  },
+  {
+    id: "luacid",
+    label: "Luacid",
+    description: "Luacid HTTP or WebSocket decompiler with an optional paid API key.",
+    local: false,
+    requiresApiKey: false,
+    bodyFormat: "luacid",
   },
   {
     id: "oracle",
@@ -148,6 +179,13 @@ const DEFAULT_PROVIDERS: Record<DecompilerProviderId, DecompilerProviderSettings
     version: null,
     options: { mode: "hosted" },
   },
+  luacid: {
+    enabled: false,
+    endpoint: "https://api.luacid.dev/decompile",
+    apiKey: "",
+    version: null,
+    options: LUACID_DEFAULT_OPTIONS,
+  },
   oracle: {
     enabled: false,
     endpoint: "https://oracle.mshq.dev/decompile",
@@ -175,6 +213,7 @@ export const DEFAULT_PROVIDER_TIMEOUTS_MS: Record<DecompilerProviderId, number> 
   builtin: 8000,
   luaexpert: 10000,
   shiny: 6000,
+  luacid: 15000,
   oracle: 15000,
   konstant: 10000,
   fission: 6000,
@@ -192,7 +231,7 @@ export const DEFAULT_DECOMPILER_RUNTIME_SETTINGS: DecompilerRuntimeSettings = {
 };
 
 export const DEFAULT_DECOMPILER_SETTINGS: DecompilerSettings = {
-  providerOrder: ["builtin", "luaexpert", "shiny", "oracle", "konstant", "fission"],
+  providerOrder: ["builtin", "luaexpert", "shiny", "luacid", "oracle", "konstant", "fission"],
   providers: DEFAULT_PROVIDERS,
   runtime: DEFAULT_DECOMPILER_RUNTIME_SETTINGS,
 };
@@ -468,6 +507,9 @@ export function decompilerSettingsIssues(settings: DecompilerSettings): string[]
     if (id === "oracle" && !provider.apiKey) {
       issues.push(`${label}: Authorization required. Add an Oracle API key before this provider can run.`);
     }
+    if (id === "luacid" && provider.options.transport === "websocket" && !provider.apiKey) {
+      issues.push(`${label}: A paid API key is required for WebSocket decompilation.`);
+    }
 
     if (id !== "builtin" && !provider.endpoint.trim()) {
       issues.push(`${label}: Endpoint required. Open provider settings and add a URL.`);
@@ -541,6 +583,12 @@ export function toConnectorDecompilerSettings(settings: DecompilerSettings): Dec
   const connectorSettings = cloneSettings(settings);
   if (!connectorSettings.providers.oracle.apiKey) {
     connectorSettings.providers.oracle.enabled = false;
+  }
+  if (
+    connectorSettings.providers.luacid.options.transport === "websocket" &&
+    !connectorSettings.providers.luacid.apiKey
+  ) {
+    connectorSettings.providers.luacid.enabled = false;
   }
   return connectorSettings;
 }

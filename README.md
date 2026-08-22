@@ -16,7 +16,7 @@ Roblox Executor MCP includes a local web dashboard at:
 http://localhost:16384/
 ```
 
-Use it to see connected Roblox clients, inspect scripts, run tools, view server logs, configure semantic search, and index games for semantic script search. The Tools dashboard groups search, client, instance, observation, remote, runtime, and execution utilities, with filtering, response copy/clear controls, and explicit confirmation before risk-sensitive executor operations. The Execute Code panel accepts typed code or a locally selected/dropped `.lua`, `.luau`, or UTF-8 `.txt` file; loading a file never executes it until you click **Send**.
+Use it to see connected Roblox clients, inspect scripts, run tools, view server logs, configure semantic search, and index games for semantic script search. Its decompiler fallback editor includes Luacid over keyless HTTP or paid WebSocket, alongside the built-in, lua.expert, Shiny, Oracle, Konstant, and Fission providers. The Tools dashboard groups search, client, instance, observation, remote, runtime, and execution utilities, with filtering, response copy/clear controls, and explicit confirmation before risk-sensitive executor operations. The Execute Code panel accepts typed code or a locally selected/dropped `.lua`, `.luau`, or UTF-8 `.txt` file; loading a file never executes it until you click **Send**.
 
 ## Features
 

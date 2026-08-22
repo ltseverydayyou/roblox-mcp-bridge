@@ -1857,6 +1857,39 @@ body.decompiler-drag-active * {
     min-height: 36px;
     text-decoration: none;
 }
+.decompiler-field-hint {
+    color: var(--text-tertiary);
+    font-weight: 400;
+}
+.decompiler-key-menu {
+    position: relative;
+}
+.decompiler-key-menu summary {
+    list-style: none;
+    cursor: pointer;
+}
+.decompiler-key-menu summary::-webkit-details-marker { display: none; }
+.decompiler-key-menu-list {
+    position: absolute;
+    z-index: 3;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 190px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.decompiler-key-menu-list a {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    text-decoration: none;
+}
+.decompiler-key-menu-list a:hover { background: var(--surface-hover); }
 .decompiler-advanced-toggle {
     display: inline-flex;
     align-items: center;
