@@ -212,6 +212,12 @@ The bridge checks its published version shortly after startup and every six hour
 
 `RobloxMcpManager.exe` is the easiest Windows setup. It is a standalone control panel intended for people who do not want to use Git, npm, or PowerShell manually. Download it from the [latest GitHub release](https://github.com/ltseverydayyou/roblox-mcp-bridge/releases/latest), open it, and click **INSTALL ALL REQUIRED**.
 
+### Android MCP Manager `.apk`
+
+The Android manager automates the working Termux-based mobile setup: Node.js/Git installation, repository cloning and fast-forward updates, bridge builds and lifecycle, verified OpenAI tunnel-client installation, tunnel profiles, health checks, logs, and copying the localhost executor loader. Roblox is unchanged; the executor runs the copied connector and reaches the bridge at `127.0.0.1:16384`.
+
+See [Roblox MCP Manager for Android](docs/android-manager.md) for the APK build, one-time Termux permission step, tunnel compatibility notes, and phone setup.
+
 The manager checks each component separately and provides buttons to:
 
 - install Git and Node.js LTS through Windows Package Manager when missing

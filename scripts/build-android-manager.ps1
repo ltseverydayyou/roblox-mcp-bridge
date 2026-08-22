@@ -1,0 +1,52 @@
+#requires -Version 5.1
+
+[CmdletBinding()]
+param(
+    [string]$JavaHome = $env:JAVA_HOME,
+    [string]$AndroidSdk = $env:ANDROID_HOME
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$project = Join-Path $repository "android-manager"
+$gradle = Join-Path $project "gradlew.bat"
+
+if ([string]::IsNullOrWhiteSpace($JavaHome)) {
+    $javaCandidates = @(Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory -Filter "jdk-21*" -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+    if ($javaCandidates.Count -gt 0) { $JavaHome = $javaCandidates[0].FullName }
+}
+if ([string]::IsNullOrWhiteSpace($AndroidSdk)) {
+    $AndroidSdk = Join-Path $env:LOCALAPPDATA "Android\Sdk"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $JavaHome "bin\java.exe") -PathType Leaf)) {
+    throw "JDK 21 was not found. Pass -JavaHome or set JAVA_HOME."
+}
+if (-not (Test-Path -LiteralPath (Join-Path $AndroidSdk "platforms\android-35") -PathType Container)) {
+    throw "Android SDK platform 35 was not found. Pass -AndroidSdk or set ANDROID_HOME."
+}
+if (-not (Test-Path -LiteralPath $gradle -PathType Leaf)) {
+    throw "Gradle wrapper is missing: $gradle"
+}
+
+$env:JAVA_HOME = [IO.Path]::GetFullPath($JavaHome)
+$env:ANDROID_HOME = [IO.Path]::GetFullPath($AndroidSdk)
+
+Push-Location $project
+try {
+    & $gradle clean lintDebug packageManagerDebug
+    if ($LASTEXITCODE -ne 0) { throw "Android manager build failed with exit code $LASTEXITCODE." }
+}
+finally {
+    Pop-Location
+}
+
+$version = [string](Select-String -LiteralPath (Join-Path $project "app\build.gradle") -Pattern 'versionName\s+"([^"]+)"').Matches[0].Groups[1].Value
+$apk = Join-Path $repository "release\RobloxMcpManager-Android-v$version-debug.apk"
+if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Expected APK was not produced: $apk" }
+$hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
+Write-Host "Android manager APK built:" -ForegroundColor Green
+Write-Host "  $apk"
+Write-Host "SHA-256: $hash"
+Write-Host "This debug-signed APK is installable for testing. Use a private release keystore before public distribution." -ForegroundColor Yellow

@@ -1,0 +1,39 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.ltseverydayyou.robloxmcpmanager"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.ltseverydayyou.robloxmcpmanager"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+tasks.register("packageManagerDebug", Copy) {
+    dependsOn "assembleDebug"
+    from layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+    into rootProject.file("../release")
+    rename { "RobloxMcpManager-Android-v${android.defaultConfig.versionName}-debug.apk" }
+}
