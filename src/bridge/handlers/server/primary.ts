@@ -1,6 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
+import { timingSafeEqual } from "crypto";
 import { WebSocketServer } from "ws";
-import { SERVER_HOST, WS_PORT } from "../../../config.js";
+import { RELAY_TOKEN, SERVER_HOST, WS_PORT } from "../../../config.js";
 import { SERVER_VERSION } from "../../../version.js";
 import { dispatchHttp, dispatchWs, loadRoutes } from "../../../http/router.js";
 import {
@@ -8,6 +9,19 @@ import {
   setInstanceRole,
 } from "../shared/communication.js";
 import { resetRegistry } from "../shared/registry.js";
+
+function isLoopback(address: string | undefined): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+function hasValidRelayToken(req: IncomingMessage): boolean {
+  if (!RELAY_TOKEN || isLoopback(req.socket.remoteAddress)) return true;
+  const authorization = req.headers.authorization || "";
+  const supplied = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  const expectedBuffer = Buffer.from(RELAY_TOKEN);
+  const suppliedBuffer = Buffer.from(supplied);
+  return suppliedBuffer.length === expectedBuffer.length && timingSafeEqual(suppliedBuffer, expectedBuffer);
+}
 
 export async function startAsPrimary(): Promise<void> {
   await loadRoutes();
@@ -18,6 +32,11 @@ export async function startAsPrimary(): Promise<void> {
     resetPrimaryState();
 
     const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+      if (!hasValidRelayToken(req)) {
+        res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("A valid LAN relay token is required.");
+        return;
+      }
       void dispatchHttp(req, res);
     });
 
@@ -35,7 +54,10 @@ export async function startAsPrimary(): Promise<void> {
         `[Primary] MCP Bridge v${SERVER_VERSION} listening on ${SERVER_HOST}:${WS_PORT} (WebSocket + HTTP)`
       );
 
-      const wss = new WebSocketServer({ server: httpServer });
+      const wss = new WebSocketServer({
+        server: httpServer,
+        verifyClient: ({ req }: { req: IncomingMessage }) => hasValidRelayToken(req),
+      });
       wss.on("connection", (ws, req) => dispatchWs(ws, req));
 
       resolve();

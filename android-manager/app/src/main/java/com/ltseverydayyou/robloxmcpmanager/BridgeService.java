@@ -21,14 +21,17 @@ public final class BridgeService extends Service {
     static final String ACTION_START = "com.ltseverydayyou.robloxmcpmanager.START_BRIDGE";
     static final String ACTION_STOP = "com.ltseverydayyou.robloxmcpmanager.STOP_BRIDGE";
     static final String EXTRA_PORT = "port";
+    static final String EXTRA_HOST = "host";
+    static final String EXTRA_LAN_TOKEN = "lanToken";
     private static final String CHANNEL = "embedded_bridge";
     private static final int NOTIFICATION_ID = 16384;
     static final String STATUS_FILE = "bridge-service-status.txt";
     static final String SERVICE_LOG_FILE = "bridge-service.log";
     private boolean started;
 
-    static void start(Context context, int port) {
-        Intent intent = new Intent(context, BridgeService.class).setAction(ACTION_START).putExtra(EXTRA_PORT, port);
+    static void start(Context context, int port, String host, String lanToken) {
+        Intent intent = new Intent(context, BridgeService.class).setAction(ACTION_START)
+            .putExtra(EXTRA_PORT, port).putExtra(EXTRA_HOST, host).putExtra(EXTRA_LAN_TOKEN, lanToken);
         context.startForegroundService(intent);
     }
 
@@ -53,16 +56,22 @@ public final class BridgeService extends Service {
         }
 
         int port = intent == null ? 16384 : intent.getIntExtra(EXTRA_PORT, 16384);
-        startForeground(NOTIFICATION_ID, notification(port));
+        String host = intent == null ? "127.0.0.1" : intent.getStringExtra(EXTRA_HOST);
+        if (host == null || host.isEmpty()) host = "127.0.0.1";
+        String lanToken = intent == null ? "" : intent.getStringExtra(EXTRA_LAN_TOKEN);
+        if (lanToken == null) lanToken = "";
+        startForeground(NOTIFICATION_ID, notification(port, host));
         if (!started) {
             started = true;
-            Thread nodeThread = new Thread(() -> runNode(port), "embedded-node");
+            String nodeHost = host;
+            String nodeLanToken = lanToken;
+            Thread nodeThread = new Thread(() -> runNode(port, nodeHost, nodeLanToken), "embedded-node");
             nodeThread.start();
         }
         return START_NOT_STICKY;
     }
 
-    private void runNode(int port) {
+    private void runNode(int port, String host, String lanToken) {
         try {
             writeState("EXTRACTING_RUNTIME");
             File runtime = AssetInstaller.install(this);
@@ -71,7 +80,7 @@ public final class BridgeService extends Service {
             writeState("NATIVE_NODE_STARTING");
             int result = NativeNode.start(new String[]{
                 "node", new File(runtime, "main.mjs").getAbsolutePath(),
-                Integer.toString(port), log.getAbsolutePath(), status.getAbsolutePath()
+                Integer.toString(port), log.getAbsolutePath(), status.getAbsolutePath(), host, lanToken
             });
             Log.i("RobloxMcpBridge", "Embedded Node exited with " + result);
             writeState("EXITED Embedded Node returned code " + result);
@@ -97,13 +106,13 @@ public final class BridgeService extends Service {
         }
     }
 
-    private Notification notification(int port) {
+    private Notification notification(int port, String host) {
         Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pending = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("Roblox MCP bridge is running")
-            .setContentText("Local bridge on 127.0.0.1:" + port)
+            .setContentText(("0.0.0.0".equals(host) ? "Trusted LAN relay enabled on port " : "Local bridge on 127.0.0.1:") + port)
             .setContentIntent(pending)
             .setOngoing(true)
             .build();

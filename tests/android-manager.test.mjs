@@ -16,6 +16,8 @@ const entrypoint = read("android-manager/runtime/main.mjs");
 const androidEntrypoint = read("src/android.ts");
 const prepare = read("android-manager/scripts/prepare-embedded-runtime.ps1");
 const updateChecker = read(`${javaRoot}/ManagerUpdateChecker.java`);
+const primaryServer = read("src/bridge/handlers/server/primary.ts");
+const secondaryServer = read("src/bridge/handlers/server/secondary.ts");
 
 test("Android manager owns an isolated embedded foreground service", () => {
   assert.match(manifest, /android:name="\.BridgeService"/);
@@ -47,7 +49,8 @@ test("runtime asset activation preserves the previous working bundle", () => {
 });
 
 test("embedded bridge and executor loader stay on Android localhost", () => {
-  assert.match(entrypoint, /ROBLOX_MCP_HOST = "127\.0\.0\.1"/);
+  assert.match(entrypoint, /bridgeHost = process\.argv\[5\] \|\| "127\.0\.0\.1"/);
+  assert.match(entrypoint, /ROBLOX_MCP_HOST = bridgeHost/);
   assert.match(entrypoint, /ROBLOX_MCP_UPDATE_CHECK = "false"/);
   assert.match(mainActivity, /BridgeURL = \\"127\.0\.0\.1:/);
   assert.match(mainActivity, /http:\/\/127\.0\.0\.1:/);
@@ -57,6 +60,16 @@ test("embedded bridge and executor loader stay on Android localhost", () => {
   assert.match(entrypoint, /dist\/android\.js/);
   assert.doesNotMatch(androidEntrypoint, /StdioServerTransport/);
   assert.match(androidEntrypoint, /await boot\(\)/);
+});
+
+test("trusted LAN relay is opt-in and bearer-token protected", () => {
+  assert.match(mainActivity, /Allow trusted LAN relay|lanModeCheckbox/);
+  assert.match(mainActivity, /--baseurl/);
+  assert.match(mainActivity, /--relay-token/);
+  assert.match(entrypoint, /ROBLOX_MCP_LAN_TOKEN/);
+  assert.match(primaryServer, /timingSafeEqual/);
+  assert.match(primaryServer, /valid LAN relay token is required/);
+  assert.match(secondaryServer, /Authorization: `Bearer \$\{RELAY_TOKEN\}`/);
 });
 
 test("unfinished tunnel transport cannot persist a runtime key", () => {

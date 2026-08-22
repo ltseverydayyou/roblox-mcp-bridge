@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { WS_PORT } from "../../../config.js";
+import { RELAY_TOKEN, WS_PORT } from "../../../config.js";
 import {
   resetSecondaryState,
   secondaryResponseResolvers,
@@ -18,7 +18,9 @@ export function startAsSecondary(
 
   console.error(`[Secondary] Connecting to primary relay at ${relayUrl} ...`);
 
-  const socket = new WebSocket(relayUrl);
+  const socket = new WebSocket(relayUrl, RELAY_TOKEN
+    ? { headers: { Authorization: `Bearer ${RELAY_TOKEN}` } }
+    : undefined);
   setRelaySocket(socket);
 
   let everConnected = false;

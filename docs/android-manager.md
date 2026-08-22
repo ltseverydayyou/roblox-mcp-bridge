@@ -14,18 +14,29 @@ The current APK targets 64-bit ARM phones. It will not install on 32-bit-only de
 
 ## Phone setup
 
-1. Install `RobloxMcpManager-Android-v0.2.3-debug.apk`. Android may ask permission to install from the browser or file manager used to open it.
+1. Install `RobloxMcpManager-Android-v0.3.0-debug.apk`. Android may ask permission to install from the browser or file manager used to open it.
 2. Open the manager and tap **Prepare embedded runtime** once. This copies the bundled files; it does not download Termux or development tools.
 3. Tap **Start** and wait for the health panel to say `RUNNING`.
 4. Tap **Copy executor code**.
 5. Run the copied auto-reconnect code in the mobile executor. It repeatedly fetches `/script.luau` from `127.0.0.1:16384`, waits two seconds after a disconnect/failure, and reconnects without requiring another paste.
 6. Use **Dashboard** for the local web UI and **Refresh logs** for the built-in console.
 
+## Connect a PC Codex or Claude MCP host
+
+The Roblox executor always connects locally to `127.0.0.1:16384`. To let a separate PC MCP host use the phone's connected Roblox client:
+
+1. Connect the phone and PC to the same trusted Wi-Fi or private VPN.
+2. Select **Allow trusted LAN relay for PC Codex / Claude**, then stop and start the bridge.
+3. Tap **Copy PC MCP relay arguments**.
+4. On the PC, keep the normal `roblox-mcp` MCP command and add the copied `--baseurl` and `--relay-token` arguments to its existing argument list.
+
+The APK binds to `0.0.0.0` only while LAN mode is selected, displays the phone's current LAN IPv4 address, and requires a generated bearer token for every non-local HTTP/WebSocket request. Never port-forward the bridge, expose it directly to the internet, or enable it on untrusted public Wi-Fi. Changing LAN mode requires a bridge stop/start.
+
 Android may stop background work under aggressive battery management. Keep the foreground-service notification enabled and exempt the manager from battery optimization if a device vendor repeatedly kills the bridge.
 
 ## ChatGPT tunnel status
 
-The local Roblox bridge is self-contained in v0.2.3. The ChatGPT tunnel is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The old Termux prototype sometimes ran its Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
+The local Roblox bridge is self-contained in v0.3.0. The ChatGPT tunnel is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The authenticated trusted-LAN relay is an alternative when Codex or Claude runs on a PC that can reach the phone. The old Termux prototype sometimes ran the tunnel's Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
 
 The tunnel fields remain visible for the Android-native transport port. Pressing a tunnel action explains the limitation and immediately clears the runtime-key field. No runtime key is saved. Do not distribute this build as having working ChatGPT tunnel support until that transport passes an on-device end-to-end test.
 

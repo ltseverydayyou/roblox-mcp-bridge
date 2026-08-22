@@ -11,6 +11,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.method.ScrollingMovementMethod;
+import android.util.Base64;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -21,8 +23,13 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Enumeration;
 
 public final class MainActivity extends Activity {
     private static final String PREFS = "manager_settings";
@@ -34,6 +41,8 @@ public final class MainActivity extends Activity {
     private EditText profileField;
     private EditText tunnelIdField;
     private EditText runtimeKeyField;
+    private CheckBox lanModeCheckbox;
+    private TextView lanAddressText;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -42,6 +51,7 @@ public final class MainActivity extends Activity {
         bindViews();
         loadSettings();
         wireActions();
+        updateLanAddress();
         outputView.setMovementMethod(new ScrollingMovementMethod());
         updateRuntimeStatus();
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
@@ -50,6 +60,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         updateRuntimeStatus();
+        updateLanAddress();
         refreshStatus(false);
     }
 
@@ -66,31 +77,27 @@ public final class MainActivity extends Activity {
         profileField = findViewById(R.id.profileField);
         tunnelIdField = findViewById(R.id.tunnelIdField);
         runtimeKeyField = findViewById(R.id.runtimeKeyField);
+        lanModeCheckbox = findViewById(R.id.lanModeCheckbox);
+        lanAddressText = findViewById(R.id.lanAddressText);
     }
 
     private void loadSettings() {
         portField.setText(preferences.getString("port", "16384"));
         profileField.setText(preferences.getString("profile", "roblox-executor"));
         tunnelIdField.setText(preferences.getString("tunnelId", ""));
+        lanModeCheckbox.setChecked(preferences.getBoolean("lanMode", false));
     }
 
     private void saveSettings() {
         preferences.edit().putString("port", value(portField))
-            .putString("profile", value(profileField)).putString("tunnelId", value(tunnelIdField)).apply();
+            .putString("profile", value(profileField)).putString("tunnelId", value(tunnelIdField))
+            .putBoolean("lanMode", lanModeCheckbox.isChecked()).apply();
     }
 
     private void wireActions() {
         findViewById(R.id.prepareRuntimeButton).setOnClickListener(v -> prepareRuntime());
         findViewById(R.id.refreshButton).setOnClickListener(v -> refreshStatus(true));
-        findViewById(R.id.startBridgeButton).setOnClickListener(v -> {
-            saveSettings();
-            new File(getFilesDir(), BridgeService.STATUS_FILE).delete();
-            BridgeService.start(this, port());
-            appendOutput("\nStarting the embedded Node bridge...");
-            runtimeStatus.setText("EMBEDDED NODE: STARTING");
-            runtimeStatus.setTextColor(getColor(R.color.warning));
-            healthSummary.postDelayed(() -> refreshStatus(true, 30), 1000);
-        });
+        findViewById(R.id.startBridgeButton).setOnClickListener(v -> startBridge());
         findViewById(R.id.stopBridgeButton).setOnClickListener(v -> {
             BridgeService.stop(this);
             appendOutput("\nStopped the isolated bridge process.");
@@ -98,11 +105,42 @@ public final class MainActivity extends Activity {
         });
         findViewById(R.id.dashboardButton).setOnClickListener(v -> openUrl("http://127.0.0.1:" + port() + "/"));
         findViewById(R.id.copyLoaderButton).setOnClickListener(v -> copyLoader());
+        findViewById(R.id.copyPcRelayButton).setOnClickListener(v -> copyPcRelayArguments());
         findViewById(R.id.bridgeLogsButton).setOnClickListener(v -> readLogs());
         findViewById(R.id.managerUpdateButton).setOnClickListener(v -> checkManagerUpdate());
 
         int[] tunnelButtons = { R.id.configureTunnelButton, R.id.doctorTunnelButton, R.id.startTunnelButton, R.id.stopTunnelButton };
         for (int id : tunnelButtons) findViewById(id).setOnClickListener(v -> tunnelPrototypeNotice());
+        lanModeCheckbox.setOnCheckedChangeListener((button, checked) -> {
+            saveSettings();
+            updateLanAddress();
+        });
+    }
+
+    private void startBridge() {
+        if (lanModeCheckbox.isChecked() && !preferences.getBoolean("lanWarningAccepted", false)) {
+            new AlertDialog.Builder(this)
+                .setTitle("Enable trusted LAN relay?")
+                .setMessage("This lets a PC on the same trusted network reach the phone bridge. A generated relay token protects the connection, but you must not port-forward this port or use it on untrusted public Wi-Fi. Stop and restart the bridge after changing this option.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Enable LAN", (dialog, which) -> {
+                    preferences.edit().putBoolean("lanWarningAccepted", true).apply();
+                    startBridgeConfirmed();
+                }).show();
+            return;
+        }
+        startBridgeConfirmed();
+    }
+
+    private void startBridgeConfirmed() {
+        saveSettings();
+        new File(getFilesDir(), BridgeService.STATUS_FILE).delete();
+        boolean lanMode = lanModeCheckbox.isChecked();
+        BridgeService.start(this, port(), lanMode ? "0.0.0.0" : "127.0.0.1", lanMode ? lanToken() : "");
+        appendOutput("\nStarting the embedded Node bridge" + (lanMode ? " with authenticated LAN relay..." : " on localhost..."));
+        runtimeStatus.setText("EMBEDDED NODE: STARTING");
+        runtimeStatus.setTextColor(getColor(R.color.warning));
+        healthSummary.postDelayed(() -> refreshStatus(true, 30), 1000);
     }
 
     private void prepareRuntime() {
@@ -146,7 +184,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     runtimeStatus.setText("EMBEDDED NODE: RUNNING");
                     runtimeStatus.setTextColor(getColor(R.color.success));
-                    healthSummary.setText(healthBase() + "\nBridge: RUNNING on 127.0.0.1:" + requestedPort);
+                    healthSummary.setText(healthBase() + "\nBridge: RUNNING on 127.0.0.1:" + requestedPort + lanExposure());
                     healthSummary.setTextColor(getColor(R.color.success));
                     if (reportFailure) appendOutput("\nBridge health check passed. " + compact(response));
                 });
@@ -263,6 +301,73 @@ public final class MainActivity extends Activity {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText("Roblox MCP executor loader", loader));
         toast("Executor connection code copied");
+    }
+
+    private void copyPcRelayArguments() {
+        if (!lanModeCheckbox.isChecked()) {
+            showMessage("Enable LAN relay first", "Select “Allow trusted LAN relay,” stop/start the bridge, then copy the PC arguments.");
+            return;
+        }
+        String ip = findLanIpv4Address();
+        if (ip == null) {
+            showMessage("LAN address unavailable", "Connect the phone and PC to the same Wi-Fi or private VPN, then try again.");
+            return;
+        }
+        String arguments = "\"--baseurl\",\n\"http://" + ip + ":" + port() + "\",\n"
+            + "\"--relay-token\",\n\"" + lanToken() + "\"";
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(ClipData.newPlainText("Roblox MCP PC relay arguments", arguments));
+        toast("PC MCP relay arguments copied");
+    }
+
+    private void updateLanAddress() {
+        if (!lanModeCheckbox.isChecked()) {
+            lanAddressText.setText("LAN access disabled. The executor still uses 127.0.0.1.");
+            return;
+        }
+        String ip = findLanIpv4Address();
+        lanAddressText.setText(ip == null
+            ? "No LAN IPv4 address found. Connect Wi-Fi or a private VPN."
+            : "PC relay: http://" + ip + ":" + port() + "\nTrusted networks only. Never port-forward this address.");
+    }
+
+    private String lanExposure() {
+        if (!lanModeCheckbox.isChecked()) return "";
+        String ip = findLanIpv4Address();
+        return ip == null ? "\nLAN relay: enabled; address unavailable" : "\nLAN relay: http://" + ip + ":" + port() + " (token required)";
+    }
+
+    private String lanToken() {
+        String existing = preferences.getString("lanRelayToken", "");
+        if (!existing.isEmpty()) return existing;
+        byte[] bytes = new byte[24];
+        new SecureRandom().nextBytes(bytes);
+        String created = Base64.encodeToString(bytes, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+        preferences.edit().putString("lanRelayToken", created).apply();
+        return created;
+    }
+
+    private static String findLanIpv4Address() {
+        String fallback = null;
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface network = interfaces.nextElement();
+                if (!network.isUp() || network.isLoopback()) continue;
+                Enumeration<InetAddress> addresses = network.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+                    if (!(address instanceof Inet4Address) || address.isLoopbackAddress() || address.isLinkLocalAddress()) continue;
+                    String value = address.getHostAddress();
+                    String name = network.getName().toLowerCase();
+                    if (name.startsWith("wlan") || name.startsWith("eth")) return value;
+                    if (address.isSiteLocalAddress() && fallback == null) fallback = value;
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return fallback;
     }
 
     private void checkManagerUpdate() {

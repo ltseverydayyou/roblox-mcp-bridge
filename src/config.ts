@@ -12,6 +12,7 @@ function readPort(value: string | undefined): number {
 
 export const WS_PORT = readPort(process.env.ROBLOX_MCP_PORT || readArg("--port"));
 export const SERVER_HOST = process.env.ROBLOX_MCP_HOST || readArg("--host") || "127.0.0.1";
+export const RELAY_TOKEN = process.env.ROBLOX_MCP_LAN_TOKEN || readArg("--relay-token") || "";
 
 const configuredBodyLimit = Number(process.env.ROBLOX_MCP_MAX_BODY_BYTES);
 export const MAX_HTTP_BODY_BYTES = Number.isFinite(configuredBodyLimit)
