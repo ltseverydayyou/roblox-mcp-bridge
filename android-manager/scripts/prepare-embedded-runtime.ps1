@@ -46,6 +46,6 @@ Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\main.mjs") -Destination 
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\package.json") -Destination $assetTarget
 Copy-Item -LiteralPath (Join-Path $repoRoot "dist") -Destination $assetTarget -Recurse
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\node_modules") -Destination $assetTarget -Recurse
-Set-Content -LiteralPath (Join-Path $assetTarget "runtime-version.txt") -Value "2.4.4-node18.17.1-arm64" -Encoding utf8NoBOM
+Set-Content -LiteralPath (Join-Path $assetTarget "runtime-version.txt") -Value "2.4.4-node18.17.1-arm64-r2" -Encoding utf8NoBOM
 
 Write-Host "Embedded runtime prepared for arm64-v8a."

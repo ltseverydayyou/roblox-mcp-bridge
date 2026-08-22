@@ -84,11 +84,12 @@ public final class MainActivity extends Activity {
         findViewById(R.id.refreshButton).setOnClickListener(v -> refreshStatus(true));
         findViewById(R.id.startBridgeButton).setOnClickListener(v -> {
             saveSettings();
+            new File(getFilesDir(), BridgeService.STATUS_FILE).delete();
             BridgeService.start(this, port());
             appendOutput("\nStarting the embedded Node bridge...");
             runtimeStatus.setText("EMBEDDED NODE: STARTING");
             runtimeStatus.setTextColor(getColor(R.color.warning));
-            healthSummary.postDelayed(() -> refreshStatus(true), 2500);
+            healthSummary.postDelayed(() -> refreshStatus(true, 30), 1000);
         });
         findViewById(R.id.stopBridgeButton).setOnClickListener(v -> {
             BridgeService.stop(this);
@@ -121,6 +122,10 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshStatus(boolean reportFailure) {
+        refreshStatus(reportFailure, 0);
+    }
+
+    private void refreshStatus(boolean reportFailure, int retriesRemaining) {
         int requestedPort = port();
         new Thread(() -> {
             HttpURLConnection connection = null;
@@ -147,10 +152,20 @@ public final class MainActivity extends Activity {
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
+                    String serviceState = readServiceState();
+                    boolean fatal = serviceState.startsWith("ERROR") || serviceState.startsWith("EXITED");
+                    if (retriesRemaining > 0 && !fatal) {
+                        runtimeStatus.setText("EMBEDDED NODE: STARTING");
+                        runtimeStatus.setTextColor(getColor(R.color.warning));
+                        healthSummary.setText("Node 18.17.1 (embedded)\nMCP 2.4.4 (bundled)\nBridge: starting…\n" + serviceState);
+                        healthSummary.setTextColor(getColor(R.color.warning));
+                        healthSummary.postDelayed(() -> refreshStatus(reportFailure, retriesRemaining - 1), 1000);
+                        return;
+                    }
                     updateRuntimeStatus();
-                    healthSummary.setText("Node 18.17.1 (embedded)\nMCP 2.4.4 (bundled)\nBridge: stopped");
+                    healthSummary.setText("Node 18.17.1 (embedded)\nMCP 2.4.4 (bundled)\nBridge: stopped\n" + serviceState);
                     healthSummary.setTextColor(getColor(R.color.warning));
-                    if (reportFailure) appendOutput("\nBridge is not responding yet: " + error.getMessage());
+                    if (reportFailure) appendOutput("\nBridge failed to become ready: " + error.getMessage() + "\nService: " + serviceState);
                 });
             } finally {
                 if (connection != null) connection.disconnect();
@@ -165,21 +180,44 @@ public final class MainActivity extends Activity {
     }
 
     private void readLogs() {
-        File log = new File(getFilesDir(), "bridge.log");
-        if (!log.isFile()) { appendOutput("\nNo embedded bridge log exists yet."); return; }
+        File serviceLog = new File(getFilesDir(), BridgeService.SERVICE_LOG_FILE);
+        File bridgeLog = new File(getFilesDir(), "bridge.log");
+        if (!serviceLog.isFile() && !bridgeLog.isFile()) { appendOutput("\nNo embedded bridge log exists yet. Service: " + readServiceState()); return; }
         new Thread(() -> {
             StringBuilder lines = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new FileReader(log))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    lines.append(line).append('\n');
-                    if (lines.length() > 45_000) lines.delete(0, lines.length() - 35_000);
-                }
+            try {
+                appendLogFile(lines, "Android service", serviceLog);
+                appendLogFile(lines, "Embedded Node", bridgeLog);
                 runOnUiThread(() -> appendOutput("\n--- embedded bridge log ---\n" + lines));
             } catch (Exception error) {
                 runOnUiThread(() -> showMessage("Could not read bridge logs", error.getMessage()));
             }
         }, "log-reader").start();
+    }
+
+    private static void appendLogFile(StringBuilder output, String label, File file) throws Exception {
+        if (!file.isFile()) return;
+        output.append("--- ").append(label).append(" ---\n");
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append('\n');
+                if (output.length() > 45_000) output.delete(0, output.length() - 35_000);
+            }
+        }
+    }
+
+    private String readServiceState() {
+        File status = new File(getFilesDir(), BridgeService.STATUS_FILE);
+        if (!status.isFile()) return "Waiting for the Android service…";
+        try (BufferedReader reader = new BufferedReader(new FileReader(status))) {
+            StringBuilder value = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null && value.length() < 4000) value.append(line).append('\n');
+            return value.toString().trim();
+        } catch (Exception error) {
+            return "Could not read service state: " + error.getMessage();
+        }
     }
 
     private void tunnelPrototypeNotice() {

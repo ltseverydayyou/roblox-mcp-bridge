@@ -13,6 +13,7 @@ const installer = read(`${javaRoot}/AssetInstaller.java`);
 const manifest = read("android-manager/app/src/main/AndroidManifest.xml");
 const gradle = read("android-manager/app/build.gradle");
 const entrypoint = read("android-manager/runtime/main.mjs");
+const androidEntrypoint = read("src/android.ts");
 const prepare = read("android-manager/scripts/prepare-embedded-runtime.ps1");
 const updateChecker = read(`${javaRoot}/ManagerUpdateChecker.java`);
 
@@ -23,6 +24,9 @@ test("Android manager owns an isolated embedded foreground service", () => {
   assert.doesNotMatch(manifest, /com\.termux/);
   assert.match(bridgeService, /NativeNode\.start/);
   assert.match(bridgeService, /Process\.killProcess\(Process\.myPid\(\)\)/);
+  assert.match(bridgeService, /NATIVE_NODE_STARTING/);
+  assert.match(bridgeService, /ERROR.*getClass/s);
+  assert.match(mainActivity, /refreshStatus\(true, 30\)/);
 });
 
 test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
@@ -47,6 +51,9 @@ test("embedded bridge and executor loader stay on Android localhost", () => {
   assert.match(mainActivity, /MCP_AutoReconnect/);
   assert.match(mainActivity, /\/script\.luau/);
   assert.doesNotMatch(mainActivity, /raw\.githubusercontent\.com/);
+  assert.match(entrypoint, /dist\/android\.js/);
+  assert.doesNotMatch(androidEntrypoint, /StdioServerTransport/);
+  assert.match(androidEntrypoint, /await boot\(\)/);
 });
 
 test("unfinished tunnel transport cannot persist a runtime key", () => {

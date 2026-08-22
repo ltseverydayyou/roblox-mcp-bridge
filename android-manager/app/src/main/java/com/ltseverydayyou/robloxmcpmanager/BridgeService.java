@@ -12,6 +12,10 @@ import android.os.Process;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.time.Instant;
 
 public final class BridgeService extends Service {
     static final String ACTION_START = "com.ltseverydayyou.robloxmcpmanager.START_BRIDGE";
@@ -19,6 +23,8 @@ public final class BridgeService extends Service {
     static final String EXTRA_PORT = "port";
     private static final String CHANNEL = "embedded_bridge";
     private static final int NOTIFICATION_ID = 16384;
+    static final String STATUS_FILE = "bridge-service-status.txt";
+    static final String SERVICE_LOG_FILE = "bridge-service.log";
     private boolean started;
 
     static void start(Context context, int port) {
@@ -35,6 +41,7 @@ public final class BridgeService extends Service {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Embedded MCP bridge", NotificationManager.IMPORTANCE_LOW));
+        writeState("SERVICE_CREATED");
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -57,17 +64,36 @@ public final class BridgeService extends Service {
 
     private void runNode(int port) {
         try {
+            writeState("EXTRACTING_RUNTIME");
             File runtime = AssetInstaller.install(this);
             File log = new File(getFilesDir(), "bridge.log");
+            File status = new File(getFilesDir(), STATUS_FILE);
+            writeState("NATIVE_NODE_STARTING");
             int result = NativeNode.start(new String[]{
                 "node", new File(runtime, "main.mjs").getAbsolutePath(),
-                Integer.toString(port), log.getAbsolutePath()
+                Integer.toString(port), log.getAbsolutePath(), status.getAbsolutePath()
             });
             Log.i("RobloxMcpBridge", "Embedded Node exited with " + result);
+            writeState("EXITED Embedded Node returned code " + result);
         } catch (Throwable error) {
             Log.e("RobloxMcpBridge", "Embedded runtime failed", error);
+            StringWriter trace = new StringWriter();
+            error.printStackTrace(new PrintWriter(trace));
+            writeState("ERROR " + error.getClass().getName() + ": " + error.getMessage() + "\n" + trace);
         } finally {
             stopSelf();
+        }
+    }
+
+    private void writeState(String state) {
+        try {
+            File status = new File(getFilesDir(), STATUS_FILE);
+            try (FileWriter writer = new FileWriter(status, false)) { writer.write(state); }
+            try (FileWriter writer = new FileWriter(new File(getFilesDir(), SERVICE_LOG_FILE), true)) {
+                writer.write("[" + Instant.now() + "] " + state + "\n");
+            }
+        } catch (Exception error) {
+            Log.e("RobloxMcpBridge", "Could not persist service state", error);
         }
     }
 
