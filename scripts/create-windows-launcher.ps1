@@ -14,7 +14,7 @@ param(
 
     [string]$OutputDirectory = ([Environment]::GetFolderPath("Desktop")),
 
-    [string]$LuauIconUrl = "https://raw.githubusercontent.com/luau-lang/site/master/logo.svg"
+    [string]$IconSourcePath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -74,9 +74,16 @@ if (-not (Test-Path -LiteralPath $managerSource -PathType Leaf)) {
     throw "Manager source was not found: $managerSource"
 }
 
-$iconBuilder = Join-Path $PSScriptRoot "get-luau-icon.ps1"
+$iconBuilder = Join-Path $PSScriptRoot "get-mcp-icon.ps1"
 if (-not (Test-Path -LiteralPath $iconBuilder -PathType Leaf)) {
-    throw "Luau icon builder was not found: $iconBuilder"
+    throw "Roblox MCP icon builder was not found: $iconBuilder"
+}
+
+if ([string]::IsNullOrWhiteSpace($IconSourcePath)) {
+    $IconSourcePath = Join-Path (Split-Path -Parent $PSScriptRoot) "android-manager\artwork\roblox-mcp-icon-source.png"
+}
+if (-not (Test-Path -LiteralPath $IconSourcePath -PathType Leaf)) {
+    throw "Roblox MCP icon source was not found: $IconSourcePath"
 }
 
 $manifestSource = Join-Path (Split-Path -Parent $PSScriptRoot) "package.json"
@@ -90,9 +97,9 @@ $exeTarget = Join-Path $outputPath "RobloxMcpManager.exe"
 $temporaryExe = Join-Path ([System.IO.Path]::GetTempPath()) ("RobloxMcpManager-" + [Guid]::NewGuid().ToString("N") + ".exe")
 $temporaryIcon = Join-Path ([System.IO.Path]::GetTempPath()) ("RobloxMcpManager-" + [Guid]::NewGuid().ToString("N") + ".ico")
 
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $iconBuilder -OutputPath $temporaryIcon -SourceUrl $LuauIconUrl | Out-Null
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $iconBuilder -SourcePath $IconSourcePath -OutputPath $temporaryIcon | Out-Null
 if (-not (Test-Path -LiteralPath $temporaryIcon -PathType Leaf)) {
-    throw "The Luau icon could not be generated."
+    throw "The Roblox MCP icon could not be generated."
 }
 
 $managerContent = [System.IO.File]::ReadAllText($managerSource)
@@ -116,8 +123,16 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Management.Automation;
+using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
+
+[assembly: AssemblyTitle("Roblox MCP Manager")]
+[assembly: AssemblyDescription("Windows manager for Roblox MCP Bridge")]
+[assembly: AssemblyProduct("Roblox MCP Bridge")]
+[assembly: AssemblyCompany("ltseverydayyou")]
+[assembly: AssemblyVersion("$managerVersion")]
+[assembly: AssemblyFileVersion("$managerVersion")]
 
 internal static class RobloxMcpManagerLauncher
 {

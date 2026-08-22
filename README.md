@@ -6,7 +6,7 @@
 
 An MCP server that allows Agents to interact with a running Roblox game client — execute code, inspect scripts, spy on remotes, and more.
 
-> This repository is an improved continuation of the original `notpoiu/roblox-executor-mcp` project, with additional client-inspection, observation, safety, and dashboard tooling. The original [MIT license](LICENSE) is preserved.
+> **Fork attribution:** This repository is a fork and improved continuation of [notpoiu's original Roblox Executor MCP](https://gitlab.com/upio/roblox-executor-mcp), now hosted by [@upio on GitLab](https://gitlab.com/upio). It adds client-inspection, observation, safety, dashboard, desktop-manager, and Android tooling while preserving the original [MIT license](LICENSE).
 
 ## Dashboard
 

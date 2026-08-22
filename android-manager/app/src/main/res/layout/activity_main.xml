@@ -25,7 +25,7 @@
         <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="System health" />
             <TextView android:id="@+id/healthSummary" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Node.js: EMBEDDED 18.17.1 ✓\nGit: NOT REQUIRED — APK-managed updates\nRepository: BUNDLED MCP v2.4.4\nBridge: stopped" android:textColor="@color/muted" android:textSize="14sp" />
+                android:text="Node.js: EMBEDDED 18.17.1 ✓\nGit: NOT REQUIRED — APK-managed updates\nRepository: BUNDLED MCP v2.4.5\nBridge: stopped" android:textColor="@color/muted" android:textSize="14sp" />
             <Button android:id="@+id/refreshButton" style="@style/ManagerButton.Secondary" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Refresh status" />
         </LinearLayout>
 

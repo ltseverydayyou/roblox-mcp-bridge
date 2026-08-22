@@ -163,7 +163,8 @@ body {
     font-size: 9px; line-height: 1.35; color: var(--text-tertiary);
     opacity: 0.68; max-width: 100%; overflow-wrap: anywhere;
 }
-.sidebar-credit span { color: var(--text-secondary); }
+.sidebar-credit a { color: var(--text-secondary); text-decoration: none; }
+.sidebar-credit a:hover { color: var(--text-primary); text-decoration: underline; }
 .sidebar-uptime {
     display: flex; align-items: center; gap: 6px;
     font-family: var(--mono); font-size: 11px; color: var(--text-tertiary);
