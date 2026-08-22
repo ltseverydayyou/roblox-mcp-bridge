@@ -115,7 +115,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "dist") -Destination $assetTarget -R
 Copy-Item -LiteralPath (Join-Path $managerRoot "runtime\node_modules") -Destination $assetTarget -Recurse
 [System.IO.File]::WriteAllText(
     (Join-Path $assetTarget "runtime-version.txt"),
-    "2.4.4-node18.17.1-tunnel0.0.12-arm64-r5`n",
+    "2.4.4-node18.17.1-tunnel0.0.12-arm64-r6`n",
     [System.Text.UTF8Encoding]::new($false)
 )
 

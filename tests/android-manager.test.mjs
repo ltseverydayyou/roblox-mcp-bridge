@@ -46,7 +46,7 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(prepare, /Get-FileHash.*SHA256/);
   assert.match(prepare, /libc\+\+_shared\.so/);
   assert.match(prepare, /repoRoot "connector\.luau"/);
-  assert.match(prepare, /arm64-r5/);
+  assert.match(prepare, /arm64-r6/);
   assert.match(gradle, /jniLibs\/arm64-v8a\/libc\+\+_shared\.so/);
   assert.match(gradle, /assets\/nodejs-project\/connector\.luau/);
   assert.match(mainActivity, /Node\.js: EMBEDDED 18\.17\.1/);
