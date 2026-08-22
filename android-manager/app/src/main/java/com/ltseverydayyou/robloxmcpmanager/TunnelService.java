@@ -24,6 +24,7 @@ public final class TunnelService extends Service {
     static final String LOG_FILE = "tunnel-client.log";
     private static final String ACTION_START = "com.ltseverydayyou.robloxmcpmanager.START_TUNNEL";
     private static final String ACTION_STOP = "com.ltseverydayyou.robloxmcpmanager.STOP_TUNNEL";
+    private static final String ACTION_RESTART = "com.ltseverydayyou.robloxmcpmanager.RESTART_TUNNEL";
     private static final String EXTRA_PROFILE = "profile";
     private static final String EXTRA_RUNTIME_KEY = "runtimeKey";
     private static final String EXTRA_HEALTH_PORT = "healthPort";
@@ -31,6 +32,10 @@ public final class TunnelService extends Service {
     private static final int NOTIFICATION_ID = 16385;
     private volatile Process tunnelProcess;
     private volatile boolean stopping;
+    private volatile boolean restartRequested;
+    private volatile String activeProfile;
+    private volatile String activeRuntimeKey;
+    private volatile int activeHealthPort;
     private boolean started;
 
     static void start(Context context, String profile, String runtimeKey, int healthPort) {
@@ -44,6 +49,10 @@ public final class TunnelService extends Service {
         context.startService(new Intent(context, TunnelService.class).setAction(ACTION_STOP));
     }
 
+    static void restart(Context context) {
+        context.startService(new Intent(context, TunnelService.class).setAction(ACTION_RESTART));
+    }
+
     @Override public void onCreate() {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);
@@ -54,11 +63,26 @@ public final class TunnelService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             stopping = true;
+            restartRequested = false;
+            activeRuntimeKey = null;
             writeState("STOPPING");
             Process process = tunnelProcess;
             if (process != null) process.destroy();
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (intent != null && ACTION_RESTART.equals(intent.getAction())) {
+            Process process = tunnelProcess;
+            if (!started || activeRuntimeKey == null || process == null || !process.isAlive()) {
+                writeState("ERROR Tunnel is not currently running. Paste the runtime key and tap Start tunnel.");
+                if (!started) stopSelf();
+                return START_NOT_STICKY;
+            }
+            restartRequested = true;
+            writeState("RESTARTING tunnel-client v" + TunnelClient.VERSION + " — reusing memory-only key");
+            appendTunnelLog("[APK control] One-tap tunnel restart requested.");
+            process.destroy();
             return START_NOT_STICKY;
         }
         if (intent == null || !ACTION_START.equals(intent.getAction())) {
@@ -77,6 +101,9 @@ public final class TunnelService extends Service {
             return START_NOT_STICKY;
         }
         started = true;
+        activeProfile = profile;
+        activeRuntimeKey = runtimeKey;
+        activeHealthPort = healthPort;
         startForeground(NOTIFICATION_ID, notification(profile));
         String keyForProcess = runtimeKey;
         new Thread(() -> runTunnel(profile, keyForProcess, healthPort), "openai-tunnel-client").start();
@@ -100,12 +127,26 @@ public final class TunnelService extends Service {
                 }
             }
             int code = process.waitFor();
-            writeState((stopping ? "STOPPED" : "EXITED") + " tunnel-client returned code " + code);
+            writeState(restartRequested && !stopping
+                ? "RESTARTING tunnel-client v" + TunnelClient.VERSION
+                : (stopping ? "STOPPED" : "EXITED") + " tunnel-client returned code " + code);
         } catch (Throwable error) {
             Log.e("RobloxMcpTunnel", "Tunnel client failed", error);
-            writeState("ERROR " + error.getClass().getName() + ": " + error.getMessage());
+            if (!restartRequested || stopping) {
+                writeState("ERROR " + error.getClass().getName() + ": " + error.getMessage());
+            }
         } finally {
             tunnelProcess = null;
+            if (restartRequested && !stopping && activeRuntimeKey != null) {
+                restartRequested = false;
+                String profileForRestart = activeProfile;
+                String keyForRestart = activeRuntimeKey;
+                int healthPortForRestart = activeHealthPort;
+                new Thread(() -> runTunnel(profileForRestart, keyForRestart, healthPortForRestart),
+                    "openai-tunnel-client-restart").start();
+                return;
+            }
+            activeRuntimeKey = null;
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
         }
@@ -189,6 +230,8 @@ public final class TunnelService extends Service {
 
     @Override public void onDestroy() {
         stopping = true;
+        restartRequested = false;
+        activeRuntimeKey = null;
         Process process = tunnelProcess;
         if (process != null) process.destroy();
         super.onDestroy();

@@ -54,6 +54,8 @@ ChatGPT cannot fetch a service from the phone's `127.0.0.1`. A ChatGPT plugin co
 5. Select the same tunnel ID, choose **Authentication: No Auth**, review and acknowledge the custom-MCP risk warning, then tap **Create**.
 6. Keep the bridge and tunnel alive whenever the plugin is in use. If Android stops the foreground service, the tunnel exits, or the user presses **Stop**, ChatGPT loses the MCP connection. **Open tunnel diagnostics** displays the tunnel client's local `/ui`; **Refresh logs** includes the tunnel process and readiness history.
 
+While the tunnel service is running, **Restart tunnel** stops and relaunches the official client with the profile and runtime key already held in that service's memory. It does not save the key and does not require another Configure or paste. If Android has already killed the service or the user pressed **Stop**, the key no longer exists and Start requires it again.
+
 The app includes direct buttons for all three pages and a **Copy setup steps** action. OpenAI may restrict custom plugin creation or tunnels by account, plan, organization, or workspace policy; the manager cannot change that access.
 
 ## ChatGPT tunnel transport status
@@ -63,6 +65,8 @@ The APK packages the official ARM64 OpenAI `tunnel-client` executable as an app-
 Launching the process is not treated as a successful connection. The manager monitors the tunnel client's local `/readyz` endpoint: `CONNECTING` and `NOT READY` mean ChatGPT cannot use the tunnel yet, while `READY` confirms that the client completed its first successful OpenAI control-plane poll. The runtime key remains memory-only, is removed from the screen when Doctor or Start begins, and is never written to preferences or logs.
 
 The phone-local `/mcp` endpoint uses stateless Streamable HTTP. Each tunneled JSON-RPC POST receives a fresh server transport, so restarting the bridge does not leave ChatGPT stuck with a stale `Mcp-Session-Id`. GET and DELETE are intentionally rejected with `405 Method Not Allowed` because the tunnel workflow does not require a persistent server-side session.
+
+Every accepted MCP POST writes only its JSON-RPC method name to the built-in bridge log, for example `[Android MCP] Request reached phone: tools/call (stateless).`; arguments and runtime keys are never logged. If ChatGPT reports a tunnel error but no new marker appears after **Refresh logs**, the request did not reach the phone and the tunnel ID, Platform organization, ChatGPT workspace association, and Tunnels Read + Use permission must be checked upstream.
 
 ## Build the APK
 

@@ -148,6 +148,7 @@ public final class MainActivity extends Activity {
         findViewById(R.id.doctorTunnelButton).setOnClickListener(v -> doctorTunnel());
         findViewById(R.id.startTunnelButton).setOnClickListener(v -> startTunnel());
         findViewById(R.id.stopTunnelButton).setOnClickListener(v -> stopTunnel());
+        findViewById(R.id.restartTunnelButton).setOnClickListener(v -> restartTunnel());
         findViewById(R.id.tunnelDiagnosticsButton).setOnClickListener(v ->
             openUrl("http://127.0.0.1:" + TunnelClient.healthPort(port()) + "/ui"));
         lanModeCheckbox.setOnCheckedChangeListener((button, checked) -> {
@@ -418,6 +419,12 @@ public final class MainActivity extends Activity {
         runtimeKeyField.setText("");
         appendOutput("\nStopping OpenAI tunnel-client...");
         tunnelStatus.postDelayed(this::updateTunnelStatus, 800);
+    }
+
+    private void restartTunnel() {
+        TunnelService.restart(this);
+        appendOutput("\nRestarting OpenAI tunnel-client with its memory-only key. No reconfiguration is needed...");
+        tunnelStatus.postDelayed(() -> refreshTunnelStatus(45), 500);
     }
 
     private boolean isLocalBridgeReady(int bridgePort) {

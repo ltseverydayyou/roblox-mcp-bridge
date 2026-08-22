@@ -35,6 +35,12 @@ export async function handleAndroidMcp(req: IncomingMessage, res: ServerResponse
   try {
     if (req.method === "POST") {
       const body = await readJsonBody<unknown>(req);
+      const method = Array.isArray(body)
+        ? `batch(${body.length})`
+        : body && typeof body === "object" && "method" in body && typeof body.method === "string"
+          ? body.method
+          : "unknown";
+      console.error(`[Android MCP] Request reached phone: ${method} (stateless).`);
       const server = createMcpServer();
       const transport = new StreamableHTTPServerTransport({
         // Tunnel work can arrive after the Android bridge has restarted while

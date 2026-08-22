@@ -46,7 +46,7 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(prepare, /Get-FileHash.*SHA256/);
   assert.match(prepare, /libc\+\+_shared\.so/);
   assert.match(prepare, /repoRoot "connector\.luau"/);
-  assert.match(prepare, /arm64-r6/);
+  assert.match(prepare, /arm64-r7/);
   assert.match(gradle, /jniLibs\/arm64-v8a\/libc\+\+_shared\.so/);
   assert.match(gradle, /assets\/nodejs-project\/connector\.luau/);
   assert.match(mainActivity, /Node\.js: EMBEDDED 18\.17\.1/);
@@ -112,6 +112,10 @@ test("official ARM64 tunnel transport never persists a runtime key", () => {
   assert.match(tunnelClient, /http:\/\/127\.0\.0\.1:.*\/mcp/);
   assert.match(tunnelService, /START_NOT_STICKY/);
   assert.match(tunnelService, /removeExtra\(EXTRA_RUNTIME_KEY\)/);
+  assert.match(tunnelService, /ACTION_RESTART/);
+  assert.match(tunnelService, /One-tap tunnel restart requested/);
+  assert.match(tunnelService, /activeRuntimeKey = null/);
+  assert.match(mainActivity, /restartTunnelButton/);
   assert.match(tunnelService, /\/readyz/);
   assert.match(tunnelService, /READY tunnel-client/);
   assert.match(tunnelService, /NOT READY/);
@@ -128,6 +132,7 @@ test("Android MCP HTTP transport is enabled only in the embedded runtime and res
   assert.match(androidMcp, /sessionIdGenerator: undefined/);
   assert.doesNotMatch(androidMcp, /const sessions = new Map/);
   assert.match(androidMcp, /Stateless Android MCP accepts POST requests only/);
+  assert.match(androidMcp, /Request reached phone:/);
   assert.match(androidMcp, /isLoopback\(req\.socket\.remoteAddress\)/);
   assert.match(androidMcp, /restricted to localhost/);
   assert.match(androidMcp, /oauth-protected-resource/);
