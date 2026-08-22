@@ -10,6 +10,8 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Base64;
 import android.widget.CheckBox;
@@ -33,6 +35,9 @@ import java.util.Enumeration;
 
 public final class MainActivity extends Activity {
     private static final String PREFS = "manager_settings";
+    private static final String API_KEYS_URL = "https://platform.openai.com/settings/organization/api-keys";
+    private static final String TUNNELS_URL = "https://platform.openai.com/settings/organization/tunnels";
+    private static final String CHATGPT_PLUGINS_URL = "https://chatgpt.com/plugins";
     private SharedPreferences preferences;
     private TextView runtimeStatus;
     private TextView healthSummary;
@@ -43,6 +48,7 @@ public final class MainActivity extends Activity {
     private EditText runtimeKeyField;
     private CheckBox lanModeCheckbox;
     private TextView lanAddressText;
+    private TextView backgroundStatus;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -54,6 +60,7 @@ public final class MainActivity extends Activity {
         updateLanAddress();
         outputView.setMovementMethod(new ScrollingMovementMethod());
         updateRuntimeStatus();
+        updateBackgroundStatus();
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
     }
 
@@ -61,6 +68,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         updateRuntimeStatus();
         updateLanAddress();
+        updateBackgroundStatus();
         refreshStatus(false);
     }
 
@@ -79,6 +87,7 @@ public final class MainActivity extends Activity {
         runtimeKeyField = findViewById(R.id.runtimeKeyField);
         lanModeCheckbox = findViewById(R.id.lanModeCheckbox);
         lanAddressText = findViewById(R.id.lanAddressText);
+        backgroundStatus = findViewById(R.id.backgroundStatus);
     }
 
     private void loadSettings() {
@@ -108,6 +117,12 @@ public final class MainActivity extends Activity {
         findViewById(R.id.copyPcRelayButton).setOnClickListener(v -> copyPcRelayArguments());
         findViewById(R.id.bridgeLogsButton).setOnClickListener(v -> readLogs());
         findViewById(R.id.managerUpdateButton).setOnClickListener(v -> checkManagerUpdate());
+        findViewById(R.id.batteryOptimizationButton).setOnClickListener(v -> requestUnrestrictedBattery());
+        findViewById(R.id.appSettingsButton).setOnClickListener(v -> openAppSettings());
+        findViewById(R.id.openApiKeysButton).setOnClickListener(v -> openUrl(API_KEYS_URL));
+        findViewById(R.id.openTunnelsButton).setOnClickListener(v -> openUrl(TUNNELS_URL));
+        findViewById(R.id.openChatGptPluginsButton).setOnClickListener(v -> openChatGptPlugins());
+        findViewById(R.id.copyChatGptChecklistButton).setOnClickListener(v -> copyChatGptChecklist());
 
         int[] tunnelButtons = { R.id.configureTunnelButton, R.id.doctorTunnelButton, R.id.startTunnelButton, R.id.stopTunnelButton };
         for (int id : tunnelButtons) findViewById(id).setOnClickListener(v -> tunnelPrototypeNotice());
@@ -261,7 +276,66 @@ public final class MainActivity extends Activity {
     private void tunnelPrototypeNotice() {
         runtimeKeyField.setText("");
         showMessage("Tunnel transport is not embedded yet",
-            "The local Roblox bridge now runs without Termux. The official GPT tunnel client does not ship an Android binary, so this build leaves tunnel start disabled until its transport is ported and verified. Your runtime key was not stored.");
+            "The local Roblox bridge runs without Termux. The official tunnel client does not ship an Android binary, so Configure, Doctor, Start, and Stop remain disabled until the transport is ported and verified. You can still use the setup links and prepare the ChatGPT plugin. Your runtime key was cleared and was not stored.");
+    }
+
+    private void updateBackgroundStatus() {
+        PowerManager power = getSystemService(PowerManager.class);
+        boolean unrestricted = power != null && power.isIgnoringBatteryOptimizations(getPackageName());
+        backgroundStatus.setText(unrestricted
+            ? "BATTERY: UNRESTRICTED ✓ — foreground bridge can stay active"
+            : "BATTERY: OPTIMIZED — Android or the phone vendor may stop the bridge");
+        backgroundStatus.setTextColor(getColor(unrestricted ? R.color.success : R.color.warning));
+    }
+
+    private void requestUnrestrictedBattery() {
+        PowerManager power = getSystemService(PowerManager.class);
+        if (power != null && power.isIgnoringBatteryOptimizations(getPackageName())) {
+            toast("Unrestricted battery use is already allowed");
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Allow background bridge?")
+            .setMessage("The localhost bridge must remain active for Roblox, ChatGPT, Codex, or Claude to stay connected. Android warns that unrestricted apps can use more battery. You can revoke this later in system settings.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue", (dialog, which) -> {
+                Intent request = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName()));
+                try {
+                    startActivity(request);
+                } catch (Exception ignored) {
+                    startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                }
+            }).show();
+    }
+
+    private void openAppSettings() {
+        Intent settings = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:" + getPackageName()));
+        startActivity(settings);
+    }
+
+    private void openChatGptPlugins() {
+        new AlertDialog.Builder(this)
+            .setTitle("Keep the bridge and tunnel running")
+            .setMessage("ChatGPT validates the plugin through the selected tunnel ID. Start the localhost bridge and its matching tunnel before tapping + in Plugins. Choose Tunnel, select that ID, use No Auth, acknowledge the custom-MCP warning, then Create. If Android stops this app or the tunnel, the plugin disconnects.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Open Plugins", (dialog, which) -> openUrl(CHATGPT_PLUGINS_URL))
+            .show();
+    }
+
+    private void copyChatGptChecklist() {
+        String checklist = "Roblox MCP → ChatGPT plugin setup\n\n"
+            + "1. Create an OpenAI Platform runtime API key:\n" + API_KEYS_URL + "\n\n"
+            + "2. Create a tunnel and copy its tunnel_... ID:\n" + TUNNELS_URL + "\n\n"
+            + "3. Start Roblox MCP Manager's localhost bridge and start the tunnel with the same ID. Keep both running.\n\n"
+            + "4. Open ChatGPT Plugins, tap +, choose Connection: Tunnel, select the same tunnel ID, and choose Authentication: No Auth:\n"
+            + CHATGPT_PLUGINS_URL + "\n\n"
+            + "5. Review and acknowledge the custom MCP warning, then tap Create.\n\n"
+            + "Closing the manager screen is safe while its ongoing notification remains. Stop, Force stop, battery restriction, or clearing the service disconnects the plugin.";
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(ClipData.newPlainText("Roblox MCP ChatGPT plugin setup", checklist));
+        toast("ChatGPT plugin setup steps copied");
     }
 
     private void copyLoader() {

@@ -22,10 +22,13 @@ const secondaryServer = read("src/bridge/handlers/server/secondary.ts");
 test("Android manager owns an isolated embedded foreground service", () => {
   assert.match(manifest, /android:name="\.BridgeService"/);
   assert.match(manifest, /android:process=":bridge"/);
-  assert.match(manifest, /android:foregroundServiceType="dataSync"/);
+  assert.match(manifest, /android:foregroundServiceType="specialUse"/);
+  assert.match(manifest, /FOREGROUND_SERVICE_SPECIAL_USE/);
   assert.doesNotMatch(manifest, /com\.termux/);
   assert.match(bridgeService, /NativeNode\.start/);
   assert.match(bridgeService, /Process\.killProcess\(Process\.myPid\(\)\)/);
+  assert.match(bridgeService, /START_STICKY/);
+  assert.match(bridgeService, /desiredRunning/);
   assert.match(bridgeService, /NATIVE_NODE_STARTING/);
   assert.match(bridgeService, /ERROR.*getClass/s);
   assert.match(mainActivity, /refreshStatus\(true, 30\)/);
@@ -76,6 +79,16 @@ test("unfinished tunnel transport cannot persist a runtime key", () => {
   assert.doesNotMatch(mainActivity, /putString\("runtimeKey"/);
   assert.match(mainActivity, /runtimeKeyField\.setText\(""\)/);
   assert.match(mainActivity, /Tunnel transport is not embedded yet/);
+});
+
+test("Android manager explains ChatGPT plugin setup and background survival", () => {
+  assert.match(mainActivity, /platform\.openai\.com\/settings\/organization\/api-keys/);
+  assert.match(mainActivity, /platform\.openai\.com\/settings\/organization\/tunnels/);
+  assert.match(mainActivity, /chatgpt\.com\/plugins/);
+  assert.match(mainActivity, /Authentication: No Auth/);
+  assert.match(mainActivity, /ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/);
+  assert.match(mainActivity, /isIgnoringBatteryOptimizations/);
+  assert.match(manifest, /REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/);
 });
 
 test("app updates recognize Android production and debug APK names", () => {

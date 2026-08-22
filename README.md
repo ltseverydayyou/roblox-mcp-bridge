@@ -214,9 +214,9 @@ The bridge checks its published version shortly after startup and every six hour
 
 ### Android MCP Manager `.apk`
 
-The Android manager bundles Node.js Mobile and the compiled bridge directly in an ARM64 APK. It manages a localhost foreground service, health checks, built-in logs, app updates, and copying the executor loader without Termux, Git, npm, or a separate Node installation. Roblox is unchanged; the executor reaches the bridge at `127.0.0.1:16384`. An opt-in, bearer-token-protected trusted-LAN relay lets a PC Codex or Claude MCP process connect to the phone using `--baseurl http://<phone-ip>:16384` plus the copied `--relay-token`.
+The Android manager bundles Node.js Mobile and the compiled bridge directly in an ARM64 APK. It manages a restartable foreground service, health checks, built-in logs, app updates, background/battery guidance, ChatGPT plugin setup links, and copying the executor loader without Termux, Git, npm, or a separate Node installation. Roblox is unchanged; the executor reaches the bridge at `127.0.0.1:16384`. An opt-in, bearer-token-protected trusted-LAN relay lets a PC Codex or Claude MCP process connect to the phone using `--baseurl http://<phone-ip>:16384` plus the copied `--relay-token`.
 
-See [Roblox MCP Manager for Android](docs/android-manager.md) for the APK build, phone setup, architecture, and the current Android tunnel-port status.
+See [Roblox MCP Manager for Android](docs/android-manager.md) for the APK build, phone setup, background-running requirements, ChatGPT plugin creation flow, architecture, and current Android tunnel-transport status.
 
 The manager checks each component separately and provides buttons to:
 
