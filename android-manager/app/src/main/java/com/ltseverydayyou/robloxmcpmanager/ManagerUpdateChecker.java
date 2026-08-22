@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
 
 final class ManagerUpdateChecker {
     private static final Pattern APK_NAME = Pattern.compile(
-        "(?i)^RobloxMcpManager-Android-v([0-9]+(?:\\.[0-9]+){1,3}(?:[-+][A-Za-z0-9._-]+)?)(-debug)?\\.apk$"
+        // Keep a trailing build-flavor "-debug" out of the manifest version group.
+        "(?i)^RobloxMcpManager-Android-v([0-9]+(?:\\.[0-9]+){1,3}(?:[-+](?!debug\\.apk$)[A-Za-z0-9._-]+?)?)(-debug)?\\.apk$"
     );
     private static final Pattern SHA256_DIGEST = Pattern.compile("(?i)^sha256:([0-9a-f]{64})$");
     private static final long MAX_APK_BYTES = 200L * 1024L * 1024L;

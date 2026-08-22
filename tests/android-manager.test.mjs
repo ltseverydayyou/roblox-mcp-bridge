@@ -22,6 +22,7 @@ const updateProvider = read(`${javaRoot}/UpdateFileProvider.java`);
 const primaryServer = read("src/bridge/handlers/server/primary.ts");
 const secondaryServer = read("src/bridge/handlers/server/secondary.ts");
 const androidMcp = read("src/http/android-mcp.ts");
+const buildAndroid = read("scripts/build-android-manager.ps1");
 
 test("Android manager owns an isolated embedded foreground service", () => {
   assert.match(manifest, /android:name="\.BridgeService"/);
@@ -145,6 +146,11 @@ test("app updates download, verify, and invoke Android's installer without a bro
   assert.match(updateChecker, /RobloxMcpManager-Android-v/);
   assert.match(updateChecker, /debugFallback/);
   assert.match(updateChecker, /match\.group\(1\)/);
+  assert.match(updateChecker, /Keep a trailing build-flavor "-debug" out of the manifest version group/);
+  assert.match(gradle, /RobloxMcpManager-Android-v\$\{android\.defaultConfig\.versionName\}\.apk/);
+  assert.doesNotMatch(gradle, /rename \{ "RobloxMcpManager-Android-v\$\{android\.defaultConfig\.versionName\}-debug\.apk"/);
+  assert.match(buildAndroid, /RobloxMcpManager-Android-v\$version\.apk/);
+  assert.doesNotMatch(buildAndroid, /RobloxMcpManager-Android-v\$version-debug\.apk/);
   assert.match(updateChecker, /MessageDigest\.getInstance\("SHA-256"\)/);
   assert.match(updateChecker, /GET_SIGNING_CERTIFICATES/);
   assert.match(updateChecker, /sameSigners/);

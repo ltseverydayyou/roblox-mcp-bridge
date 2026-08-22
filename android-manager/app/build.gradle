@@ -78,5 +78,5 @@ tasks.register("packageManagerDebug", Copy) {
     dependsOn "assembleDebug"
     from layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
     into layout.buildDirectory.dir("distributions")
-    rename { "RobloxMcpManager-Android-v${android.defaultConfig.versionName}-debug.apk" }
+    rename { "RobloxMcpManager-Android-v${android.defaultConfig.versionName}.apk" }
 }

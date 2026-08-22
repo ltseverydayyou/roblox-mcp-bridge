@@ -55,7 +55,7 @@ finally {
 }
 
 $version = [string](Select-String -LiteralPath (Join-Path $project "app\build.gradle") -Pattern 'versionName\s+"([^"]+)"').Matches[0].Groups[1].Value
-$apk = Join-Path $project "app\build\distributions\RobloxMcpManager-Android-v$version-debug.apk"
+$apk = Join-Path $project "app\build\distributions\RobloxMcpManager-Android-v$version.apk"
 if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Expected APK was not produced: $apk" }
 [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression.FileSystem") | Out-Null
 $archive = [System.IO.Compression.ZipFile]::OpenRead($apk)
