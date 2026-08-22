@@ -118,7 +118,16 @@ public final class TunnelService extends Service {
             AndroidConnectProxy proxy = ensureControlPlaneProxy();
             appendTunnelLog("[APK network] Android DNS proxy ready at " + proxy.url()
                 + " for OpenAI control-plane HTTPS.");
-            Process process = TunnelClient.processBuilder(this, profile, runtimeKey, proxy.url()).start();
+            AndroidTrustBundle.Result trustBundle = AndroidTrustBundle.write(this);
+            appendTunnelLog("[APK network] Exported " + trustBundle.certificateCount
+                + " Android system CA certificates for tunnel-client TLS.");
+            Process process = TunnelClient.processBuilder(
+                this,
+                profile,
+                runtimeKey,
+                proxy.url(),
+                trustBundle.file
+            ).start();
             tunnelProcess = process;
             writeState("CONNECTING tunnel-client v" + TunnelClient.VERSION + " to OpenAI control plane…");
             new Thread(() -> monitorReadiness(process, healthPort), "openai-tunnel-readiness").start();

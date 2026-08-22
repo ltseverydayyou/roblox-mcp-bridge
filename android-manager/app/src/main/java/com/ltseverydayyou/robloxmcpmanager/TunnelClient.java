@@ -79,7 +79,13 @@ final class TunnelClient {
         ));
     }
 
-    static ProcessBuilder processBuilder(Context context, String profile, String runtimeKey, String controlPlaneProxy) {
+    static ProcessBuilder processBuilder(
+        Context context,
+        String profile,
+        String runtimeKey,
+        String controlPlaneProxy,
+        File trustBundle
+    ) {
         File executable = binary(context);
         if (!executable.isFile()) {
             throw new IllegalStateException("Bundled tunnel-client " + VERSION + " is missing from the APK.");
@@ -91,6 +97,7 @@ final class TunnelClient {
         command.add(profileFile(context, profile).getAbsolutePath());
         ProcessBuilder builder = prepare(context, runtimeKey, command);
         builder.environment().put("CONTROL_PLANE_HTTP_PROXY", controlPlaneProxy);
+        builder.environment().put("CA_BUNDLE", trustBundle.getAbsolutePath());
         return builder;
     }
 
