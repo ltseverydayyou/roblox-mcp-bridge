@@ -91,6 +91,8 @@
                 <Button android:id="@+id/startTunnelButton" style="@style/ManagerButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Start tunnel" />
                 <Button android:id="@+id/stopTunnelButton" style="@style/ManagerButton.Danger" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Stop" />
             </LinearLayout>
+            <Button android:id="@+id/tunnelDiagnosticsButton" style="@style/ManagerButton.Secondary"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Open tunnel diagnostics" />
         </LinearLayout>
 
         <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">

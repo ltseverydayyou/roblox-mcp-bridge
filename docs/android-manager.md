@@ -49,18 +49,18 @@ ChatGPT cannot fetch a service from the phone's `127.0.0.1`. A ChatGPT plugin co
 
 1. Create an [OpenAI Platform API key](https://platform.openai.com/settings/organization/api-keys). Treat it as a secret; the manager's runtime-key field is memory-only and is never saved.
 2. Create a tunnel in [OpenAI Platform tunnels](https://platform.openai.com/settings/organization/tunnels) and copy its `tunnel_...` ID.
-3. Start the local Roblox bridge, configure the tunnel runtime with that same tunnel ID, and keep both running before creating the plugin. ChatGPT must be able to validate the MCP server through the selected tunnel.
+3. Start the local Roblox bridge, configure the tunnel runtime with that same tunnel ID, paste a runtime API key, and tap **Start tunnel**. The manager runs Tunnel Doctor automatically and the status must reach `TUNNEL-CLIENT: READY` before creating or testing the plugin.
 4. Open [ChatGPT Plugins](https://chatgpt.com/plugins), tap **+**, enter a name such as **Roblox MCP**, and select **Connection: Tunnel**.
 5. Select the same tunnel ID, choose **Authentication: No Auth**, review and acknowledge the custom-MCP risk warning, then tap **Create**.
-6. Keep the bridge and tunnel alive whenever the plugin is in use. If Android stops the foreground service, the tunnel exits, or the user presses **Stop**, ChatGPT loses the MCP connection.
+6. Keep the bridge and tunnel alive whenever the plugin is in use. If Android stops the foreground service, the tunnel exits, or the user presses **Stop**, ChatGPT loses the MCP connection. **Open tunnel diagnostics** displays the tunnel client's local `/ui`; **Refresh logs** includes the tunnel process and readiness history.
 
 The app includes direct buttons for all three pages and a **Copy setup steps** action. OpenAI may restrict custom plugin creation or tunnels by account, plan, organization, or workspace policy; the manager cannot change that access.
 
 ## ChatGPT tunnel transport status
 
-The local Roblox bridge is self-contained in v0.3.2. The APK bundles both `libnode.so` and its required ARM64 `libc++_shared.so` runtime. The ChatGPT tunnel runtime is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The authenticated trusted-LAN relay is an alternative when Codex or Claude runs on a PC that can reach the phone. The old Termux prototype sometimes ran the tunnel's Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
+The APK packages the official ARM64 OpenAI `tunnel-client` executable as an app-private native library and runs it in a second Android foreground service. Its generated profile forwards the selected OpenAI tunnel to `http://127.0.0.1:16384/mcp` (or the configured bridge port). No Termux installation or desktop `.exe` is involved.
 
-The tunnel fields remain visible for the Android-native transport port. Pressing a tunnel action explains the limitation and immediately clears the runtime-key field. No runtime key is saved. Do not distribute this build as having working ChatGPT tunnel support until that transport passes an on-device end-to-end test.
+Launching the process is not treated as a successful connection. The manager monitors the tunnel client's local `/readyz` endpoint: `CONNECTING` and `NOT READY` mean ChatGPT cannot use the tunnel yet, while `READY` confirms that the client completed its first successful OpenAI control-plane poll. The runtime key remains memory-only, is removed from the screen when Doctor or Start begins, and is never written to preferences or logs.
 
 ## Build the APK
 
@@ -89,5 +89,5 @@ Public releases should use a private production keystore. The checked-in debug A
 - Runtime extraction stays in app-private storage and activates through a staging/previous-directory swap.
 - Stop kills only the isolated bridge service process, not the manager UI or another app.
 - The app never invokes a shell or grants another app command-execution access.
-- Runtime keys are not written to preferences or logs; tunnel actions clear the field while the transport is unavailable.
+- Runtime keys are not written to preferences or logs; Doctor and Start clear the field as soon as they begin.
 - Native and JavaScript runtime updates ship together through the APK update flow.

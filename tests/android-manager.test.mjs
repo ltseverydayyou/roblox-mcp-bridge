@@ -112,6 +112,12 @@ test("official ARM64 tunnel transport never persists a runtime key", () => {
   assert.match(tunnelClient, /http:\/\/127\.0\.0\.1:.*\/mcp/);
   assert.match(tunnelService, /START_NOT_STICKY/);
   assert.match(tunnelService, /removeExtra\(EXTRA_RUNTIME_KEY\)/);
+  assert.match(tunnelService, /\/readyz/);
+  assert.match(tunnelService, /READY tunnel-client/);
+  assert.match(tunnelService, /NOT READY/);
+  assert.match(mainActivity, /state\.startsWith\("READY"\)/);
+  assert.match(mainActivity, /automatic tunnel doctor/);
+  assert.match(mainActivity, /\/ui/);
   assert.doesNotMatch(tunnelService, /SharedPreferences/);
 });
 

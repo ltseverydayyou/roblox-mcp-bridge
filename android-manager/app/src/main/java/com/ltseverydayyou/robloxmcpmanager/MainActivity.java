@@ -148,6 +148,8 @@ public final class MainActivity extends Activity {
         findViewById(R.id.doctorTunnelButton).setOnClickListener(v -> doctorTunnel());
         findViewById(R.id.startTunnelButton).setOnClickListener(v -> startTunnel());
         findViewById(R.id.stopTunnelButton).setOnClickListener(v -> stopTunnel());
+        findViewById(R.id.tunnelDiagnosticsButton).setOnClickListener(v ->
+            openUrl("http://127.0.0.1:" + TunnelClient.healthPort(port()) + "/ui"));
         lanModeCheckbox.setOnCheckedChangeListener((button, checked) -> {
             saveSettings();
             updateLanAddress();
@@ -310,7 +312,7 @@ public final class MainActivity extends Activity {
     private void updateTunnelStatus() {
         String state = readTunnelState();
         tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": " + state);
-        tunnelStatus.setTextColor(getColor(state.startsWith("RUNNING") ? R.color.success : R.color.warning));
+        tunnelStatus.setTextColor(getColor(state.startsWith("READY") ? R.color.success : R.color.warning));
     }
 
     private String validateTunnelInput(boolean requireKey) {
@@ -382,19 +384,33 @@ public final class MainActivity extends Activity {
         int bridgePort = port();
         runtimeKeyField.setText("");
         new File(getFilesDir(), TunnelService.STATUS_FILE).delete();
-        appendOutput("\nChecking the localhost MCP endpoint before starting the tunnel...");
+        appendOutput("\nChecking the localhost MCP endpoint and running Tunnel Doctor before startup...");
         new Thread(() -> {
             try {
                 if (!isLocalBridgeReady(bridgePort)) throw new IllegalStateException("Start the localhost bridge first and wait for its health check to pass.");
+                TunnelClient.Result doctor = TunnelClient.doctor(this, profile, runtimeKey);
+                runOnUiThread(() -> appendOutput("\n--- automatic tunnel doctor ---\n" + doctor.output));
+                if (doctor.exitCode != 0) {
+                    throw new IllegalStateException("Tunnel Doctor failed. Check the built-in console, then paste a runtime key and try again.\n\n" + doctor.output);
+                }
                 runOnUiThread(() -> {
-                    TunnelService.start(this, profile, runtimeKey);
-                    appendOutput("\nStarting official OpenAI tunnel-client " + TunnelClient.VERSION + ". The runtime key was cleared and was not saved.");
-                    tunnelStatus.postDelayed(this::updateTunnelStatus, 1200);
+                    TunnelService.start(this, profile, runtimeKey, TunnelClient.healthPort(bridgePort));
+                    appendOutput("\nStarting official OpenAI tunnel-client " + TunnelClient.VERSION + ". Wait for TUNNEL-CLIENT: READY before testing the ChatGPT plugin. The runtime key was cleared and was not saved.");
+                    tunnelStatus.postDelayed(() -> refreshTunnelStatus(45), 800);
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> showMessage("Start tunnel", error.getMessage()));
             }
         }, "tunnel-preflight").start();
+    }
+
+    private void refreshTunnelStatus(int attemptsRemaining) {
+        updateTunnelStatus();
+        String state = readTunnelState();
+        if (attemptsRemaining > 0 && !state.startsWith("READY") && !state.startsWith("ERROR")
+            && !state.startsWith("EXITED") && !state.startsWith("STOPPED")) {
+            tunnelStatus.postDelayed(() -> refreshTunnelStatus(attemptsRemaining - 1), 1000);
+        }
     }
 
     private void stopTunnel() {
@@ -468,7 +484,7 @@ public final class MainActivity extends Activity {
         String checklist = "Roblox MCP → ChatGPT plugin setup\n\n"
             + "1. Create an OpenAI Platform runtime API key:\n" + API_KEYS_URL + "\n\n"
             + "2. Create a tunnel and copy its tunnel_... ID:\n" + TUNNELS_URL + "\n\n"
-            + "3. Start Roblox MCP Manager's localhost bridge and start the tunnel with the same ID. Keep both running.\n\n"
+            + "3. Start Roblox MCP Manager's localhost bridge and start the tunnel with the same ID. Wait for TUNNEL-CLIENT: READY and keep both foreground services running.\n\n"
             + "4. Open ChatGPT Plugins, tap +, choose Connection: Tunnel, select the same tunnel ID, and choose Authentication: No Auth:\n"
             + CHATGPT_PLUGINS_URL + "\n\n"
             + "5. Review and acknowledge the custom MCP warning, then tap Create.\n\n"
