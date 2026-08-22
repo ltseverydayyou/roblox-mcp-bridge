@@ -55,10 +55,11 @@ finally {
 }
 
 $version = [string](Select-String -LiteralPath (Join-Path $project "app\build.gradle") -Pattern 'versionName\s+"([^"]+)"').Matches[0].Groups[1].Value
-$apk = Join-Path $repository "release\RobloxMcpManager-Android-v$version-debug.apk"
+$apk = Join-Path $project "app\build\distributions\RobloxMcpManager-Android-v$version-debug.apk"
 if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Expected APK was not produced: $apk" }
 $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Android manager APK built:" -ForegroundColor Green
 Write-Host "  $apk"
 Write-Host "SHA-256: $hash"
+Write-Host "Upload this file as an asset on the repository's GitHub Release; do not commit the APK to the repository." -ForegroundColor Cyan
 Write-Host "This debug-signed APK is installable for testing. Use a private release keystore before public distribution." -ForegroundColor Yellow

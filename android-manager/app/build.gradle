@@ -67,6 +67,6 @@ preBuild.dependsOn verifyEmbeddedRuntime
 tasks.register("packageManagerDebug", Copy) {
     dependsOn "assembleDebug"
     from layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
-    into rootProject.file("../release")
+    into layout.buildDirectory.dir("distributions")
     rename { "RobloxMcpManager-Android-v${android.defaultConfig.versionName}-debug.apk" }
 }

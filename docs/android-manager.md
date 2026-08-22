@@ -46,7 +46,7 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-android-manager.ps1
 ```
 
-The preparation step downloads the official Node.js Mobile v18.17.3 Android archive, requires SHA-256 `d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc`, builds the MCP server, and packages only production JavaScript dependencies. Android lint then runs and an installable debug-signed APK is written to `release\RobloxMcpManager-Android-vX.Y.Z-debug.apk`.
+The preparation step downloads the official Node.js Mobile v18.17.3 Android archive, requires SHA-256 `d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc`, builds the MCP server, and packages only production JavaScript dependencies. Android lint then runs and an installable debug-signed APK is written to `android-manager\app\build\distributions\RobloxMcpManager-Android-vX.Y.Z-debug.apk`. The build directory is ignored by Git; upload the APK as a GitHub Release asset instead of committing it to the repository.
 
 Public releases should use a private production keystore. The checked-in debug APK is for direct testing and its signature is not suitable as a long-term release identity.
 
