@@ -146,7 +146,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     runtimeStatus.setText("EMBEDDED NODE: RUNNING");
                     runtimeStatus.setTextColor(getColor(R.color.success));
-                    healthSummary.setText("Node 18.17.1 (embedded)\nMCP 2.4.4 (bundled)\nBridge: RUNNING on 127.0.0.1:" + requestedPort);
+                    healthSummary.setText(healthBase() + "\nBridge: RUNNING on 127.0.0.1:" + requestedPort);
                     healthSummary.setTextColor(getColor(R.color.success));
                     if (reportFailure) appendOutput("\nBridge health check passed. " + compact(response));
                 });
@@ -157,13 +157,13 @@ public final class MainActivity extends Activity {
                     if (retriesRemaining > 0 && !fatal) {
                         runtimeStatus.setText("EMBEDDED NODE: STARTING");
                         runtimeStatus.setTextColor(getColor(R.color.warning));
-                        healthSummary.setText("Node 18.17.1 (embedded)\nMCP 2.4.4 (bundled)\nBridge: starting…\n" + serviceState);
+                        healthSummary.setText(healthBase() + "\nBridge: starting…\n" + serviceState);
                         healthSummary.setTextColor(getColor(R.color.warning));
                         healthSummary.postDelayed(() -> refreshStatus(reportFailure, retriesRemaining - 1), 1000);
                         return;
                     }
                     updateRuntimeStatus();
-                    healthSummary.setText("Node 18.17.1 (embedded)\nMCP 2.4.4 (bundled)\nBridge: stopped\n" + serviceState);
+                    healthSummary.setText(healthBase() + "\nBridge: stopped\n" + serviceState);
                     healthSummary.setTextColor(getColor(R.color.warning));
                     if (reportFailure) appendOutput("\nBridge failed to become ready: " + error.getMessage() + "\nService: " + serviceState);
                 });
@@ -306,6 +306,12 @@ public final class MainActivity extends Activity {
             portField.setText("16384");
             return 16384;
         }
+    }
+
+    private static String healthBase() {
+        return "Node.js: EMBEDDED 18.17.1 ✓\n"
+            + "Git: NOT REQUIRED — APK-managed updates\n"
+            + "Repository: BUNDLED MCP v2.4.4";
     }
 
     private static String value(EditText field) { return field.getText().toString().trim(); }

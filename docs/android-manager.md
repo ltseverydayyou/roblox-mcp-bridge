@@ -14,7 +14,7 @@ The current APK targets 64-bit ARM phones. It will not install on 32-bit-only de
 
 ## Phone setup
 
-1. Install `RobloxMcpManager-Android-v0.2.2-debug.apk`. Android may ask permission to install from the browser or file manager used to open it.
+1. Install `RobloxMcpManager-Android-v0.2.3-debug.apk`. Android may ask permission to install from the browser or file manager used to open it.
 2. Open the manager and tap **Prepare embedded runtime** once. This copies the bundled files; it does not download Termux or development tools.
 3. Tap **Start** and wait for the health panel to say `RUNNING`.
 4. Tap **Copy executor code**.
@@ -25,7 +25,7 @@ Android may stop background work under aggressive battery management. Keep the f
 
 ## ChatGPT tunnel status
 
-The local Roblox bridge is self-contained in v0.2.2. The ChatGPT tunnel is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The old Termux prototype sometimes ran its Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
+The local Roblox bridge is self-contained in v0.2.3. The ChatGPT tunnel is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The old Termux prototype sometimes ran its Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
 
 The tunnel fields remain visible for the Android-native transport port. Pressing a tunnel action explains the limitation and immediately clears the runtime-key field. No runtime key is saved. Do not distribute this build as having working ChatGPT tunnel support until that transport passes an on-device end-to-end test.
 

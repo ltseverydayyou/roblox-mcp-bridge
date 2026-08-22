@@ -16,7 +16,7 @@
         <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Embedded runtime" />
             <TextView style="@style/HintText" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="The first preparation extracts the bundled ARM64 Node runtime and MCP server into this app's private storage." />
+                android:text="The first preparation extracts the bundled ARM64 Node runtime and MCP server. Git is not used on Android; repository updates arrive inside verified APK releases." />
             <TextView android:id="@+id/runtimeStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp" android:text="EMBEDDED NODE: CHECKING" android:textColor="@color/warning" android:textStyle="bold" />
             <Button android:id="@+id/prepareRuntimeButton" style="@style/ManagerButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Prepare embedded runtime" />
@@ -25,7 +25,7 @@
         <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="System health" />
             <TextView android:id="@+id/healthSummary" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Node 18.17.1 (embedded)\nMCP 2.4.4 (bundled)\nBridge: stopped" android:textColor="@color/muted" android:textSize="14sp" />
+                android:text="Node.js: EMBEDDED 18.17.1 ✓\nGit: NOT REQUIRED — APK-managed updates\nRepository: BUNDLED MCP v2.4.4\nBridge: stopped" android:textColor="@color/muted" android:textSize="14sp" />
             <Button android:id="@+id/refreshButton" style="@style/ManagerButton.Secondary" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Refresh status" />
         </LinearLayout>
 
