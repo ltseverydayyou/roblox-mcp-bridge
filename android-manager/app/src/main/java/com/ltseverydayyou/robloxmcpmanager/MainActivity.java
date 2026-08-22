@@ -53,6 +53,7 @@ public final class MainActivity extends Activity {
     private TextView tunnelStatus;
     private TextView runtimeSourceStatus;
     private boolean automaticRuntimeCheckStarted;
+    private boolean automaticManagerCheckStarted;
     private boolean runtimeUpdateCheckRunning;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -90,6 +91,10 @@ public final class MainActivity extends Activity {
         if (!automaticRuntimeCheckStarted) {
             automaticRuntimeCheckStarted = true;
             checkRuntimeUpdate(false);
+        }
+        if (!automaticManagerCheckStarted) {
+            automaticManagerCheckStarted = true;
+            checkManagerUpdate(false);
         }
         try {
             ManagerUpdateChecker.resumePendingInstall(this);
@@ -145,7 +150,7 @@ public final class MainActivity extends Activity {
         findViewById(R.id.copyLoaderButton).setOnClickListener(v -> copyLoader());
         findViewById(R.id.copyPcRelayButton).setOnClickListener(v -> copyPcRelayArguments());
         findViewById(R.id.bridgeLogsButton).setOnClickListener(v -> readLogs());
-        findViewById(R.id.managerUpdateButton).setOnClickListener(v -> checkManagerUpdate());
+        findViewById(R.id.managerUpdateButton).setOnClickListener(v -> checkManagerUpdate(true));
         findViewById(R.id.batteryOptimizationButton).setOnClickListener(v -> requestUnrestrictedBattery());
         findViewById(R.id.appSettingsButton).setOnClickListener(v -> openAppSettings());
         findViewById(R.id.openApiKeysButton).setOnClickListener(v -> openUrl(API_KEYS_URL));
@@ -624,11 +629,17 @@ public final class MainActivity extends Activity {
         return fallback;
     }
 
-    private void checkManagerUpdate() {
-        appendOutput("\nChecking GitHub for an Android manager update...");
+    private void checkManagerUpdate(boolean userInitiated) {
+        if (userInitiated) appendOutput("\nChecking GitHub for an Android manager update...");
         ManagerUpdateChecker.check((result, error) -> runOnUiThread(() -> {
-            if (error != null) { showMessage("Manager update", error.getMessage()); return; }
-            boolean newer = compareVersions(result.version, BuildConfig.VERSION_NAME) > 0;
+            if (error != null) {
+                if (userInitiated) showMessage("Manager update", error.getMessage());
+                return;
+            }
+            boolean newer = ManagerUpdateChecker.isNewer(result);
+            if (newer) ManagerUpdateChecker.notifyAvailable(this, result);
+            else ManagerUpdateChecker.clearNotification(this);
+            if (!userInitiated) return;
             String message = "Published Android manager: v" + result.version + "\nInstalled: v" + BuildConfig.VERSION_NAME
                 + "\n" + (newer ? "An update is available." : "This app is current.")
                 + (result.digest.isEmpty() ? "" : "\nVerified release digest: " + result.digest);
@@ -741,6 +752,7 @@ public final class MainActivity extends Activity {
     }
 
     private void downloadManagerUpdate(ManagerUpdateChecker.Result result) {
+        ManagerUpdateChecker.clearNotification(this);
         appendOutput("\nDownloading manager v" + result.version + " inside the app...");
         toast("Downloading and verifying update");
         ManagerUpdateChecker.download(this, result, (apk, error) -> runOnUiThread(() -> {
@@ -762,22 +774,6 @@ public final class MainActivity extends Activity {
         }));
     }
 
-    private static int compareVersions(String left, String right) {
-        String[] a = left.split("[-+]", 2)[0].split("\\.");
-        String[] b = right.split("[-+]", 2)[0].split("\\.");
-        for (int index = 0; index < Math.max(a.length, b.length); index++) {
-            int av = index < a.length ? parseVersionPart(a[index]) : 0;
-            int bv = index < b.length ? parseVersionPart(b[index]) : 0;
-            if (av != bv) return Integer.compare(av, bv);
-        }
-        return 0;
-    }
-
-    private static int parseVersionPart(String value) {
-        try { return Integer.parseInt(value); }
-        catch (NumberFormatException ignored) { return 0; }
-    }
-
     private int port() {
         try {
             int port = Integer.parseInt(value(portField));
@@ -792,7 +788,7 @@ public final class MainActivity extends Activity {
     private static String healthBase() {
         return "Node.js: EMBEDDED 18.17.1 ✓\n"
             + "Git: NOT REQUIRED — verified source updates\n"
-            + "Repository: MCP v2.4.6\n"
+            + "Repository: MCP v2.4.7\n"
             + "Tunnel: OFFICIAL OPENAI " + TunnelClient.VERSION + " ARM64 ✓";
     }
 

@@ -76,7 +76,7 @@ test("Android MCP source updates are prompted, verified, and atomically activate
   assert.match(mainActivity, /MCP source update available/);
   assert.match(runtimeUpdateChecker, /MCP source update available/);
   assert.match(runtimeUpdateChecker, /NotificationManager/);
-  assert.match(bridgeService, /RUNTIME_UPDATE_INTERVAL_MS/);
+  assert.match(bridgeService, /UPDATE_CHECK_INTERVAL_MS/);
   assert.match(activityLayout, /Check MCP source update/);
   assert.match(runtimeUpdateChecker, /releases\/tags\/runtime-latest/);
   assert.match(runtimeUpdateChecker, /SHA-256/);
@@ -89,6 +89,17 @@ test("Android MCP source updates are prompted, verified, and atomically activate
   assert.match(runtimeReleaseBuilder, /RobloxMcpRuntime-v/);
   assert.match(runtimeWorkflow, /Publish rolling runtime release/);
   assert.match(runtimeWorkflow, /contents: write/);
+});
+
+test("Android manager release checks notify separately from MCP source updates", () => {
+  assert.match(mainActivity, /checkManagerUpdate\(false\)/);
+  assert.match(mainActivity, /checkManagerUpdate\(true\)/);
+  assert.match(updateChecker, /manager_updates/);
+  assert.match(updateChecker, /Roblox MCP Manager update available/);
+  assert.match(updateChecker, /NotificationManager/);
+  assert.match(bridgeService, /ManagerUpdateChecker\.check/);
+  assert.match(bridgeService, /ManagerUpdateChecker\.notifyAvailable/);
+  assert.match(activityLayout, /App update/);
 });
 
 test("embedded bridge and executor loader stay on Android localhost", () => {

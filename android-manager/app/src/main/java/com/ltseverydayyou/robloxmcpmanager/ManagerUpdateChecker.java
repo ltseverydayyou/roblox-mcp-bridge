@@ -1,6 +1,10 @@
 package com.ltseverydayyou.robloxmcpmanager;
 
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -35,6 +39,8 @@ final class ManagerUpdateChecker {
     private static final long MAX_APK_BYTES = 200L * 1024L * 1024L;
     private static final String INSTALL_PREFS = "manager_update_install";
     private static final String PENDING_INSTALL = "pendingInstall";
+    private static final String NOTIFICATION_CHANNEL = "manager_updates";
+    private static final int NOTIFICATION_ID = 16387;
     interface Callback {
         void complete(Result result, Exception error);
     }
@@ -56,6 +62,42 @@ final class ManagerUpdateChecker {
     }
 
     private ManagerUpdateChecker() {}
+
+    static boolean isNewer(Result result) {
+        return compareVersions(result.version, BuildConfig.VERSION_NAME) > 0;
+    }
+
+    static void notifyAvailable(Context context, Result result) {
+        try {
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(new NotificationChannel(
+                NOTIFICATION_CHANNEL,
+                "Roblox MCP Manager updates",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ));
+            Intent open = new Intent(context, MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent pending = PendingIntent.getActivity(
+                context,
+                NOTIFICATION_ID,
+                open,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
+            );
+            manager.notify(NOTIFICATION_ID, new Notification.Builder(context, NOTIFICATION_CHANNEL)
+                .setSmallIcon(R.drawable.ic_launcher)
+                .setContentTitle("Roblox MCP Manager update available")
+                .setContentText("Android manager v" + result.version + " is ready. Open the manager and tap App update.")
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .build());
+        } catch (SecurityException ignored) {
+            // Manual update checks still work if Android notification permission is denied.
+        }
+    }
+
+    static void clearNotification(Context context) {
+        context.getSystemService(NotificationManager.class).cancel(NOTIFICATION_ID);
+    }
 
     static void check(Callback callback) {
         new Thread(() -> {
@@ -265,5 +307,21 @@ final class ManagerUpdateChecker {
         StringBuilder value = new StringBuilder(bytes.length * 2);
         for (byte current : bytes) value.append(String.format(Locale.US, "%02x", current & 0xff));
         return value.toString();
+    }
+
+    private static int compareVersions(String left, String right) {
+        String[] a = left.split("[-+]", 2)[0].split("\\.");
+        String[] b = right.split("[-+]", 2)[0].split("\\.");
+        for (int index = 0; index < Math.max(a.length, b.length); index++) {
+            int av = index < a.length ? parseVersionPart(a[index]) : 0;
+            int bv = index < b.length ? parseVersionPart(b[index]) : 0;
+            if (av != bv) return Integer.compare(av, bv);
+        }
+        return 0;
+    }
+
+    private static int parseVersionPart(String value) {
+        try { return Integer.parseInt(value); }
+        catch (NumberFormatException ignored) { return 0; }
     }
 }
