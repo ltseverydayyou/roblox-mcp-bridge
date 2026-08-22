@@ -11,6 +11,7 @@ const mainActivity = read(`${javaRoot}/MainActivity.java`);
 const bridgeService = read(`${javaRoot}/BridgeService.java`);
 const tunnelClient = read(`${javaRoot}/TunnelClient.java`);
 const tunnelService = read(`${javaRoot}/TunnelService.java`);
+const connectProxy = read(`${javaRoot}/AndroidConnectProxy.java`);
 const installer = read(`${javaRoot}/AssetInstaller.java`);
 const manifest = read("android-manager/app/src/main/AndroidManifest.xml");
 const gradle = read("android-manager/app/build.gradle");
@@ -46,7 +47,7 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(prepare, /Get-FileHash.*SHA256/);
   assert.match(prepare, /libc\+\+_shared\.so/);
   assert.match(prepare, /repoRoot "connector\.luau"/);
-  assert.match(prepare, /arm64-r7/);
+  assert.match(prepare, /arm64-r8/);
   assert.match(gradle, /jniLibs\/arm64-v8a\/libc\+\+_shared\.so/);
   assert.match(gradle, /assets\/nodejs-project\/connector\.luau/);
   assert.match(mainActivity, /Node\.js: EMBEDDED 18\.17\.1/);
@@ -108,6 +109,14 @@ test("official ARM64 tunnel transport never persists a runtime key", () => {
   assert.match(manifest, /android:name="\.TunnelService"/);
   assert.match(manifest, /android:process=":tunnel"/);
   assert.match(tunnelClient, /CONTROL_PLANE_API_KEY/);
+  assert.match(tunnelClient, /CONTROL_PLANE_HTTP_PROXY/);
+  assert.match(tunnelService, /AndroidConnectProxy/);
+  assert.match(connectProxy, /127\.0\.0\.1/);
+  assert.match(connectProxy, /api\.openai\.com/);
+  assert.match(connectProxy, /mtls\.api\.openai\.com/);
+  assert.match(connectProxy, /port != 443/);
+  assert.match(connectProxy, /InetAddress\.getAllByName/);
+  assert.match(connectProxy, /HTTP\/1\.1 200 Connection Established/);
   assert.match(tunnelClient, /sample_mcp_remote_no_auth/);
   assert.match(tunnelClient, /http:\/\/127\.0\.0\.1:.*\/mcp/);
   assert.match(tunnelService, /START_NOT_STICKY/);
@@ -138,6 +147,8 @@ test("Android MCP HTTP transport is enabled only in the embedded runtime and res
   assert.match(androidMcp, /oauth-protected-resource/);
   assert.match(primaryServer, /isAndroidOAuthDiscoveryRequest/);
   assert.match(primaryServer, /res\.writeHead\(404/);
+  assert.match(primaryServer, /authorization_servers: \[\]/);
+  assert.doesNotMatch(primaryServer, /OAuth protected-resource metadata is not advertised/);
 });
 
 test("Android manager explains ChatGPT plugin setup and background survival", () => {

@@ -38,8 +38,15 @@ export async function startAsPrimary(): Promise<void> {
 
     const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
       if (isAndroidOAuthDiscoveryRequest(req)) {
-        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end("OAuth protected-resource metadata is not advertised.");
+        // The Android profile uses No Auth, so keep the discovery response at
+        // 404. A valid JSON metadata body lets the official tunnel-client
+        // complete its optional local discovery without a misleading decode
+        // warning while the forwarded status still says OAuth is unadvertised.
+        res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({
+          resource: `http://127.0.0.1:${WS_PORT}/mcp`,
+          authorization_servers: [],
+        }));
         return;
       }
       if (isAndroidMcpRequest(req)) {

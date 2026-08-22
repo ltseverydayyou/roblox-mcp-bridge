@@ -36,6 +36,7 @@ public final class TunnelService extends Service {
     private volatile String activeProfile;
     private volatile String activeRuntimeKey;
     private volatile int activeHealthPort;
+    private volatile AndroidConnectProxy controlPlaneProxy;
     private boolean started;
 
     static void start(Context context, String profile, String runtimeKey, int healthPort) {
@@ -114,7 +115,10 @@ public final class TunnelService extends Service {
         File logFile = new File(getFilesDir(), LOG_FILE);
         try {
             writeState("STARTING tunnel-client v" + TunnelClient.VERSION);
-            Process process = TunnelClient.processBuilder(this, profile, runtimeKey).start();
+            AndroidConnectProxy proxy = ensureControlPlaneProxy();
+            appendTunnelLog("[APK network] Android DNS proxy ready at " + proxy.url()
+                + " for OpenAI control-plane HTTPS.");
+            Process process = TunnelClient.processBuilder(this, profile, runtimeKey, proxy.url()).start();
             tunnelProcess = process;
             writeState("CONNECTING tunnel-client v" + TunnelClient.VERSION + " to OpenAI control plane…");
             new Thread(() -> monitorReadiness(process, healthPort), "openai-tunnel-readiness").start();
@@ -147,9 +151,21 @@ public final class TunnelService extends Service {
                 return;
             }
             activeRuntimeKey = null;
+            closeControlPlaneProxy();
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
         }
+    }
+
+    private synchronized AndroidConnectProxy ensureControlPlaneProxy() throws Exception {
+        if (controlPlaneProxy == null) controlPlaneProxy = AndroidConnectProxy.start();
+        return controlPlaneProxy;
+    }
+
+    private synchronized void closeControlPlaneProxy() {
+        AndroidConnectProxy proxy = controlPlaneProxy;
+        controlPlaneProxy = null;
+        if (proxy != null) proxy.close();
     }
 
     private void monitorReadiness(Process process, int healthPort) {
@@ -234,6 +250,7 @@ public final class TunnelService extends Service {
         activeRuntimeKey = null;
         Process process = tunnelProcess;
         if (process != null) process.destroy();
+        closeControlPlaneProxy();
         super.onDestroy();
     }
 
