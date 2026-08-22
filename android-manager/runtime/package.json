@@ -1,0 +1,10 @@
+{
+  "name": "roblox-mcp-android-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.25.1",
+    "ws": "8.18.3",
+    "zod": "4.3.4"
+  }
+}

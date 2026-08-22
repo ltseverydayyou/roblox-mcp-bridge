@@ -5,38 +5,55 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const mainActivity = fs.readFileSync(path.join(root, "android-manager/app/src/main/java/com/ltseverydayyou/robloxmcpmanager/MainActivity.java"), "utf8");
-const runner = fs.readFileSync(path.join(root, "android-manager/app/src/main/java/com/ltseverydayyou/robloxmcpmanager/TermuxRunner.java"), "utf8");
-const manager = fs.readFileSync(path.join(root, "android-manager/app/src/main/assets/manager.sh"), "utf8");
-const manifest = fs.readFileSync(path.join(root, "android-manager/app/src/main/AndroidManifest.xml"), "utf8");
+const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+const javaRoot = "android-manager/app/src/main/java/com/ltseverydayyou/robloxmcpmanager";
+const mainActivity = read(`${javaRoot}/MainActivity.java`);
+const bridgeService = read(`${javaRoot}/BridgeService.java`);
+const installer = read(`${javaRoot}/AssetInstaller.java`);
+const manifest = read("android-manager/app/src/main/AndroidManifest.xml");
+const gradle = read("android-manager/app/build.gradle");
+const entrypoint = read("android-manager/runtime/main.mjs");
+const prepare = read("android-manager/scripts/prepare-embedded-runtime.ps1");
+const updateChecker = read(`${javaRoot}/ManagerUpdateChecker.java`);
 
-test("Android manager uses Termux's protected command contract", () => {
-  assert.match(manifest, /com\.termux\.permission\.RUN_COMMAND/);
-  assert.match(runner, /com\.termux\.RUN_COMMAND_PENDING_INTENT/);
-  assert.match(runner, /com\.termux\.RUN_COMMAND_STDIN/);
+test("Android manager owns an isolated embedded foreground service", () => {
+  assert.match(manifest, /android:name="\.BridgeService"/);
+  assert.match(manifest, /android:process=":bridge"/);
+  assert.match(manifest, /android:foregroundServiceType="dataSync"/);
+  assert.doesNotMatch(manifest, /com\.termux/);
+  assert.match(bridgeService, /NativeNode\.start/);
+  assert.match(bridgeService, /Process\.killProcess\(Process\.myPid\(\)\)/);
 });
 
-test("Termux onboarding repairs the external-app property and explains the manual step", () => {
-  assert.match(mainActivity, /sed -i '\/\^\[\[:space:\]\]\*allow-external-apps/);
-  assert.match(mainActivity, /allow-external-apps=true/);
-  assert.match(mainActivity, /One Termux command still required/);
-  assert.match(mainActivity, /RUN COPIED COMMAND, THEN CONNECT/);
-});
-test("runtime key is not persisted or passed as a command argument", () => {
-  assert.doesNotMatch(mainActivity, /putString\("runtimeKey"/);
-  assert.match(mainActivity, /protectedInput = stdin == null \? null : stdin \+ "\\n"/);
-  assert.match(manager, /IFS= read -r runtime_key/);
-  assert.doesNotMatch(manager, /--api-key/);
+test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
+  assert.match(gradle, /abiFilters "arm64-v8a"/);
+  assert.match(prepare, /nodejs-mobile-v18\.17\.3-android\.zip/);
+  assert.match(prepare, /d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc/);
+  assert.match(prepare, /Get-FileHash.*SHA256/);
 });
 
-test("managed processes and downloads are verified before destructive actions", () => {
-  assert.match(manager, /\/proc\/\$pid\/cmdline/);
-  assert.match(manager, /pull --ff-only/);
-  assert.match(manager, /sha256sum/);
-  assert.match(manager, /actual.*expected/s);
+test("runtime asset activation preserves the previous working bundle", () => {
+  assert.match(installer, /embedded-runtime-staging/);
+  assert.match(installer, /embedded-runtime-previous/);
+  assert.match(installer, /previous\.renameTo\(runtime\)/);
+  assert.match(installer, /\.installed-version/);
 });
 
-test("executor loader stays on Android localhost", () => {
+test("embedded bridge and executor loader stay on Android localhost", () => {
+  assert.match(entrypoint, /ROBLOX_MCP_HOST = "127\.0\.0\.1"/);
+  assert.match(entrypoint, /ROBLOX_MCP_UPDATE_CHECK = "false"/);
   assert.match(mainActivity, /BridgeURL = \\"127\.0\.0\.1:/);
-  assert.match(manager, /ROBLOX_MCP_HOST=127\.0\.0\.1/);
+  assert.match(mainActivity, /http:\/\/127\.0\.0\.1:/);
+});
+
+test("unfinished tunnel transport cannot persist a runtime key", () => {
+  assert.doesNotMatch(mainActivity, /putString\("runtimeKey"/);
+  assert.match(mainActivity, /runtimeKeyField\.setText\(""\)/);
+  assert.match(mainActivity, /Tunnel transport is not embedded yet/);
+});
+
+test("app updates recognize Android production and debug APK names", () => {
+  assert.match(updateChecker, /RobloxMcpManager-Android-v/);
+  assert.match(updateChecker, /debugFallback/);
+  assert.match(updateChecker, /match\.group\(1\)/);
 });

@@ -214,9 +214,9 @@ The bridge checks its published version shortly after startup and every six hour
 
 ### Android MCP Manager `.apk`
 
-The Android manager automates the working Termux-based mobile setup: Node.js/Git installation, repository cloning and fast-forward updates, bridge builds and lifecycle, verified OpenAI tunnel-client installation, tunnel profiles, health checks, logs, and copying the localhost executor loader. Roblox is unchanged; the executor runs the copied connector and reaches the bridge at `127.0.0.1:16384`.
+The Android manager bundles Node.js Mobile and the compiled bridge directly in an ARM64 APK. It manages a localhost foreground service, health checks, built-in logs, app updates, and copying the executor loader without Termux, Git, npm, or a separate Node installation. Roblox is unchanged; the executor reaches the bridge at `127.0.0.1:16384`.
 
-See [Roblox MCP Manager for Android](docs/android-manager.md) for the APK build, one-time Termux permission step, tunnel compatibility notes, and phone setup.
+See [Roblox MCP Manager for Android](docs/android-manager.md) for the APK build, phone setup, architecture, and the current Android tunnel-port status.
 
 The manager checks each component separately and provides buttons to:
 

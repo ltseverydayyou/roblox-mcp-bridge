@@ -12,6 +12,7 @@ $ErrorActionPreference = "Stop"
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $project = Join-Path $repository "android-manager"
 $gradle = Join-Path $project "gradlew.bat"
+$prepareRuntime = Join-Path $project "scripts\prepare-embedded-runtime.ps1"
 
 if ([string]::IsNullOrWhiteSpace($JavaHome)) {
     $javaCandidates = @(Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory -Filter "jdk-21*" -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
@@ -26,12 +27,21 @@ if (-not (Test-Path -LiteralPath (Join-Path $JavaHome "bin\java.exe") -PathType 
 if (-not (Test-Path -LiteralPath (Join-Path $AndroidSdk "platforms\android-35") -PathType Container)) {
     throw "Android SDK platform 35 was not found. Pass -AndroidSdk or set ANDROID_HOME."
 }
+if (-not (Test-Path -LiteralPath (Join-Path $AndroidSdk "ndk\27.0.12077973") -PathType Container)) {
+    throw "Android NDK 27.0.12077973 was not found. Install it from Android Studio's SDK Tools screen."
+}
+if (-not (Test-Path -LiteralPath (Join-Path $AndroidSdk "cmake\3.22.1") -PathType Container)) {
+    throw "CMake 3.22.1 was not found. Install it from Android Studio's SDK Tools screen."
+}
 if (-not (Test-Path -LiteralPath $gradle -PathType Leaf)) {
     throw "Gradle wrapper is missing: $gradle"
 }
 
 $env:JAVA_HOME = [IO.Path]::GetFullPath($JavaHome)
 $env:ANDROID_HOME = [IO.Path]::GetFullPath($AndroidSdk)
+
+& $prepareRuntime
+if ($LASTEXITCODE -ne 0) { throw "Embedded runtime preparation failed with exit code $LASTEXITCODE." }
 
 Push-Location $project
 try {

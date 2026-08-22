@@ -1,5 +1,13 @@
 .gradle/
+.cxx/
 .idea/
 local.properties
 **/build/
 *.iml
+.cache/
+app/src/main/jniLibs/
+app/src/main/assets/nodejs-project/
+app/src/main/cpp/node-include/
+runtime/node_modules/
+runtime/package-lock.json
+runtime/pnpm-lock.yaml

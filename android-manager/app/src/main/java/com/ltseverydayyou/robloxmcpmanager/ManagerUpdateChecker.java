@@ -12,8 +12,13 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class ManagerUpdateChecker {
+    private static final Pattern APK_NAME = Pattern.compile(
+        "(?i)^RobloxMcpManager-Android-v([0-9]+(?:\\.[0-9]+){1,3}(?:[-+][A-Za-z0-9._-]+)?)(-debug)?\\.apk$"
+    );
     interface Callback {
         void complete(Result result, Exception error);
     }
@@ -53,20 +58,29 @@ final class ManagerUpdateChecker {
                     while ((line = reader.readLine()) != null) json.append(line);
                 }
                 JSONObject release = new JSONObject(json.toString());
-                String version = release.optString("tag_name", "").replaceFirst("^[vV]", "");
                 JSONArray assets = release.optJSONArray("assets");
                 if (assets == null) throw new IllegalStateException("Latest release has no assets.");
+                Result debugFallback = null;
                 for (int i = 0; i < assets.length(); i++) {
                     JSONObject asset = assets.getJSONObject(i);
                     String name = asset.optString("name", "");
-                    if (name.matches("(?i)RobloxMcpManager(?:-v[^/]+)?\\.apk")) {
-                        callback.complete(new Result(
-                            version,
+                    Matcher match = APK_NAME.matcher(name);
+                    if (match.matches()) {
+                        Result result = new Result(
+                            match.group(1),
                             asset.getString("browser_download_url"),
                             asset.optString("digest", "")
-                        ), null);
-                        return;
+                        );
+                        if (match.group(2) == null) {
+                            callback.complete(result, null);
+                            return;
+                        }
+                        debugFallback = result;
                     }
+                }
+                if (debugFallback != null) {
+                    callback.complete(debugFallback, null);
+                    return;
                 }
                 throw new IllegalStateException("The latest release does not contain an Android manager APK yet.");
             } catch (Exception error) {

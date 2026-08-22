@@ -1,36 +1,33 @@
 # Roblox MCP Manager for Android
 
-The Android manager automates the Termux setup that otherwise requires manually installing packages, cloning the repository, building it, and managing several long-running commands. Roblox itself is not modified: an executor runs the normal `connector.luau` loader and connects to the manager's bridge at `127.0.0.1:16384`.
+The Android manager runs the Roblox MCP bridge inside its own app process. It bundles an ARM64 build of Node.js Mobile and the compiled bridge, so users do not need Termux, Git, npm, or a separate Node installation. Roblox itself is unchanged: an executor runs the normal `connector.luau` loader and connects to `127.0.0.1:16384`.
 
-## Current runtime design
+## Runtime design
 
-Android prevents unrelated apps from executing each other's private native programs. The first release therefore uses the official Termux `RUN_COMMAND` interface as its runtime boundary:
+- Node.js Mobile 18.17.1 is packaged as `libnode.so` for `arm64-v8a`.
+- The compiled MCP bridge and its JavaScript dependencies are APK assets. On first use they are atomically extracted to the app's private storage; a version marker avoids unnecessary copies and the previous runtime is retained until activation succeeds.
+- A foreground service runs Node in an isolated `:bridge` process. Closing the UI does not stop it; **Stop** terminates only that isolated process, allowing a clean later restart.
+- Node binds only to Android localhost. The app performs an HTTP health check and reads the runtime's append-only log into the built-in console.
+- Automatic source updates are disabled inside the embedded runtime. The app update checker downloads a new APK release, which keeps the native runtime and JavaScript bundle on the same tested version.
 
-- Termux provides Android-native Node.js, npm, Git, curl, jq, and unzip packages.
-- The manager sends only explicit, user-triggered commands through Termux's protected command service.
-- Termux requires both its `RUN_COMMAND` permission and `allow-external-apps=true` before another app can run anything.
-- The OpenAI runtime API key is passed through the command's standard input. It is never added to command arguments or Android preferences and is cleared from the UI after doctor/start.
-- PID files are accepted only when `/proc/<pid>/cmdline` identifies the expected bridge or tunnel binary.
+The current APK targets 64-bit ARM phones. It will not install on 32-bit-only devices or x86 emulators.
 
 ## Phone setup
 
-1. Install Termux from its official GitHub release or F-Droid build, then open it once.
-2. In the manager, tap **Copy permission**. Termux opens; paste and run the copied one-time command. Merely copying it is not enough.
-3. Return to the manager and grant **Run commands in Termux environment** when Android asks.
-4. Tap **Connect manager to Termux**.
-5. Tap **Install all required**. The manager installs Node.js and Git, clones this repository, installs dependencies, and builds `dist/index.js`.
-6. Tap **Start**, then **Copy executor code**.
-7. Run the copied code in the mobile executor. It connects to `127.0.0.1:16384` using WebSocket when supported and HTTP polling otherwise.
+1. Install `RobloxMcpManager-Android-v0.2.0-debug.apk`. Android may ask permission to install from the browser or file manager used to open it.
+2. Open the manager and tap **Prepare embedded runtime** once. This copies the bundled files; it does not download Termux or development tools.
+3. Tap **Start** and wait for the health panel to say `RUNNING`.
+4. Tap **Copy executor code**.
+5. Run the copied code in the mobile executor. It connects to `127.0.0.1:16384` using WebSocket when supported and HTTP polling otherwise.
+6. Use **Dashboard** for the local web UI and **Refresh logs** for the built-in console.
 
-## ChatGPT tunnel
+Android may stop background work under aggressive battery management. Keep the foreground-service notification enabled and exempt the manager from battery optimization if a device vendor repeatedly kills the bridge.
 
-1. Enter the tunnel profile and `tunnel_...` ID.
-2. Tap **Install client**. The manager selects the official OpenAI Linux ARM64/AMD64 release, downloads `SHA256SUMS.txt`, and refuses installation unless the archive hash matches.
-3. Tap **Configure**.
-4. Paste a restricted OpenAI Platform Runtime API key and tap **Doctor**.
-5. Paste the key again and tap **Start tunnel**. Android/Termux keeps the managed process alive with a wake lock and writes output to the private manager directory.
+## ChatGPT tunnel status
 
-OpenAI does not publish an Android-specific tunnel-client artifact. Its statically built Linux artifact is used when it executes successfully under Termux; the installer reports a clear failure instead of retaining an unusable binary when the device/runtime is incompatible.
+The local Roblox bridge is self-contained in v0.2.0. The ChatGPT tunnel is not yet active in this APK: OpenAI's official tunnel client currently publishes desktop/server binaries, not an Android artifact. The old Termux prototype sometimes ran its Linux binary, but embedding that assumption would make the supposedly self-contained build device-dependent.
+
+The tunnel fields remain visible for the Android-native transport port. Pressing a tunnel action explains the limitation and immediately clears the runtime-key field. No runtime key is saved. Do not distribute this build as having working ChatGPT tunnel support until that transport passes an on-device end-to-end test.
 
 ## Build the APK
 
@@ -38,7 +35,10 @@ Requirements:
 
 - JDK 21
 - Android SDK platform 35 and build tools
-- Internet access for the first Gradle dependency download
+- Android NDK `27.0.12077973`
+- CMake `3.22.1`
+- Node.js plus pnpm (preferred) or npm
+- Internet access for the pinned Node.js Mobile archive and first dependency download
 
 From the repository root:
 
@@ -46,13 +46,15 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-android-manager.ps1
 ```
 
-The script runs Android lint and writes an installable debug-signed APK to `release\RobloxMcpManager-Android-vX.Y.Z-debug.apk`, then prints its SHA-256. Public releases should be signed with a private production keystore and uploaded as `RobloxMcpManager-Android-vX.Y.Z.apk`; the app's update checker detects that release asset.
+The preparation step downloads the official Node.js Mobile v18.17.3 Android archive, requires SHA-256 `d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc`, builds the MCP server, and packages only production JavaScript dependencies. Android lint then runs and an installable debug-signed APK is written to `release\RobloxMcpManager-Android-vX.Y.Z-debug.apk`.
+
+Public releases should use a private production keystore. The checked-in debug APK is for direct testing and its signature is not suitable as a long-term release identity.
 
 ## Security boundaries
 
-- The bridge listens only on Android localhost. The copied executor code also uses localhost.
-- The runtime key is memory-only in the Android app and stdin-only across the Termux boundary.
-- The manager never sends arbitrary text entered by the user to a shell command string. Repository, branch, port, profile, and tunnel ID are passed as separate process arguments and validated again by the shell manager.
-- Repository updates are fast-forward-only.
-- Tunnel downloads require the official release checksum.
-- Closing the Android UI does not intentionally stop bridge/tunnel processes. Use the explicit stop buttons.
+- The bridge and copied executor loader use localhost only.
+- Runtime extraction stays in app-private storage and activates through a staging/previous-directory swap.
+- Stop kills only the isolated bridge service process, not the manager UI or another app.
+- The app never invokes a shell or grants another app command-execution access.
+- Runtime keys are not written to preferences or logs; tunnel actions clear the field while the transport is unavailable.
+- Native and JavaScript runtime updates ship together through the APK update flow.
