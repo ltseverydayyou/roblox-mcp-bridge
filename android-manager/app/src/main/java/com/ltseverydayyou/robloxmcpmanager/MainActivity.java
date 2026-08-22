@@ -190,7 +190,38 @@ public final class MainActivity extends Activity {
 
     private void copyLoader() {
         String loader = "getgenv().BridgeURL = \"127.0.0.1:" + port() + "\"\n"
-            + "loadstring(game:HttpGet(\"https://raw.githubusercontent.com/ltseverydayyou/roblox-mcp-bridge/main/connector.luau\"))()";
+            + "\n"
+            + "if getgenv().MCP_AutoReconnect then\n"
+            + "\treturn\n"
+            + "end\n"
+            + "\n"
+            + "getgenv().MCP_AutoReconnect = true\n"
+            + "\n"
+            + "while getgenv().MCP_AutoReconnect do\n"
+            + "\tlocal Success, Source = pcall(function()\n"
+            + "\t\treturn game:HttpGet(\"http://\" .. getgenv().BridgeURL .. \"/script.luau\")\n"
+            + "\tend)\n"
+            + "\n"
+            + "\tif not Success or type(Source) ~= \"string\" or Source == \"\" then\n"
+            + "\t\ttask.wait(2)\n"
+            + "\t\tcontinue\n"
+            + "\tend\n"
+            + "\n"
+            + "\tlocal Bridge = loadstring(Source)\n"
+            + "\n"
+            + "\tif not Bridge then\n"
+            + "\t\ttask.wait(2)\n"
+            + "\t\tcontinue\n"
+            + "\tend\n"
+            + "\n"
+            + "\tgetgenv().MCP_Loaded = false\n"
+            + "\n"
+            + "\tpcall(Bridge)\n"
+            + "\n"
+            + "\tgetgenv().MCP_Loaded = false\n"
+            + "\n"
+            + "\ttask.wait(2)\n"
+            + "end";
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText("Roblox MCP executor loader", loader));
         toast("Executor connection code copied");

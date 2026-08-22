@@ -44,6 +44,9 @@ test("embedded bridge and executor loader stay on Android localhost", () => {
   assert.match(entrypoint, /ROBLOX_MCP_UPDATE_CHECK = "false"/);
   assert.match(mainActivity, /BridgeURL = \\"127\.0\.0\.1:/);
   assert.match(mainActivity, /http:\/\/127\.0\.0\.1:/);
+  assert.match(mainActivity, /MCP_AutoReconnect/);
+  assert.match(mainActivity, /\/script\.luau/);
+  assert.doesNotMatch(mainActivity, /raw\.githubusercontent\.com/);
 });
 
 test("unfinished tunnel transport cannot persist a runtime key", () => {

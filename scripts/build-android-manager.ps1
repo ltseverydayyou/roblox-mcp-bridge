@@ -13,6 +13,7 @@ $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $project = Join-Path $repository "android-manager"
 $gradle = Join-Path $project "gradlew.bat"
 $prepareRuntime = Join-Path $project "scripts\prepare-embedded-runtime.ps1"
+$generateIcons = Join-Path $project "scripts\generate-launcher-icons.ps1"
 
 if ([string]::IsNullOrWhiteSpace($JavaHome)) {
     $javaCandidates = @(Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory -Filter "jdk-21*" -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
@@ -40,6 +41,7 @@ if (-not (Test-Path -LiteralPath $gradle -PathType Leaf)) {
 $env:JAVA_HOME = [IO.Path]::GetFullPath($JavaHome)
 $env:ANDROID_HOME = [IO.Path]::GetFullPath($AndroidSdk)
 
+& $generateIcons
 & $prepareRuntime
 if ($LASTEXITCODE -ne 0) { throw "Embedded runtime preparation failed with exit code $LASTEXITCODE." }
 
