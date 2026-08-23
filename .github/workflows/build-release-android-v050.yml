@@ -1,7 +1,10 @@
 name: Build and release Android v0.5.0
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-release-android-v050.yml"
 
 permissions:
   contents: write
