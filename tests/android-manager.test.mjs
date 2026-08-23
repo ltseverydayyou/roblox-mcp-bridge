@@ -100,6 +100,10 @@ test("Android manager release checks notify separately from MCP source updates",
   assert.match(bridgeService, /ManagerUpdateChecker\.check/);
   assert.match(bridgeService, /ManagerUpdateChecker\.notifyAvailable/);
   assert.match(activityLayout, /App update/);
+  assert.match(mainActivity, /showManagerUpdatePrompt\(result\)/);
+  assert.match(mainActivity, /Android manager update available/);
+  assert.match(mainActivity, /dismissedManagerUpdate/);
+  assert.match(mainActivity, /Download & install/);
 });
 
 test("embedded bridge and executor loader stay on Android localhost", () => {

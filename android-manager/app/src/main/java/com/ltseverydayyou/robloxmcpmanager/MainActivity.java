@@ -754,18 +754,39 @@ public final class MainActivity extends Activity {
                 return;
             }
             boolean newer = ManagerUpdateChecker.isNewer(result);
-            if (newer) ManagerUpdateChecker.notifyAvailable(this, result);
-            else ManagerUpdateChecker.clearNotification(this);
-            if (!userInitiated) return;
-            String message = "Published Android manager: v" + result.version + "\nInstalled: v" + BuildConfig.VERSION_NAME
-                + "\n" + (newer ? "An update is available." : "This app is current.")
-                + (result.digest.isEmpty() ? "" : "\nVerified release digest: " + result.digest);
-            AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle("Android manager release").setMessage(message);
-            if (newer) dialog.setNegativeButton("Later", null)
-                .setPositiveButton("Download & install", (ignored, which) -> downloadManagerUpdate(result));
-            else dialog.setPositiveButton("OK", null);
-            dialog.show();
+            if (!newer) {
+                ManagerUpdateChecker.clearNotification(this);
+                preferences.edit().remove("dismissedManagerUpdate").apply();
+                if (userInitiated) {
+                    String digest = result.digest.isEmpty() ? "" : "\nVerified release digest: " + result.digest;
+                    showMessage("Android manager release", "Published: v" + result.version
+                        + "\nInstalled: v" + BuildConfig.VERSION_NAME + "\nThis app is current." + digest);
+                }
+                return;
+            }
+
+            ManagerUpdateChecker.notifyAvailable(this, result);
+            String dismissed = preferences.getString("dismissedManagerUpdate", "");
+            if (!userInitiated && result.version.equals(dismissed)) return;
+            showManagerUpdatePrompt(result);
         }));
+    }
+
+    private void showManagerUpdatePrompt(ManagerUpdateChecker.Result result) {
+        String verification = result.digest.isEmpty()
+            ? ""
+            : "\n\nThe APK will be checked against GitHub's SHA-256 digest and the installed signing certificate before Android opens the installer.";
+        new AlertDialog.Builder(this)
+            .setTitle("Android manager update available")
+            .setMessage("Installed: v" + BuildConfig.VERSION_NAME + "\nAvailable: v" + result.version
+                + "\n\nDownload and install the new APK inside the manager?" + verification)
+            .setNegativeButton("Later", (dialog, which) ->
+                preferences.edit().putString("dismissedManagerUpdate", result.version).apply())
+            .setPositiveButton("Download & install", (dialog, which) -> {
+                preferences.edit().remove("dismissedManagerUpdate").apply();
+                downloadManagerUpdate(result);
+            })
+            .show();
     }
 
     private void checkRuntimeUpdate(boolean userInitiated) {
