@@ -1,4 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "http";
+import {
+  GetResponseOfIdFromClient,
+  SendArbitraryDataToClient,
+} from "../../../../bridge/handlers/shared/communication.js";
 import { getActiveClients } from "../../../../bridge/handlers/shared/registry.js";
 import {
   getScriptSourceIndex,
@@ -7,7 +11,7 @@ import {
 } from "../../../../bridge/handlers/shared/script-source-store.js";
 import { readJsonBody } from "../../../body.js";
 
-export function GET(req: IncomingMessage, res: ServerResponse, url: URL): void {
+export async function GET(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const clientId = url.searchParams.get("clientId");
   const debugId = url.searchParams.get("debugId");
 
@@ -30,13 +34,39 @@ export function GET(req: IncomingMessage, res: ServerResponse, url: URL): void {
     jobId: client.jobId,
   };
 
-  const index = getScriptSourceIndex(identity);
-  const script = index.scripts.find((s) => s.debugId === debugId);
+  let index = getScriptSourceIndex(identity);
+  let script = index.scripts.find((s) => s.debugId === debugId);
 
   if (!script) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Script not found" }));
     return;
+  }
+
+  // The hierarchy sync can know about a LocalScript/ModuleScript before its
+  // background source-mapping attempt succeeds. If the dashboard opens one of
+  // those entries, ask the live client to decompile that exact DebugId. The
+  // get-script-content handler uploads the complete source into this store
+  // before returning its bounded preview, so a successful on-demand decompile
+  // immediately heals stale "source unavailable" rows.
+  if (!script.sourceAvailable) {
+    const callId = SendArbitraryDataToClient(
+      "get-script-content",
+      { debugId, startLine: 1, endLine: 1, maxLines: 1 },
+      undefined,
+      client.clientId
+    );
+
+    if (callId && callId !== "INVALID_CLIENT") {
+      try {
+        await GetResponseOfIdFromClient(callId, 90_000);
+      } catch {
+        // Keep the existing metadata/error below if the live fallback times out.
+      }
+
+      index = getScriptSourceIndex(identity);
+      script = index.scripts.find((s) => s.debugId === debugId) ?? script;
+    }
   }
 
   res.writeHead(200, { "Content-Type": "application/json" });
