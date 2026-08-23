@@ -246,7 +246,7 @@ export async function GET(_req: IncomingMessage, res: ServerResponse, url: URL):
       const record = scripts[index]!;
       const debugId = record.DebugId!;
       if (scriptResults.has(debugId)) continue;
-      scriptResults.set(debugId, await ensureScriptSource(client.clientId, scriptIdentity, debugId));
+      scriptResults.set(debugId, await ensureScriptSource(clientId, scriptIdentity, debugId));
     }
   }
 
