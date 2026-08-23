@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -75,18 +76,41 @@ export function normalizeChatGptLuauSource(source: string): string {
   return source.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 }
 
+export function isChatGptSandboxPathOnly(value: string): boolean {
+  return /^\/mnt\/data\/[^\r\n]+$/.test(value.trim());
+}
+
 export default function register(server: McpServer): void {
   server.registerTool(
     "execute-chatgpt-luau",
     {
       title: "Execute a ChatGPT Luau file",
       description:
-        "Download one complete Luau file supplied by ChatGPT and execute it in the active Roblox client. If the file calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true. Safe files do not need the flag.",
-      inputSchema: z.object({
-        file: openAIFileInputSchema.describe("The ChatGPT file containing Luau source code."),
-        threadContext: threadContextSchema,
-        userConfirmedRisk: z.boolean().optional().describe("Set true only after the user explicitly approves risky executor methods detected in the downloaded file."),
-      }),
+        "Execute a ChatGPT Luau attachment or generated file in the active Roblox client. Preferred: pass file as the complete ChatGPT-injected file object, never a /mnt/data pathname or bare file_id. Fallback: read the sandbox file and pass its complete text as source with fileName. Do not use LZ4, Base64, or chunked transfer workarounds. If the code calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true.",
+      inputSchema: z
+        .object({
+          file: openAIFileInputSchema
+            .optional()
+            .describe(
+              "Preferred complete ChatGPT file object with download_url and file_id. ChatGPT injects this object. Never pass a /mnt/data string or a bare file_id."
+            ),
+          source: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Fallback complete Luau source text read from ChatGPT's sandbox. Never pass the /mnt/data pathname itself."
+            ),
+          fileName: z
+            .string()
+            .optional()
+            .describe("Display filename for source fallback, such as patched-script.luau."),
+          threadContext: threadContextSchema,
+          userConfirmedRisk: z.boolean().optional().describe("Set true only after the user explicitly approves risky executor methods detected in the downloaded file."),
+        })
+        .refine((input) => Boolean(input.file) !== Boolean(input.source), {
+          message: "Provide exactly one of file (the complete ChatGPT file object) or source (the complete Luau text).",
+        }),
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -97,9 +121,31 @@ export default function register(server: McpServer): void {
         "openai/fileParams": ["file"],
       },
     },
-    async ({ file, threadContext, userConfirmedRisk }) => {
+    async ({ file, source: inlineSource, fileName, threadContext, userConfirmedRisk }) => {
       try {
-        const downloaded = await downloadOpenAIFile(file, MAX_EXECUTABLE_FILE_BYTES);
+        if (inlineSource !== undefined && isChatGptSandboxPathOnly(inlineSource)) {
+          return toolTextResponse(
+            "The source field received only a ChatGPT sandbox pathname. Read that /mnt/data file in ChatGPT and call execute-chatgpt-luau again with its complete text in source. Do not compress, Base64-encode, or split it into chunks.",
+            {},
+            true
+          );
+        }
+
+        const downloaded = file
+          ? await downloadOpenAIFile(file, MAX_EXECUTABLE_FILE_BYTES)
+          : (() => {
+              const bytes = Buffer.from(inlineSource!, "utf8");
+              if (bytes.length > MAX_EXECUTABLE_FILE_BYTES) {
+                throw new Error(`Inline source exceeds the ${MAX_EXECUTABLE_FILE_BYTES}-byte limit.`);
+              }
+              return {
+                bytes,
+                fileId: "inline-source",
+                fileName: path.basename(fileName || "chatgpt-inline.luau"),
+                mimeType: "text/plain; charset=utf-8",
+                sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+              };
+            })();
         const extension = path.extname(downloaded.fileName).toLowerCase();
         if (extension && !EXECUTABLE_EXTENSIONS.has(extension)) {
           return toolTextResponse(
@@ -141,7 +187,7 @@ export default function register(server: McpServer): void {
           type: "execute",
           data: { source: `setthreadidentity(${threadContext})\n${source}`, userConfirmedRisk: userConfirmedRisk === true },
           successMessage:
-            `Downloaded and executed ${downloaded.fileName} ` +
+            `${file ? "Downloaded and executed" : "Received and executed inline source for"} ${downloaded.fileName} ` +
             `(${downloaded.bytes.length} bytes, source encoding ${decoded.encoding}, sha256=${downloaded.sha256}, thread context ${threadContext}).`,
         });
       } catch (error) {

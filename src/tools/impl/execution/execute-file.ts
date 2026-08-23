@@ -13,7 +13,7 @@ export default function register(server: McpServer): void {
     {
       title: "Execute a Luau file in the Roblox Game Client",
       description:
-        "Execute a .luau/.lua file in the active Roblox client without returning output. If its source calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true. Safe files do not need this flag. For files on the MCP host, pass filePath; ChatGPT /mnt/data files must be passed as source.",
+        "Execute a .luau/.lua file in the active Roblox client without returning output. Use this for a file physically stored on the MCP host. For ChatGPT attachments or /mnt/data generated files, prefer execute-chatgpt-luau with its host-injected file object or complete source fallback; never pass a sandbox path, Base64, LZ4, or chunks. If the source calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true.",
       inputSchema: z.object({
         filePath: z
           .string()

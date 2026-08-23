@@ -25,6 +25,7 @@ import {
 } from "../dist/files/chatgpt-file.js";
 import {
   decodeChatGptLuauSource,
+  isChatGptSandboxPathOnly,
   normalizeChatGptLuauSource,
 } from "../dist/tools/impl/files/execute-chatgpt-luau.js";
 import { compareVersions } from "../dist/update/checker.js";
@@ -384,6 +385,15 @@ test("ChatGPT Luau attachments accept common Windows text encodings", () => {
     source: "-- “patch”",
     encoding: "windows-1252",
   });
+});
+
+test("ChatGPT Luau routing rejects sandbox path strings before execution", () => {
+  assert.equal(isChatGptSandboxPathOnly("/mnt/data/patched-script.luau"), true);
+  assert.equal(isChatGptSandboxPathOnly("  /mnt/data/patched-script.luau  "), true);
+  assert.equal(isChatGptSandboxPathOnly("print('real source')"), false);
+  const instructions = readFileSync(new URL("../src/mcp-server.ts", import.meta.url), "utf8");
+  assert.match(instructions, /Never pass a \/mnt\/data path or bare file_id/);
+  assert.match(instructions, /Never invent LZ4, Base64, or chunked transfer workarounds/);
 });
 
 test("ChatGPT file redirects are validated before following them", async () => {

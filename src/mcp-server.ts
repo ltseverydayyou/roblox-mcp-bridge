@@ -15,8 +15,9 @@ export function createMcpServer(): McpServer {
     {
       instructions: [
         "Roblox executor MCP server. Recommended workflow to keep results small and accurate:",
+        "CHATGPT FILE ROUTING: For an attached or generated Luau file, call execute-chatgpt-luau with the complete host-injected file object. Never pass a /mnt/data path or bare file_id as file. If ChatGPT cannot inject that object, read the sandbox file and pass its complete text in execute-chatgpt-luau.source with fileName. Never invent LZ4, Base64, or chunked transfer workarounds.",
         "1. If multiple clients may be connected, call list-clients then set-active-client before anything else.",
-        "ChatGPT sandbox files: /mnt/data paths are not visible to the MCP host. Read the file in ChatGPT and call execute-file with its complete source plus optional filePath/fileName. For files physically on the MCP host, call execute-file with filePath only.",
+        "ChatGPT sandbox paths are not visible to the MCP host. For files physically on the MCP host, call execute-file with filePath only.",
         "2. Explore structure cheaply first: get-descendants-tree (summaryOnly) or search-instances with a tight selector and low limit; widen only when needed. Prefer returned DebugIds for exact follow-up targeting.",
         "3. Use inspect-instances to batch-read properties, attributes, tags, and immediate children after narrowing candidates. Use inspect-visible-gui/get-player-state/inspect-animations/inspect-sounds for their specialized domains.",
         "4. Find code with script-grep (exact identifiers/regex) or semantic-search-scripts (behavior); then read just the relevant range with get-script-content (use startLine/endLine).",
