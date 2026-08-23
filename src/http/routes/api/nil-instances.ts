@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "http";
 import {
   GetResponseOfIdFromClient,
@@ -7,8 +8,6 @@ import { getActiveClients } from "../../../bridge/handlers/shared/registry.js";
 import {
   clearNilInstanceScan,
   getNilInstanceScan,
-  setNilInstanceScan,
-  type NilInstanceScan,
   type NilInstanceStoreIdentity,
 } from "../../../bridge/handlers/shared/nil-instance-store.js";
 import { readJsonBody } from "../../body.js";
@@ -64,11 +63,14 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
   if (!client) return json(res, 404, { error: "Client not found" });
 
   const maxTreeNodes = Math.min(100_000, Math.max(1_000, Math.floor(Number(body.maxTreeNodes) || 50_000)));
+  const scanId = randomUUID();
   const callId = SendArbitraryDataToClient(
     "scan-nil-instances",
     {
       userConfirmedRisk: true,
       maxTreeNodes,
+      clientId: client.clientId,
+      scanId,
     },
     undefined,
     client.clientId
@@ -79,30 +81,18 @@ export async function POST(req: IncomingMessage, res: ServerResponse): Promise<v
 
   const response = await GetResponseOfIdFromClient(callId, 120_000);
   if (response.error) return json(res, 500, { error: response.error });
-  if (!response.output) return json(res, 500, { error: "Nil-instance scan returned no output" });
-
-  let scan: NilInstanceScan;
-  try {
-    scan = JSON.parse(response.output) as NilInstanceScan;
-  } catch (error) {
-    return json(res, 500, {
-      error: `Nil-instance scan returned invalid data: ${(error as Error).message}`,
-    });
-  }
-
-  if (!scan || scan.success !== true || !Array.isArray(scan.instances)) {
-    return json(res, 500, { error: "Nil-instance scan returned an invalid result" });
-  }
 
   const identity: NilInstanceStoreIdentity = {
     clientId: client.clientId,
     placeId: client.placeId,
     jobId: client.jobId,
   };
-  const stored = setNilInstanceScan(identity, {
-    ...scan,
-    scannedAt: new Date().toISOString(),
-  });
+  const stored = getNilInstanceScan(identity);
+  if (!stored || stored.success !== true || !Array.isArray(stored.instances)) {
+    return json(res, 500, {
+      error: "Nil-instance scan finished but no streamed scan data was received by the bridge",
+    });
+  }
 
   json(res, 200, { scan: stored });
 }

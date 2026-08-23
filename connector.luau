@@ -2719,12 +2719,61 @@ while true do
         return SearchExecutorFunctions(data)
     end)
 
+    local function UploadNilInstanceScanPart(clientId, scanId, phase, instances, summary)
+        if type(clientId) ~= "string" or clientId == "" then
+            return false, "Missing clientId for nil-instance scan upload."
+        end
+        if type(scanId) ~= "string" or scanId == "" then
+            return false, "Missing scanId for nil-instance scan upload."
+        end
+
+        local payload = {
+            clientId = clientId,
+            scanId = scanId,
+            phase = phase,
+        }
+        if instances ~= nil then payload.instances = instances end
+        if summary ~= nil then payload.summary = summary end
+
+        local encodedOk, encoded = pcall(function()
+            return HttpService:JSONEncode(payload)
+        end)
+        if not encodedOk then
+            return false, "Failed to encode nil-instance scan batch: " .. tostring(encoded)
+        end
+
+        for attempt = 1, 3 do
+            local ok, response = pcall(ExecutorRequest, {
+                Url = "http://" .. BridgeURL .. "/nil-instance-scan",
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = encoded,
+            })
+            if ok and response and GetResponseStatus(response) == 200 then
+                return true
+            end
+            if attempt < 3 then task.wait(0.2 * attempt) end
+        end
+
+        return false, "Bridge rejected nil-instance scan batch."
+    end
+
     Bridge:BindToType("recover-nil-scripts", function(data)
         -- Heavy recovery is intentionally explicit/on-demand only. Nothing in startup or ordinary
         -- DebugId/script resolution calls getnilinstances/getgc/getreg/getregistry.
         assert(data.userConfirmedRisk == true, "Risk confirmation required before nil/runtime recovery (getnilinstances/getgc/registry scans).")
         local getnilinstancesFn = ResolveCallable("getnilinstances")
         assert(getnilinstancesFn, "Executor does not support getnilinstances.")
+
+        local streamScan = data.dashboardStream == true
+        local streamClientId = streamScan and tostring(data.clientId or "") or nil
+        local streamScanId = streamScan and tostring(data.scanId or "") or nil
+        if streamScan then
+            assert(streamClientId ~= "", "Dashboard nil-instance scan is missing clientId.")
+            assert(streamScanId ~= "", "Dashboard nil-instance scan is missing scanId.")
+            local started, startError = UploadNilInstanceScanPart(streamClientId, streamScanId, "start")
+            assert(started, startError or "Failed to start nil-instance scan upload.")
+        end
 
         local S, F = {}, {}
         local ops, fc, tc = 0, 0, 0
@@ -2832,7 +2881,21 @@ while true do
         local capturedScriptCount = 0
         local capturedRoots = 0
         local instances = {}
+        local capturedInstanceCount = 0
+        local uploadBatch = {}
+        local uploadBatchMax = 96
         local treeTruncated = false
+
+        local function flushUploadBatch()
+            if not streamScan or #uploadBatch == 0 then return true end
+            local batch = uploadBatch
+            uploadBatch = {}
+            local uploaded, uploadError = UploadNilInstanceScanPart(
+                streamClientId, streamScanId, "batch", batch
+            )
+            assert(uploaded, uploadError or "Failed to upload nil-instance scan batch.")
+            return true
+        end
 
         local function readDebugId(instance)
             local ok, id = pcall(function() return instance:GetDebugId() end)
@@ -2841,7 +2904,7 @@ while true do
         end
 
         local function captureInstance(instance, rootDebugId, parentDebugId, depth, relativePath, isRoot)
-            if #instances >= maxTreeNodes then
+            if capturedInstanceCount >= maxTreeNodes then
                 treeTruncated = true
                 return nil, nil
             end
@@ -2870,7 +2933,13 @@ while true do
             local children = {}
             pcall(function() children = instance:GetChildren() end)
             item.ChildCount = #children
-            instances[#instances + 1] = item
+            capturedInstanceCount += 1
+            if streamScan then
+                uploadBatch[#uploadBatch + 1] = item
+                if #uploadBatch >= uploadBatchMax then flushUploadBatch() end
+            else
+                instances[#instances + 1] = item
+            end
             if isScript then capturedScriptCount += 1 end
             st()
             return item, children
@@ -2928,33 +2997,53 @@ while true do
             if treeTruncated then break end
         end
 
-        return {
+        if streamScan then flushUploadBatch() end
+
+        local result = {
             scanVersion = 1,
             success = true,
             foundNilInstances = #F,
             capturedRoots = capturedRoots,
-            capturedInstances = #instances,
-            containedInstances = math.max(0, #instances - capturedRoots),
+            capturedInstances = capturedInstanceCount,
+            containedInstances = math.max(0, capturedInstanceCount - capturedRoots),
             recoveredScripts = recoveredCount,
             capturedScripts = capturedScriptCount,
             functionScans = fc,
             tableScans = tc,
             operations = ops,
             sourcesUsed = sourcesUsed,
-            instances = instances,
             maxTreeNodes = maxTreeNodes,
             treeTruncated = treeTruncated,
             recovered = recovered,
             recoveredTruncated = recoveredCount > #recovered,
             note = "Original nil roots and their contained descendants are cached by DebugId for direct MCP follow-up; no cloning or reparenting is performed.",
         }
+
+        if streamScan then
+            local finished, finishError = UploadNilInstanceScanPart(
+                streamClientId, streamScanId, "finish", nil, result
+            )
+            assert(finished, finishError or "Failed to finalize nil-instance scan upload.")
+            return {
+                success = true,
+                capturedInstances = capturedInstanceCount,
+                capturedRoots = capturedRoots,
+                capturedScripts = capturedScriptCount,
+                treeTruncated = treeTruncated,
+            }
+        end
+
+        result.instances = instances
+        return result
     end)
 
-    -- Dashboard-only raw form. This is never invoked during startup: the dashboard calls it
+    -- Dashboard-only streaming form. This is never invoked during startup: the dashboard calls it
     -- only after the user manually starts a nil-instance scan and confirms the risky methods.
-    Bridge:BindToTypeRaw("scan-nil-instances", function(data)
-        local result = Bridge.Callbacks["recover-nil-scripts"](data)
-        return HttpService:JSONEncode(result)
+    -- Large scans are uploaded to localhost in bounded batches so the executor never has to JSON-encode
+    -- one enormous response object.
+    Bridge:BindToType("scan-nil-instances", function(data)
+        data.dashboardStream = true
+        return Bridge.Callbacks["recover-nil-scripts"](data)
     end)
 
     Bridge:BindToType("create-console-cursor", function(data)
