@@ -2517,7 +2517,12 @@ function renderNilInstances() {
         const scriptBadge = item.IsScript ? '<span class="nil-script-badge">script</span>' : '';
         const title = escapeHtml(item.RelativePath || item.Path || item.Name || 'Instance');
         const debugId = escapeHtml(item.DebugId || '—');
-        return '<div class="nil-frow" title="' + title + '">' +
+        const canInspect = item.IsScript && item.DebugId;
+        const inspectAttrs = canInspect
+            ? ' data-debug-id="' + debugId + '" data-nil-script="1"'
+            : '';
+        const rowTitle = canInspect ? 'Click to inspect source — ' + title : title;
+        return '<div class="nil-frow' + (canInspect ? ' nil-frow--script' : '') + '"' + inspectAttrs + ' title="' + rowTitle + '">' +
             '<div class="nil-fname" style="padding-left:' + (depth * 16) + 'px">' + icon + '<span class="nil-fname-main">' + escapeHtml(item.Name || 'Instance') + '</span>' + rootBadge + scriptBadge + '</div>' +
             '<div class="nil-fmeta">' + escapeHtml(item.ClassName || 'Instance') + '</div>' +
             '<div class="nil-fmeta">' + childCount + '</div>' +
@@ -2573,6 +2578,27 @@ if (nilInstancesSearch) {
     });
 }
 if (nilInstancesScanBtn) nilInstancesScanBtn.addEventListener('click', scanNilInstances);
+
+async function openNilInstanceScript(debugId) {
+    if (!debugId || !selectedClientId) return;
+
+    // Reuse the normal Scripts source viewer/decompiler instead of maintaining a
+    // second code viewer. Nil scripts are resolved live by DebugId on first open.
+    scriptsBrowsePath = [];
+    scriptsViewingFile = null;
+    scriptsSearchQuery = '';
+    if ($('scriptsSearch')) $('scriptsSearch').value = '';
+    showView('scripts');
+    await openScriptSource(debugId);
+}
+
+if (nilInstancesList) {
+    nilInstancesList.addEventListener('click', (event) => {
+        const row = event.target.closest('.nil-frow[data-nil-script="1"][data-debug-id]');
+        if (!row) return;
+        openNilInstanceScript(row.dataset.debugId);
+    });
+}
 
 async function fetchScripts() {
     if (!selectedClientId) return;

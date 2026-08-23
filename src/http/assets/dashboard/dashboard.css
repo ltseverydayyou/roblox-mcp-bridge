@@ -2782,3 +2782,8 @@ body.decompiler-drag-active * {
     .nil-file-header > div:last-child, .nil-frow > div:last-child { display: none; }
     .nil-scan-meta { grid-template-columns: 1fr; }
 }
+
+.nil-frow--script { cursor: pointer; }
+.nil-frow--script:hover { background: var(--surface-hover, rgba(255,255,255,.045)); }
+.nil-frow--script .nil-fname-main { text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.nil-frow--script:hover .nil-fname-main { text-decoration: underline; }
