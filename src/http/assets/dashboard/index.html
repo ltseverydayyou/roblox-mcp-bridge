@@ -351,20 +351,20 @@
                 <div class="scripts-header">
                     <div>
                         <h2 class="scripts-title">Nil Instances</h2>
-                        <p class="scripts-sub">Manual recovery of unparented instances and their contained hierarchy</p>
+                        <p class="scripts-sub">Live manual list of unparented instances and their contained hierarchy</p>
                     </div>
                 </div>
 
                 <div class="nil-warning">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 2.9L1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0z"/></svg>
-                    <div><strong>Manual only.</strong> Opening this section does not call executor introspection. A scan runs only after you press <b>Scan Nil Instances</b> and confirm the risk prompt.</div>
+                    <div><strong>Manual only.</strong> Opening this section does not call executor introspection. A scan runs only after you press <b>Scan Nil Instances</b> and confirm the risk prompt. Results are only kept in the current dashboard view; nothing is exported or saved automatically.</div>
                 </div>
 
                 <div class="nil-summary-grid">
                     <div class="nil-summary-card"><span class="nil-summary-label">Nil roots</span><strong class="nil-summary-value" id="nilRootCount">—</strong></div>
                     <div class="nil-summary-card"><span class="nil-summary-label">Captured</span><strong class="nil-summary-value" id="nilCapturedCount">—</strong></div>
                     <div class="nil-summary-card"><span class="nil-summary-label">Scripts</span><strong class="nil-summary-value" id="nilScriptCount">—</strong></div>
-                    <div class="nil-summary-card"><span class="nil-summary-label">Last scan</span><strong class="nil-summary-value nil-summary-value--small" id="nilLastScan">Never</strong></div>
+                    <div class="nil-summary-card"><span class="nil-summary-label">Current scan</span><strong class="nil-summary-value nil-summary-value--small" id="nilLastScan">Never</strong></div>
                 </div>
 
                 <div class="scripts-browser nil-browser">
@@ -375,10 +375,6 @@
                         </div>
                         <div class="scripts-toolbar-right">
                             <span class="scripts-count" id="nilInstancesCount">Not scanned</span>
-                            <button class="scripts-export-btn" id="nilInstancesExportBtn" type="button" title="Export the cached nil-instance hierarchy and decompiled script sources as a zip" disabled>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                <span>Export</span>
-                            </button>
                             <button class="tool-run-btn nil-scan-btn" id="nilInstancesScanBtn" type="button">Scan Nil Instances</button>
                         </div>
                     </div>

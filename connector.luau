@@ -2719,6 +2719,42 @@ while true do
         return SearchExecutorFunctions(data)
     end)
 
+    local function EncodeNilScanField(value)
+        if value == nil then return "" end
+        local text = tostring(value)
+        local ok, encoded = pcall(function()
+            return HttpService:UrlEncode(text)
+        end)
+        if ok and type(encoded) == "string" then return encoded end
+        local escaped = text:gsub("%%", "%%25")
+        escaped = escaped:gsub("\t", "%%09")
+        escaped = escaped:gsub("\r", "%%0D")
+        escaped = escaped:gsub("\n", "%%0A")
+        return escaped
+    end
+
+    local function EncodeNilScanBoolean(value)
+        if value == nil then return "" end
+        return value and "1" or "0"
+    end
+
+    local function EncodeNilScanRecord(item)
+        return table.concat({
+            EncodeNilScanField(item.DebugId),
+            EncodeNilScanField(item.Name),
+            EncodeNilScanField(item.ClassName),
+            EncodeNilScanField(item.Path),
+            EncodeNilScanField(item.RelativePath),
+            EncodeNilScanField(item.ParentDebugId),
+            EncodeNilScanField(item.RootDebugId),
+            tostring(tonumber(item.Depth) or 0),
+            EncodeNilScanBoolean(item.IsNilRoot == true),
+            EncodeNilScanBoolean(item.IsScript == true),
+            EncodeNilScanBoolean(item.Archivable),
+            tostring(tonumber(item.ChildCount) or 0),
+        }, "\t")
+    end
+
     local function UploadNilInstanceScanPart(clientId, scanId, phase, instances, summary)
         if type(clientId) ~= "string" or clientId == "" then
             return false, "Missing clientId for nil-instance scan upload."
@@ -2727,27 +2763,44 @@ while true do
             return false, "Missing scanId for nil-instance scan upload."
         end
 
-        local payload = {
-            clientId = clientId,
-            scanId = scanId,
-            phase = phase,
-        }
-        if instances ~= nil then payload.instances = instances end
-        if summary ~= nil then payload.summary = summary end
-
-        local encodedOk, encoded = pcall(function()
-            return HttpService:JSONEncode(payload)
-        end)
-        if not encodedOk then
-            return false, "Failed to encode nil-instance scan batch: " .. tostring(encoded)
+        local body = ""
+        if phase == "batch" then
+            local lines = {}
+            for i, item in ipairs(instances or {}) do
+                lines[i] = EncodeNilScanRecord(item)
+            end
+            body = table.concat(lines, "\n")
+        elseif phase == "finish" then
+            local sources = ""
+            if type(summary.sourcesUsed) == "table" then
+                sources = table.concat(summary.sourcesUsed, "\31")
+            end
+            body = table.concat({
+                "foundNilInstances\t" .. tostring(tonumber(summary.foundNilInstances) or 0),
+                "capturedRoots\t" .. tostring(tonumber(summary.capturedRoots) or 0),
+                "capturedInstances\t" .. tostring(tonumber(summary.capturedInstances) or 0),
+                "recoveredScripts\t" .. tostring(tonumber(summary.recoveredScripts) or 0),
+                "capturedScripts\t" .. tostring(tonumber(summary.capturedScripts) or 0),
+                "functionScans\t" .. tostring(tonumber(summary.functionScans) or 0),
+                "tableScans\t" .. tostring(tonumber(summary.tableScans) or 0),
+                "operations\t" .. tostring(tonumber(summary.operations) or 0),
+                "maxTreeNodes\t" .. tostring(tonumber(summary.maxTreeNodes) or 0),
+                "treeTruncated\t" .. EncodeNilScanBoolean(summary.treeTruncated == true),
+                "sourcesUsed\t" .. EncodeNilScanField(sources),
+            }, "\n")
         end
+
+        local url = "http://" .. BridgeURL
+            .. "/nil-instance-scan?clientId=" .. EncodeNilScanField(clientId)
+            .. "&scanId=" .. EncodeNilScanField(scanId)
+            .. "&phase=" .. EncodeNilScanField(phase)
 
         for attempt = 1, 3 do
             local ok, response = pcall(ExecutorRequest, {
-                Url = "http://" .. BridgeURL .. "/nil-instance-scan",
+                Url = url,
                 Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body = encoded,
+                Headers = { ["Content-Type"] = "text/plain; charset=utf-8" },
+                Body = body,
             })
             if ok and response and GetResponseStatus(response) == 200 then
                 return true
@@ -3024,13 +3077,7 @@ while true do
                 streamClientId, streamScanId, "finish", nil, result
             )
             assert(finished, finishError or "Failed to finalize nil-instance scan upload.")
-            return {
-                success = true,
-                capturedInstances = capturedInstanceCount,
-                capturedRoots = capturedRoots,
-                capturedScripts = capturedScriptCount,
-                treeTruncated = treeTruncated,
-            }
+            return "OK"
         end
 
         result.instances = instances
@@ -3039,8 +3086,7 @@ while true do
 
     -- Dashboard-only streaming form. This is never invoked during startup: the dashboard calls it
     -- only after the user manually starts a nil-instance scan and confirms the risky methods.
-    -- Large scans are uploaded to localhost in bounded batches so the executor never has to JSON-encode
-    -- one enormous response object.
+    -- Large scans use a plain-text line protocol in bounded batches. Nil-instance rows never use JSON encoding.
     Bridge:BindToType("scan-nil-instances", function(data)
         data.dashboardStream = true
         return Bridge.Callbacks["recover-nil-scripts"](data)

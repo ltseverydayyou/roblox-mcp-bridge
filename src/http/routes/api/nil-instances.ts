@@ -6,104 +6,89 @@ import {
 } from "../../../bridge/handlers/shared/communication.js";
 import { getActiveClients } from "../../../bridge/handlers/shared/registry.js";
 import {
-  clearNilInstanceScan,
-  getNilInstanceScan,
-  type NilInstanceStoreIdentity,
-} from "../../../bridge/handlers/shared/nil-instance-store.js";
-import { readJsonBody } from "../../body.js";
+  takeCompletedNilInstanceScan,
+  type NilInstanceRecord,
+  type NilInstanceScan,
+  type NilInstanceScanIdentity,
+} from "../nil-instance-scan.js";
 
-interface ScanRequest {
-  clientId?: string;
-  userConfirmedRisk?: boolean;
-  maxTreeNodes?: number;
+function text(res: ServerResponse, status: number, body: string): void {
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end(body);
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
+function encode(value: unknown): string {
+  return encodeURIComponent(value == null ? "" : String(value));
 }
 
-function resolveIdentity(clientId: string): NilInstanceStoreIdentity | null {
+function formatRecord(item: NilInstanceRecord): string {
+  return [
+    "ITEM",
+    encode(item.DebugId),
+    encode(item.Name),
+    encode(item.ClassName),
+    encode(item.Path),
+    encode(item.RelativePath),
+    encode(item.ParentDebugId),
+    encode(item.RootDebugId),
+    String(item.Depth || 0),
+    item.IsNilRoot ? "1" : "0",
+    item.IsScript ? "1" : "0",
+    item.Archivable == null ? "" : item.Archivable ? "1" : "0",
+    String(item.ChildCount || 0),
+  ].join("\t");
+}
+
+function formatScan(scan: NilInstanceScan): string {
+  const meta = [
+    "META",
+    String(scan.capturedRoots || 0),
+    String(scan.instances.length),
+    String(scan.capturedScripts || 0),
+    scan.treeTruncated ? "1" : "0",
+    encode(scan.scannedAt),
+    encode((scan.sourcesUsed || ["getnilinstances"]).join("\x1f")),
+  ].join("\t");
+  const rows = scan.instances.map(formatRecord);
+  return [meta, ...rows].join("\n");
+}
+
+export async function POST(_req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  const clientId = url.searchParams.get("clientId") || "";
+  const confirmed = url.searchParams.get("confirmed") === "1";
+  if (!clientId) return text(res, 400, "clientId is required");
+  if (!confirmed) return text(res, 400, "Explicit risk confirmation is required before nil-instance recovery.");
+
   const client = getActiveClients().find((entry) => entry.clientId === clientId);
-  if (!client) return null;
-  return {
-    clientId: client.clientId,
-    placeId: client.placeId,
-    jobId: client.jobId,
-  };
-}
+  if (!client) return text(res, 404, "Client not found");
 
-export function GET(_req: IncomingMessage, res: ServerResponse, url: URL): void {
-  const clientId = url.searchParams.get("clientId");
-  if (!clientId) return json(res, 400, { error: "clientId is required" });
-
-  const identity = resolveIdentity(clientId);
-  if (!identity) return json(res, 404, { error: "Client not found" });
-
-  const scan = getNilInstanceScan(identity);
-  json(res, 200, scan ? { scan } : { scan: null });
-}
-
-export async function POST(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  let body: ScanRequest;
-  try {
-    body = await readJsonBody<ScanRequest>(req);
-  } catch {
-    return json(res, 400, { error: "Invalid JSON body" });
-  }
-
-  if (!body.clientId) return json(res, 400, { error: "clientId is required" });
-  if (body.userConfirmedRisk !== true) {
-    return json(res, 400, {
-      error: "Explicit risk confirmation is required before nil-instance recovery.",
-    });
-  }
-
-  const client = getActiveClients().find((entry) => entry.clientId === body.clientId);
-  if (!client) return json(res, 404, { error: "Client not found" });
-
-  const maxTreeNodes = Math.min(100_000, Math.max(1_000, Math.floor(Number(body.maxTreeNodes) || 50_000)));
+  const maxTreeNodes = Math.min(
+    100_000,
+    Math.max(1_000, Math.floor(Number(url.searchParams.get("maxTreeNodes")) || 50_000))
+  );
   const scanId = randomUUID();
   const callId = SendArbitraryDataToClient(
     "scan-nil-instances",
-    {
-      userConfirmedRisk: true,
-      maxTreeNodes,
-      clientId: client.clientId,
-      scanId,
-    },
+    { userConfirmedRisk: true, maxTreeNodes, clientId: client.clientId, scanId },
     undefined,
     client.clientId
   );
 
-  if (!callId) return json(res, 500, { error: "Failed to dispatch nil-instance scan to client" });
-  if (callId === "INVALID_CLIENT") return json(res, 404, { error: "Client not found" });
+  if (!callId) return text(res, 500, "Failed to dispatch nil-instance scan to client");
+  if (callId === "INVALID_CLIENT") return text(res, 404, "Client not found");
 
   const response = await GetResponseOfIdFromClient(callId, 120_000);
-  if (response.error) return json(res, 500, { error: response.error });
+  if (response.error) return text(res, 500, response.error);
 
-  const identity: NilInstanceStoreIdentity = {
+  const identity: NilInstanceScanIdentity = {
     clientId: client.clientId,
     placeId: client.placeId,
     jobId: client.jobId,
   };
-  const stored = getNilInstanceScan(identity);
-  if (!stored || stored.success !== true || !Array.isArray(stored.instances)) {
-    return json(res, 500, {
-      error: "Nil-instance scan finished but no streamed scan data was received by the bridge",
-    });
+  const scan = takeCompletedNilInstanceScan(scanId, identity);
+  if (!scan) {
+    return text(res, 500, "Nil-instance scan finished but no live scan rows were received by the bridge");
   }
 
-  json(res, 200, { scan: stored });
-}
-
-export function DELETE(_req: IncomingMessage, res: ServerResponse, url: URL): void {
-  const clientId = url.searchParams.get("clientId");
-  if (!clientId) return json(res, 400, { error: "clientId is required" });
-
-  const identity = resolveIdentity(clientId);
-  if (!identity) return json(res, 404, { error: "Client not found" });
-
-  clearNilInstanceScan(identity);
-  json(res, 200, { success: true });
+  text(res, 200, formatScan(scan));
 }
