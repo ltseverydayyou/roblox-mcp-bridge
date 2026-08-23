@@ -2690,3 +2690,95 @@ body.decompiler-drag-active * {
     from { opacity: 0; transform: scale(0.95); }
     to { opacity: 1; transform: scale(1); }
 }
+
+/* ── Nil Instances ───────────────────────────────────────── */
+.nil-warning {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin-bottom: 16px; padding: 11px 13px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(245, 158, 11, 0.08);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary); font-size: 12px; line-height: 1.5;
+}
+.nil-warning svg { flex-shrink: 0; margin-top: 1px; color: #f59e0b; }
+.nil-warning strong { color: #f59e0b; }
+
+.nil-summary-grid {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px; margin-bottom: 16px;
+}
+.nil-summary-card {
+    display: flex; flex-direction: column; gap: 7px;
+    min-width: 0; padding: 13px 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+.nil-summary-label {
+    color: var(--text-tertiary); font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .045em;
+}
+.nil-summary-value {
+    color: var(--text); font-family: var(--mono); font-size: 18px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nil-summary-value--small { font-family: var(--sans); font-size: 13px; font-weight: 500; }
+.nil-scan-btn { min-width: 132px; height: 30px; padding: 0 12px; }
+.nil-browser { margin-bottom: 12px; }
+.nil-file-header,
+.nil-frow {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) 140px 76px minmax(150px, 220px);
+    align-items: center; gap: 12px;
+}
+.nil-file-header {
+    padding: 6px 16px; background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-tertiary); font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em;
+}
+.nil-file-header > div:nth-child(n+2) { text-align: right; }
+.nil-instance-list { max-height: calc(100vh - 430px); min-height: 160px; overflow-y: auto; }
+.nil-frow {
+    min-height: 42px; padding: 7px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background var(--transition);
+}
+.nil-frow:hover { background: var(--surface-hover); }
+.nil-frow:last-child { border-bottom: none; }
+.nil-fname {
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+    font-size: 13px;
+}
+.nil-fname-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.nil-fmeta {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--text-secondary); font-family: var(--mono); font-size: 11px; text-align: right;
+}
+.nil-root-badge,
+.nil-script-badge {
+    flex-shrink: 0; padding: 2px 6px; border-radius: 99px;
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+}
+.nil-root-badge { color: var(--blue); background: var(--blue-dim); }
+.nil-script-badge { color: #a78bfa; background: rgba(139, 92, 246, .12); }
+.nil-render-note {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    color: var(--text-tertiary); font-size: 11px;
+}
+.nil-scan-meta {
+    display: grid; grid-template-columns: minmax(180px, .6fr) minmax(0, 1.4fr);
+    gap: 10px; padding: 11px 13px;
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface);
+}
+.nil-scan-meta > div { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.nil-meta-label { color: var(--text-tertiary); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.nil-scan-meta span:last-child { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nil-truncated { color: #f59e0b !important; }
+
+@media (max-width: 980px) {
+    .nil-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .nil-file-header, .nil-frow { grid-template-columns: minmax(220px, 1fr) 120px 68px; }
+    .nil-file-header > div:last-child, .nil-frow > div:last-child { display: none; }
+    .nil-scan-meta { grid-template-columns: 1fr; }
+}

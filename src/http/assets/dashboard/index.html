@@ -58,6 +58,7 @@
             <nav class="sidebar-nav" id="sidebarNavClient" style="display:none">
                 <button class="sidebar-item sidebar-item--active" data-view="overview"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Overview</button>
                 <button class="sidebar-item" data-view="scripts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>Scripts</button>
+                <button class="sidebar-item" data-view="nil-instances"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>Nil Instances</button>
                 <button class="sidebar-item" data-view="tools"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Tools</button>
             </nav>
             <div class="sidebar-footer">
@@ -345,6 +346,56 @@
                 </div>
             </div>
 
+            <!-- ─── Nil Instances view (client mode) ─────────── -->
+            <div class="view" id="viewNilInstances" style="display:none">
+                <div class="scripts-header">
+                    <div>
+                        <h2 class="scripts-title">Nil Instances</h2>
+                        <p class="scripts-sub">Manual recovery of unparented instances and their contained hierarchy</p>
+                    </div>
+                </div>
+
+                <div class="nil-warning">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 2.9L1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0z"/></svg>
+                    <div><strong>Manual only.</strong> Opening this section does not call executor introspection. A scan runs only after you press <b>Scan Nil Instances</b> and confirm the risk prompt.</div>
+                </div>
+
+                <div class="nil-summary-grid">
+                    <div class="nil-summary-card"><span class="nil-summary-label">Nil roots</span><strong class="nil-summary-value" id="nilRootCount">—</strong></div>
+                    <div class="nil-summary-card"><span class="nil-summary-label">Captured</span><strong class="nil-summary-value" id="nilCapturedCount">—</strong></div>
+                    <div class="nil-summary-card"><span class="nil-summary-label">Scripts</span><strong class="nil-summary-value" id="nilScriptCount">—</strong></div>
+                    <div class="nil-summary-card"><span class="nil-summary-label">Last scan</span><strong class="nil-summary-value nil-summary-value--small" id="nilLastScan">Never</strong></div>
+                </div>
+
+                <div class="scripts-browser nil-browser">
+                    <div class="scripts-toolbar">
+                        <div class="scripts-search-wrap">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                            <input type="text" class="scripts-search" id="nilInstancesSearch" placeholder="Search nil instances..." autocomplete="off">
+                        </div>
+                        <div class="scripts-toolbar-right">
+                            <span class="scripts-count" id="nilInstancesCount">Not scanned</span>
+                            <button class="scripts-export-btn" id="nilInstancesExportBtn" type="button" title="Export the cached nil-instance hierarchy and decompiled script sources as a zip" disabled>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                <span>Export</span>
+                            </button>
+                            <button class="tool-run-btn nil-scan-btn" id="nilInstancesScanBtn" type="button">Scan Nil Instances</button>
+                        </div>
+                    </div>
+                    <div class="nil-file-header">
+                        <div>Name</div><div>Class</div><div>Children</div><div>DebugId</div>
+                    </div>
+                    <div class="nil-instance-list" id="nilInstancesList">
+                        <div class="logs-empty">Nil instances have not been scanned.</div>
+                    </div>
+                </div>
+
+                <div class="nil-scan-meta">
+                    <div><span class="nil-meta-label">Status</span><span id="nilScanStatus">Not scanned</span></div>
+                    <div><span class="nil-meta-label">Discovery sources</span><span id="nilScanSources">—</span></div>
+                </div>
+            </div>
+
             <!-- ─── Server view (home mode) ────────────────────── -->
             <div class="view" id="viewServer" style="display:none">
                 <div class="server-header"><h2 class="server-title">Server</h2><p class="server-sub">MCP server connectivity and relay topology</p></div>
@@ -392,7 +443,7 @@
                         <div class="settings-control-grid">
                             <div class="settings-field"><label for="settingsStatusRefresh">Connection refresh</label><select id="settingsStatusRefresh"><option value="1000">1 second</option><option value="2000">2 seconds</option><option value="5000">5 seconds</option><option value="10000">10 seconds</option></select></div>
                             <div class="settings-field"><label for="settingsScriptsRefresh">Script refresh</label><select id="settingsScriptsRefresh"><option value="2000">2 seconds</option><option value="5000">5 seconds</option><option value="10000">10 seconds</option><option value="30000">30 seconds</option></select></div>
-                            <div class="settings-field"><label for="settingsDefaultClientView">Open clients on</label><select id="settingsDefaultClientView"><option value="overview">Overview</option><option value="scripts">Scripts</option><option value="tools">Tools</option></select></div>
+                            <div class="settings-field"><label for="settingsDefaultClientView">Open clients on</label><select id="settingsDefaultClientView"><option value="overview">Overview</option><option value="scripts">Scripts</option><option value="nil-instances">Nil Instances</option><option value="tools">Tools</option></select></div>
                             <div class="settings-field"><label for="settingsMaxOutputChars">Default response limit</label><input type="number" id="settingsMaxOutputChars" min="1000" max="32000" step="1000" value="6000"></div>
                         </div>
                         <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="settingsRememberClient" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Remember and reopen the last connected client</span></label>

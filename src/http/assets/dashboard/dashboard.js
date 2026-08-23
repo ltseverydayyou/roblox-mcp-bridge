@@ -29,6 +29,9 @@ let dashboardPreferences = loadDashboardPreferences();
 let statusRefreshTimer = null;
 let scriptsRefreshTimer = null;
 let rememberedClientSuppressed = false;
+let nilInstancesScan = null;
+let nilInstancesSearchQuery = '';
+let nilInstancesCachedLoading = false;
 
 let startTime = Date.now();
 
@@ -58,6 +61,7 @@ const viewServer = $('viewServer');
 const viewSettings = $('viewSettings');
 const viewServerLogs = $('viewServerLogs');
 const viewScripts = $('viewScripts');
+const viewNilInstances = $('viewNilInstances');
 const topbarBack = $('topbarBack');
 const sidebarNavHome = $('sidebarNavHome');
 const sidebarNavClient = $('sidebarNavClient');
@@ -86,13 +90,18 @@ const scriptsCodeMenu = $('scriptsCodeMenu');
 const scriptsCodeSaveBtn = $('scriptsCodeSaveBtn');
 const scriptsCodeView = $('scriptsCodeView');
 const scriptsExportBtn = $('scriptsExportBtn');
+const nilInstancesSearch = $('nilInstancesSearch');
+const nilInstancesCount = $('nilInstancesCount');
+const nilInstancesList = $('nilInstancesList');
+const nilInstancesScanBtn = $('nilInstancesScanBtn');
+const nilInstancesExportBtn = $('nilInstancesExportBtn');
 
 function normalizeDashboardPreferences(value) {
     const source = value && typeof value === 'object' ? value : {};
     const accent = /^#[0-9a-f]{6}$/i.test(source.accent || '') ? source.accent.toLowerCase() : DEFAULT_DASHBOARD_PREFERENCES.accent;
     const density = ['comfortable', 'compact'].includes(source.density) ? source.density : DEFAULT_DASHBOARD_PREFERENCES.density;
     const corners = ['rounded', 'soft', 'square'].includes(source.corners) ? source.corners : DEFAULT_DASHBOARD_PREFERENCES.corners;
-    const defaultClientView = ['overview', 'scripts', 'tools'].includes(source.defaultClientView) ? source.defaultClientView : DEFAULT_DASHBOARD_PREFERENCES.defaultClientView;
+    const defaultClientView = ['overview', 'scripts', 'nil-instances', 'tools'].includes(source.defaultClientView) ? source.defaultClientView : DEFAULT_DASHBOARD_PREFERENCES.defaultClientView;
     const statusRefreshMs = [1000, 2000, 5000, 10000].includes(Number(source.statusRefreshMs)) ? Number(source.statusRefreshMs) : DEFAULT_DASHBOARD_PREFERENCES.statusRefreshMs;
     const scriptsRefreshMs = [2000, 5000, 10000, 30000].includes(Number(source.scriptsRefreshMs)) ? Number(source.scriptsRefreshMs) : DEFAULT_DASHBOARD_PREFERENCES.scriptsRefreshMs;
     const codeFontSize = Math.min(18, Math.max(11, Math.round(Number(source.codeFontSize) || DEFAULT_DASHBOARD_PREFERENCES.codeFontSize)));
@@ -402,7 +411,7 @@ function updateUptime() {
 setInterval(updateUptime, 1000);
 
 /* ── View switching ──────────────────────────────────────── */
-const allViews = () => [viewClients, viewOverview, viewTools, viewServer, viewSettings, viewServerLogs, viewScripts];
+const allViews = () => [viewClients, viewOverview, viewTools, viewServer, viewSettings, viewServerLogs, viewScripts, viewNilInstances];
 
 function setSidebarMode(mode) {
     dashboardMode = mode;
@@ -418,7 +427,7 @@ function showView(name) {
         v.style.display = 'none';
         v.classList.remove('view--entering');
     });
-    const labels = {clients:'Clients',server:'Server','server-logs':'Logs',settings:'Settings',overview:'Overview',tools:'Tools',scripts:'Scripts'};
+    const labels = {clients:'Clients',server:'Server','server-logs':'Logs',settings:'Settings',overview:'Overview',tools:'Tools',scripts:'Scripts','nil-instances':'Nil Instances'};
     topbarSection.textContent = labels[name] || name;
 
     let targetView = null;
@@ -437,6 +446,11 @@ function showView(name) {
         viewScripts.style.display = 'block'; 
         fetchScripts(); 
         if (scriptsData.length > 0 && !scriptsViewingFile) renderScriptsBrowser();
+    }
+    else if (name === 'nil-instances') {
+        targetView = viewNilInstances;
+        viewNilInstances.style.display = 'block';
+        fetchCachedNilInstances();
     }
 
     // Only animate on actual navigation, not on re-entry to the same view
@@ -465,6 +479,7 @@ topbarBack.addEventListener('click', () => {
     rememberedClientSuppressed = true;
     selectedClientId = null;
     resetScriptsState();
+    resetNilInstancesState();
     clientSelectorName.textContent = 'Select Client';
     clientSelectorAvatar.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>';
     setSidebarMode('home');
@@ -1284,7 +1299,10 @@ if (addClientBody) {
 
 /* ── Select client ───────────────────────────────────────── */
 function selectClient(clientId) {
-    if (selectedClientId !== clientId) resetScriptsState();
+    if (selectedClientId !== clientId) {
+        resetScriptsState();
+        resetNilInstancesState();
+    }
     rememberedClientSuppressed = false;
     selectedClientId = clientId;
     const c = clients.find(x => x.clientId === clientId);
@@ -2374,6 +2392,202 @@ async function exportScripts() {
 }
 
 if (scriptsExportBtn) scriptsExportBtn.addEventListener('click', exportScripts);
+
+
+/* ── Nil Instances ───────────────────────────────────────── */
+const NIL_INSTANCE_RENDER_LIMIT = 2000;
+const NIL_INSTANCE_ICON = '<svg class="scripts-ficon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h5"/></svg>';
+
+function resetNilInstancesState() {
+    nilInstancesScan = null;
+    nilInstancesSearchQuery = '';
+    nilInstancesCachedLoading = false;
+    if (nilInstancesSearch) nilInstancesSearch.value = '';
+    renderNilInstances();
+}
+
+function nilScanTimeLabel(value) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function renderNilInstances() {
+    const scan = nilInstancesScan;
+    const rootCount = $('nilRootCount');
+    const capturedCount = $('nilCapturedCount');
+    const scriptCount = $('nilScriptCount');
+    const lastScan = $('nilLastScan');
+    const scanStatus = $('nilScanStatus');
+    const scanSources = $('nilScanSources');
+
+    if (!scan) {
+        if (rootCount) rootCount.textContent = '—';
+        if (capturedCount) capturedCount.textContent = '—';
+        if (scriptCount) scriptCount.textContent = '—';
+        if (lastScan) lastScan.textContent = 'Never';
+        if (scanStatus) { scanStatus.textContent = 'Not scanned'; scanStatus.classList.remove('nil-truncated'); }
+        if (scanSources) scanSources.textContent = '—';
+        if (nilInstancesCount) nilInstancesCount.textContent = 'Not scanned';
+        if (nilInstancesList) nilInstancesList.innerHTML = '<div class="logs-empty">Nil instances have not been scanned. Use Scan Nil Instances when you need them.</div>';
+        if (nilInstancesExportBtn) nilInstancesExportBtn.disabled = true;
+        return;
+    }
+
+    const instances = Array.isArray(scan.instances) ? scan.instances : [];
+    const roots = Number(scan.capturedRoots ?? scan.foundNilInstances ?? instances.filter(item => item.IsNilRoot).length) || 0;
+    const scripts = Number(scan.capturedScripts ?? instances.filter(item => item.IsScript).length) || 0;
+    if (rootCount) rootCount.textContent = String(roots);
+    if (capturedCount) capturedCount.textContent = String(instances.length);
+    if (scriptCount) scriptCount.textContent = String(scripts);
+    if (lastScan) lastScan.textContent = nilScanTimeLabel(scan.scannedAt);
+    if (scanStatus) {
+        scanStatus.textContent = scan.treeTruncated ? `Captured ${instances.length}; tree limit reached` : `Captured ${instances.length} instances`;
+        scanStatus.classList.toggle('nil-truncated', scan.treeTruncated === true);
+    }
+    if (scanSources) scanSources.textContent = Array.isArray(scan.sourcesUsed) && scan.sourcesUsed.length ? scan.sourcesUsed.join(', ') : 'getnilinstances';
+    if (nilInstancesExportBtn) nilInstancesExportBtn.disabled = instances.length === 0;
+
+    const query = nilInstancesSearchQuery.trim().toLowerCase();
+    const filtered = query ? instances.filter(item => {
+        return [item.Name, item.ClassName, item.RelativePath, item.Path, item.DebugId]
+            .some(value => String(value || '').toLowerCase().includes(query));
+    }) : instances;
+    const visible = filtered.slice(0, NIL_INSTANCE_RENDER_LIMIT);
+
+    if (nilInstancesCount) {
+        if (query) nilInstancesCount.textContent = `${filtered.length}/${instances.length} matches`;
+        else nilInstancesCount.textContent = `${instances.length} instance${instances.length === 1 ? '' : 's'}`;
+    }
+
+    if (!nilInstancesList) return;
+    if (filtered.length === 0) {
+        nilInstancesList.innerHTML = '<div class="logs-empty">No nil instances match this search.</div>';
+        return;
+    }
+
+    const rows = visible.map(item => {
+        const depth = Math.max(0, Math.min(40, Number(item.Depth) || 0));
+        const childCount = Math.max(0, Number(item.ChildCount) || 0);
+        const icon = item.IsScript ? FILE_ICON : (childCount > 0 ? FOLDER_ICON : NIL_INSTANCE_ICON);
+        const rootBadge = item.IsNilRoot ? '<span class="nil-root-badge">nil root</span>' : '';
+        const scriptBadge = item.IsScript ? '<span class="nil-script-badge">script</span>' : '';
+        const title = escapeHtml(item.RelativePath || item.Path || item.Name || 'Instance');
+        const debugId = escapeHtml(item.DebugId || '—');
+        return '<div class="nil-frow" title="' + title + '">' +
+            '<div class="nil-fname" style="padding-left:' + (depth * 16) + 'px">' + icon + '<span class="nil-fname-main">' + escapeHtml(item.Name || 'Instance') + '</span>' + rootBadge + scriptBadge + '</div>' +
+            '<div class="nil-fmeta">' + escapeHtml(item.ClassName || 'Instance') + '</div>' +
+            '<div class="nil-fmeta">' + childCount + '</div>' +
+            '<div class="nil-fmeta" title="' + debugId + '">' + debugId + '</div>' +
+            '</div>';
+    }).join('');
+
+    const limited = filtered.length > visible.length
+        ? '<div class="nil-render-note">Showing the first ' + visible.length + ' of ' + filtered.length + ' matching rows. Export still includes the full captured scan.</div>'
+        : '';
+    nilInstancesList.innerHTML = rows + limited;
+}
+
+async function fetchCachedNilInstances() {
+    if (!selectedClientId || nilInstancesCachedLoading) return;
+    const requestedClientId = selectedClientId;
+    nilInstancesCachedLoading = true;
+    try {
+        const res = await fetch('/api/nil-instances?clientId=' + encodeURIComponent(requestedClientId));
+        const data = await res.json();
+        if (selectedClientId !== requestedClientId) return;
+        if (res.ok) {
+            nilInstancesScan = data.scan || null;
+            renderNilInstances();
+        }
+    } catch {
+        // Cached-state lookup is best-effort and never starts a scan.
+    } finally {
+        nilInstancesCachedLoading = false;
+    }
+}
+
+async function scanNilInstances() {
+    if (!selectedClientId || !nilInstancesScanBtn) return;
+    const confirmed = await showConfirmDialog({
+        title: 'Scan nil instances?',
+        desc: 'This manual scan may invoke getnilinstances, getloadedmodules, getgc(false), getreg/getregistry, debug.getregistry, and debug.getupvalue. Nothing is scanned automatically when the MCP connects or when this page opens. Continue?',
+    });
+    if (!confirmed) return;
+
+    const requestedClientId = selectedClientId;
+    const original = nilInstancesScanBtn.innerHTML;
+    nilInstancesScanBtn.disabled = true;
+    nilInstancesScanBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-dasharray="50" stroke-dashoffset="20"/></svg> Scanning…';
+    if ($('nilScanStatus')) $('nilScanStatus').textContent = 'Scanning…';
+
+    try {
+        const res = await fetch('/api/nil-instances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                clientId: requestedClientId,
+                userConfirmedRisk: true,
+                maxTreeNodes: 50000,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || 'Nil-instance scan failed');
+        if (selectedClientId !== requestedClientId) return;
+        nilInstancesScan = data.scan || null;
+        renderNilInstances();
+        const count = Array.isArray(nilInstancesScan?.instances) ? nilInstancesScan.instances.length : 0;
+        showToast(`Captured ${count} nil-instance tree item${count === 1 ? '' : 's'}`, 'success');
+    } catch (error) {
+        if (selectedClientId === requestedClientId) {
+            renderNilInstances();
+            showToast(error.message || 'Nil-instance scan failed', 'error');
+        }
+    } finally {
+        nilInstancesScanBtn.disabled = false;
+        nilInstancesScanBtn.innerHTML = original || 'Scan Nil Instances';
+    }
+}
+
+async function exportNilInstances() {
+    if (!selectedClientId || !nilInstancesExportBtn || !nilInstancesScan) return;
+    const requestedClientId = selectedClientId;
+    const label = nilInstancesExportBtn.querySelector('span');
+    const originalLabel = label?.textContent || 'Export';
+    nilInstancesExportBtn.disabled = true;
+    if (label) label.textContent = 'Preparing…';
+
+    try {
+        const res = await fetch('/api/nil-instances/export?clientId=' + encodeURIComponent(requestedClientId));
+        if (!res.ok) {
+            let message = 'Failed to export nil instances';
+            try {
+                const data = await res.json();
+                if (data.error) message = data.error;
+            } catch {}
+            throw new Error(message);
+        }
+        const blob = await res.blob();
+        const filename = filenameFromContentDisposition(res.headers.get('Content-Disposition'));
+        downloadBlob(blob, filename || 'nil-instances-export.zip');
+        showToast('Exported nil-instance hierarchy and script sources', 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to export nil instances', 'error');
+    } finally {
+        if (label) label.textContent = originalLabel;
+        nilInstancesExportBtn.disabled = !(nilInstancesScan && Array.isArray(nilInstancesScan.instances) && nilInstancesScan.instances.length > 0);
+    }
+}
+
+if (nilInstancesSearch) {
+    nilInstancesSearch.addEventListener('input', () => {
+        nilInstancesSearchQuery = nilInstancesSearch.value || '';
+        renderNilInstances();
+    });
+}
+if (nilInstancesScanBtn) nilInstancesScanBtn.addEventListener('click', scanNilInstances);
+if (nilInstancesExportBtn) nilInstancesExportBtn.addEventListener('click', exportNilInstances);
 
 async function fetchScripts() {
     if (!selectedClientId) return;

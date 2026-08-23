@@ -2826,41 +2826,135 @@ while true do
             sourcesUsed[#sourcesUsed + 1] = "debug.getregistry"
         end
 
+        local maxTreeNodes = math.max(1000, math.min(tonumber(data.maxTreeNodes) or 5000, 100000))
         local recovered = {}
         local recoveredCount = 0
-        for _, v in F do
-            if nilp(v) and scr(v) then
-                recoveredCount += 1
-                local item = {
-                    Name = v.Name,
-                    ClassName = v.ClassName,
-                    Parent = nil,
-                }
-                pcall(function() item.Path = SafeFullName(v) end)
-                pcall(function() item.Archivable = v.Archivable end)
-                pcall(function()
-                    local id = v:GetDebugId()
-                    item.DebugId = id
-                    InstanceByDebugId[id] = v
-                    ScriptInstanceMap[id] = v
-                end)
-                if #recovered < 100 then recovered[#recovered + 1] = item end
+        local capturedScriptCount = 0
+        local capturedRoots = 0
+        local instances = {}
+        local treeTruncated = false
+
+        local function readDebugId(instance)
+            local ok, id = pcall(function() return instance:GetDebugId() end)
+            if ok and typeof(id) == "string" and id ~= "" then return id end
+            return nil
+        end
+
+        local function captureInstance(instance, rootDebugId, parentDebugId, depth, relativePath, isRoot)
+            if #instances >= maxTreeNodes then
+                treeTruncated = true
+                return nil, nil
             end
+
+            local isScript = scr(instance)
+            local item = {
+                Name = tostring(instance.Name),
+                ClassName = tostring(instance.ClassName),
+                Depth = depth,
+                RelativePath = relativePath,
+                RootDebugId = rootDebugId,
+                ParentDebugId = parentDebugId,
+                IsNilRoot = isRoot == true,
+                IsScript = isScript == true,
+            }
+            pcall(function() item.Path = SafeFullName(instance) end)
+            pcall(function() item.Archivable = instance.Archivable end)
+
+            local debugId = readDebugId(instance)
+            if debugId then
+                item.DebugId = debugId
+                InstanceByDebugId[debugId] = instance
+                if isScript then ScriptInstanceMap[debugId] = instance end
+            end
+
+            local children = {}
+            pcall(function() children = instance:GetChildren() end)
+            item.ChildCount = #children
+            instances[#instances + 1] = item
+            if isScript then capturedScriptCount += 1 end
             st()
+            return item, children
+        end
+
+        for _, root in F do
+            if not nilp(root) then
+                st()
+                continue
+            end
+
+            capturedRoots += 1
+            local rootDebugId = readDebugId(root)
+            local rootKey = rootDebugId or ("unresolved:" .. tostring(capturedRoots))
+            local rootName = tostring(root.Name)
+            local queue = {
+                {
+                    instance = root,
+                    parentDebugId = nil,
+                    depth = 0,
+                    relativePath = rootName,
+                }
+            }
+            local queueIndex = 1
+
+            while queueIndex <= #queue do
+                local pending = queue[queueIndex]
+                queueIndex += 1
+                local item, children = captureInstance(
+                    pending.instance,
+                    rootKey,
+                    pending.parentDebugId,
+                    pending.depth,
+                    pending.relativePath,
+                    pending.depth == 0
+                )
+                if not item then break end
+
+                if pending.depth == 0 and item.IsScript then
+                    recoveredCount += 1
+                    if #recovered < 100 then recovered[#recovered + 1] = item end
+                end
+
+                local parentId = item.DebugId
+                for _, child in children do
+                    queue[#queue + 1] = {
+                        instance = child,
+                        parentDebugId = parentId,
+                        depth = pending.depth + 1,
+                        relativePath = pending.relativePath .. "/" .. tostring(child.Name),
+                    }
+                end
+            end
+
+            if treeTruncated then break end
         end
 
         return {
+            scanVersion = 1,
             success = true,
             foundNilInstances = #F,
+            capturedRoots = capturedRoots,
+            capturedInstances = #instances,
+            containedInstances = math.max(0, #instances - capturedRoots),
             recoveredScripts = recoveredCount,
+            capturedScripts = capturedScriptCount,
             functionScans = fc,
             tableScans = tc,
             operations = ops,
             sourcesUsed = sourcesUsed,
+            instances = instances,
+            maxTreeNodes = maxTreeNodes,
+            treeTruncated = treeTruncated,
             recovered = recovered,
             recoveredTruncated = recoveredCount > #recovered,
-            note = "Original nil LuaSourceContainers are cached by DebugId for direct MCP follow-up; no cloning or reparenting is performed.",
+            note = "Original nil roots and their contained descendants are cached by DebugId for direct MCP follow-up; no cloning or reparenting is performed.",
         }
+    end)
+
+    -- Dashboard-only raw form. This is never invoked during startup: the dashboard calls it
+    -- only after the user manually starts a nil-instance scan and confirms the risky methods.
+    Bridge:BindToTypeRaw("scan-nil-instances", function(data)
+        local result = Bridge.Callbacks["recover-nil-scripts"](data)
+        return HttpService:JSONEncode(result)
     end)
 
     Bridge:BindToType("create-console-cursor", function(data)
