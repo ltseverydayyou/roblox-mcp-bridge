@@ -1,8 +1,8 @@
-import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { downloadOpenAIFile } from "../../../files/chatgpt-file.js";
+import { stageChatGptTextFile, stageOpenAIFile } from "../../../files/chatgpt-file.js";
 import { detectRiskyExecutorMethods, riskConfirmationMessage, sendFireAndForget, toolTextResponse } from "../../factory.js";
 import { threadContextSchema } from "../../schemas.js";
 import { openAIFileInputSchema } from "./file-schema.js";
@@ -86,7 +86,7 @@ export default function register(server: McpServer): void {
     {
       title: "Execute a ChatGPT Luau file",
       description:
-        "Execute a ChatGPT Luau attachment or generated file in the active Roblox client. Preferred: pass file as the complete ChatGPT-injected file object, never a /mnt/data pathname or bare file_id. Fallback: read the sandbox file and pass its complete text as source with fileName. Do not use LZ4, Base64, or chunked transfer workarounds. If the code calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true.",
+        "Execute a ChatGPT Luau attachment or generated file in the active Roblox client. The bridge stages it in a real writable MCP-host/Android file, reads it back from that path, and then executes it. Preferred: pass file as the complete ChatGPT-injected file object, never a /mnt/data pathname or bare file_id. Fallback: read the sandbox file and pass its complete text as source with fileName. Do not use LZ4, Base64, or chunked transfer workarounds. If the code calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true.",
       inputSchema: z
         .object({
           file: openAIFileInputSchema
@@ -131,25 +131,14 @@ export default function register(server: McpServer): void {
           );
         }
 
-        const downloaded = file
-          ? await downloadOpenAIFile(file, MAX_EXECUTABLE_FILE_BYTES)
-          : (() => {
-              const bytes = Buffer.from(inlineSource!, "utf8");
-              if (bytes.length > MAX_EXECUTABLE_FILE_BYTES) {
-                throw new Error(`Inline source exceeds the ${MAX_EXECUTABLE_FILE_BYTES}-byte limit.`);
-              }
-              return {
-                bytes,
-                fileId: "inline-source",
-                fileName: path.basename(fileName || "chatgpt-inline.luau"),
-                mimeType: "text/plain; charset=utf-8",
-                sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
-              };
-            })();
-        const extension = path.extname(downloaded.fileName).toLowerCase();
+        const staged = file
+          ? await stageOpenAIFile(file, MAX_EXECUTABLE_FILE_BYTES)
+          : await stageChatGptTextFile(fileName, inlineSource!, MAX_EXECUTABLE_FILE_BYTES);
+        const bytes = await fs.readFile(staged.localPath);
+        const extension = path.extname(staged.fileName).toLowerCase();
         if (extension && !EXECUTABLE_EXTENSIONS.has(extension)) {
           return toolTextResponse(
-            `Refusing to execute ${downloaded.fileName}: expected a .lua, .luau, or .txt file. ` +
+            `Refusing to execute ${staged.fileName}: expected a .lua, .luau, or .txt file. ` +
               "Use import-chatgpt-files for non-code attachments.",
             {},
             true
@@ -158,10 +147,10 @@ export default function register(server: McpServer): void {
 
         let decoded: DecodedChatGptLuauSource;
         try {
-          decoded = decodeChatGptLuauSource(downloaded.bytes);
+          decoded = decodeChatGptLuauSource(bytes);
         } catch {
           return toolTextResponse(
-            `Refusing to execute ${downloaded.fileName}: its text encoding could not be decoded safely.`,
+            `Refusing to execute ${staged.fileName}: its text encoding could not be decoded safely.`,
             {},
             true
           );
@@ -169,7 +158,7 @@ export default function register(server: McpServer): void {
         const source = normalizeChatGptLuauSource(decoded.source);
         if (source.includes("\0")) {
           return toolTextResponse(
-            `Refusing to execute ${downloaded.fileName}: the source contains NUL bytes.`,
+            `Refusing to execute ${staged.fileName}: the source contains NUL bytes.`,
             {},
             true
           );
@@ -181,14 +170,14 @@ export default function register(server: McpServer): void {
         }
 
         console.error(
-          `[ChatGPT File] Executing ${downloaded.fileName} (${downloaded.bytes.length} bytes, encoding=${decoded.encoding}, sha256=${downloaded.sha256}) in thread ${threadContext}...`
+          `[ChatGPT File] Executing ${staged.fileName} from ${staged.localPath} (${bytes.length} bytes, encoding=${decoded.encoding}, sha256=${staged.sha256}) in thread ${threadContext}...`
         );
         return sendFireAndForget({
           type: "execute",
           data: { source: `setthreadidentity(${threadContext})\n${source}`, userConfirmedRisk: userConfirmedRisk === true },
           successMessage:
-            `${file ? "Downloaded and executed" : "Received and executed inline source for"} ${downloaded.fileName} ` +
-            `(${downloaded.bytes.length} bytes, source encoding ${decoded.encoding}, sha256=${downloaded.sha256}, thread context ${threadContext}).`,
+            `Staged and executed file path: ${staged.localPath} (${staged.fileName}, ${bytes.length} bytes, ` +
+            `source encoding ${decoded.encoding}, sha256=${staged.sha256}, thread context ${threadContext}).`,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

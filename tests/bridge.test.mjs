@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
@@ -20,7 +23,9 @@ import { HttpBodyTooLargeError, readBody } from "../dist/http/body.js";
 import { WS as registerRelaySocket } from "../dist/http/routes/mcp-relay.js";
 import {
   downloadOpenAIFile,
+  getChatGptUploadDirectory,
   sanitizeUploadedFileName,
+  stageChatGptTextFile,
   validateChatGptDownloadUrl,
 } from "../dist/files/chatgpt-file.js";
 import {
@@ -349,6 +354,57 @@ test("ChatGPT file URLs require public HTTPS destinations", () => {
 test("ChatGPT filenames cannot escape the staging directory", () => {
   assert.equal(sanitizeUploadedFileName("../../payload.luau", "file_123"), "payload.luau");
   assert.equal(sanitizeUploadedFileName("bad:name?.lua", "file_123"), "bad_name_.lua");
+});
+
+test("inline ChatGPT Luau is staged and read from a real MCP-host file", async () => {
+  const uploadDir = await fs.mkdtemp(path.join(os.tmpdir(), "roblox-mcp-chatgpt-test-"));
+  const previous = process.env.ROBLOX_MCP_UPLOAD_DIR;
+  process.env.ROBLOX_MCP_UPLOAD_DIR = uploadDir;
+  const source = 'print("Hello from the staged ChatGPT file!")\n';
+
+  try {
+    const staged = await stageChatGptTextFile("print_test.luau", source, 1024);
+    assert.equal(path.dirname(staged.localPath), uploadDir);
+    assert.match(path.basename(staged.localPath), /^print_test-[a-f0-9]{10}\.luau$/);
+    assert.equal(await fs.readFile(staged.localPath, "utf8"), source);
+    assert.equal(staged.size, Buffer.byteLength(source));
+  } finally {
+    if (previous === undefined) delete process.env.ROBLOX_MCP_UPLOAD_DIR;
+    else process.env.ROBLOX_MCP_UPLOAD_DIR = previous;
+    await fs.rm(uploadDir, { recursive: true, force: true });
+  }
+});
+
+test("Android staging falls back to the writable app home instead of /tmp", async () => {
+  const androidHome = await fs.mkdtemp(path.join(os.tmpdir(), "roblox-mcp-android-home-"));
+  const previous = {
+    upload: process.env.ROBLOX_MCP_UPLOAD_DIR,
+    tmpdir: process.env.TMPDIR,
+    home: process.env.HOME,
+    androidData: process.env.ANDROID_DATA,
+  };
+  delete process.env.ROBLOX_MCP_UPLOAD_DIR;
+  delete process.env.TMPDIR;
+  process.env.HOME = androidHome;
+  process.env.ANDROID_DATA = "/data";
+
+  try {
+    assert.equal(
+      getChatGptUploadDirectory(),
+      path.join(androidHome, "roblox-mcp-bridge", "chatgpt-files")
+    );
+  } finally {
+    for (const [key, value] of Object.entries({
+      ROBLOX_MCP_UPLOAD_DIR: previous.upload,
+      TMPDIR: previous.tmpdir,
+      HOME: previous.home,
+      ANDROID_DATA: previous.androidData,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await fs.rm(androidHome, { recursive: true, force: true });
+  }
 });
 
 test("ChatGPT Luau attachments are normalized for executor transport", () => {

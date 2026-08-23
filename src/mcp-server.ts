@@ -15,7 +15,7 @@ export function createMcpServer(): McpServer {
     {
       instructions: [
         "Roblox executor MCP server. Recommended workflow to keep results small and accurate:",
-        "CHATGPT FILE ROUTING: For an attached or generated Luau file, call execute-chatgpt-luau with the complete host-injected file object. Never pass a /mnt/data path or bare file_id as file. If ChatGPT cannot inject that object, read the sandbox file and pass its complete text in execute-chatgpt-luau.source with fileName. Never invent LZ4, Base64, or chunked transfer workarounds.",
+        "CHATGPT FILE ROUTING: For an attached or generated Luau file, call execute-chatgpt-luau with the complete host-injected file object. The tool stages it to a real writable MCP-host/Android file, reads it back from that exact path, executes it, and returns the staged path. Never pass a /mnt/data path or bare file_id as file. If ChatGPT cannot inject that object, read the sandbox file and pass its complete text in execute-chatgpt-luau.source with fileName; that fallback is also staged before execution. Never invent LZ4, Base64, or chunked transfer workarounds.",
         "1. If multiple clients may be connected, call list-clients then set-active-client before anything else.",
         "ChatGPT sandbox paths are not visible to the MCP host. For files physically on the MCP host, call execute-file with filePath only.",
         "2. Explore structure cheaply first: get-descendants-tree (summaryOnly) or search-instances with a tight selector and low limit; widen only when needed. Prefer returned DebugIds for exact follow-up targeting.",

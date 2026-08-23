@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import fs from "fs";
 import path from "node:path";
 import { z } from "zod";
+import { stageChatGptTextFile } from "../../../files/chatgpt-file.js";
 import { detectRiskyExecutorMethods, riskConfirmationMessage, sendFireAndForget, toolTextResponse } from "../../factory.js";
 import { threadContextSchema } from "../../schemas.js";
 
@@ -13,7 +14,7 @@ export default function register(server: McpServer): void {
     {
       title: "Execute a Luau file in the Roblox Game Client",
       description:
-        "Execute a .luau/.lua file in the active Roblox client without returning output. Use this for a file physically stored on the MCP host. For ChatGPT attachments or /mnt/data generated files, prefer execute-chatgpt-luau with its host-injected file object or complete source fallback; never pass a sandbox path, Base64, LZ4, or chunks. If the source calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true.",
+        "Execute a .luau/.lua file in the active Roblox client without returning output. A physical MCP-host filePath is read directly. Inline source is first staged as a real file in the MCP host's writable ChatGPT cache, read back from that path, and then executed. For ChatGPT attachments, prefer execute-chatgpt-luau with its host-injected file object; never pass a sandbox path, Base64, LZ4, or chunks. If the source calls potentially detectable executor introspection/hooking methods, ask the user for confirmation first and set userConfirmedRisk=true.",
       inputSchema: z.object({
         filePath: z
           .string()
@@ -38,6 +39,7 @@ export default function register(server: McpServer): void {
     async ({ filePath, source, fileName, threadContext, userConfirmedRisk }) => {
       let code: string;
       let displayName: string;
+      let executedPath: string;
 
       if (source !== undefined) {
         const sourceBytes = Buffer.byteLength(source, "utf8");
@@ -49,8 +51,10 @@ export default function register(server: McpServer): void {
           );
         }
 
-        code = source;
         displayName = fileName || (filePath ? path.basename(filePath) : "inline-source.luau");
+        const staged = await stageChatGptTextFile(displayName, source, MAX_INLINE_SOURCE_BYTES);
+        executedPath = staged.localPath;
+        code = fs.readFileSync(executedPath, "utf-8");
       } else {
         if (!filePath) {
           return toolTextResponse(
@@ -69,6 +73,7 @@ export default function register(server: McpServer): void {
 
         code = fs.readFileSync(filePath, "utf-8");
         displayName = fileName || filePath;
+        executedPath = filePath;
       }
 
       const riskyMethods = detectRiskyExecutorMethods(code);
@@ -76,12 +81,12 @@ export default function register(server: McpServer): void {
         return toolTextResponse(riskConfirmationMessage(riskyMethods), {}, true);
       }
 
-      console.error(`Executing file ${displayName} in thread ${threadContext}...`);
+      console.error(`Executing file ${displayName} from ${executedPath} in thread ${threadContext}...`);
 
       return sendFireAndForget({
         type: "execute",
         data: { source: `setthreadidentity(${threadContext})\n${code}`, userConfirmedRisk: userConfirmedRisk === true },
-        successMessage: `File executed: ${displayName} (thread context ${threadContext})`,
+        successMessage: `Staged and executed file path: ${executedPath} (${displayName}, thread context ${threadContext})`,
       });
     }
   );

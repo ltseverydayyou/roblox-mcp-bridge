@@ -170,17 +170,23 @@ export async function downloadOpenAIFile(
 }
 
 export function getChatGptUploadDirectory(): string {
+  const isAndroidRuntime =
+    process.platform === "android" ||
+    Boolean(process.env.ANDROID_ROOT || process.env.ANDROID_DATA);
+  const temporaryRoot =
+    process.env.TMPDIR ||
+    (isAndroidRuntime ? process.env.HOME : undefined) ||
+    os.tmpdir();
+
   return path.resolve(
     process.env.ROBLOX_MCP_UPLOAD_DIR ||
-      path.join(os.tmpdir(), "roblox-mcp-bridge", "chatgpt-files")
+      path.join(temporaryRoot, "roblox-mcp-bridge", "chatgpt-files")
   );
 }
 
-export async function stageOpenAIFile(
-  input: OpenAIFileInput,
-  maxBytes: number = MAX_CHATGPT_FILE_BYTES
+async function stageDownloadedOpenAIFile(
+  downloaded: DownloadedOpenAIFile
 ): Promise<StagedOpenAIFile> {
-  const downloaded = await downloadOpenAIFile(input, maxBytes);
   const uploadDir = getChatGptUploadDirectory();
   await fs.mkdir(uploadDir, { recursive: true });
 
@@ -206,4 +212,32 @@ export async function stageOpenAIFile(
     mimeType: downloaded.mimeType,
     sha256: downloaded.sha256,
   };
+}
+
+export async function stageOpenAIFile(
+  input: OpenAIFileInput,
+  maxBytes: number = MAX_CHATGPT_FILE_BYTES
+): Promise<StagedOpenAIFile> {
+  return stageDownloadedOpenAIFile(await downloadOpenAIFile(input, maxBytes));
+}
+
+export async function stageChatGptTextFile(
+  fileName: string | undefined,
+  source: string,
+  maxBytes: number = MAX_CHATGPT_FILE_BYTES
+): Promise<StagedOpenAIFile> {
+  const bytes = Buffer.from(source, "utf8");
+  if (bytes.length > maxBytes) {
+    throw new Error(`Inline source exceeds the ${maxBytes}-byte limit.`);
+  }
+
+  const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  const fileId = `inline-${sha256}`;
+  return stageDownloadedOpenAIFile({
+    bytes,
+    fileId,
+    fileName: sanitizeUploadedFileName(fileName || "chatgpt-inline.luau", fileId),
+    mimeType: "text/plain; charset=utf-8",
+    sha256,
+  });
 }
