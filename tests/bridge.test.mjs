@@ -23,7 +23,10 @@ import {
   sanitizeUploadedFileName,
   validateChatGptDownloadUrl,
 } from "../dist/files/chatgpt-file.js";
-import { normalizeChatGptLuauSource } from "../dist/tools/impl/files/execute-chatgpt-luau.js";
+import {
+  decodeChatGptLuauSource,
+  normalizeChatGptLuauSource,
+} from "../dist/tools/impl/files/execute-chatgpt-luau.js";
 import { compareVersions } from "../dist/update/checker.js";
 import { SERVER_VERSION } from "../dist/version.js";
 import {
@@ -353,6 +356,34 @@ test("ChatGPT Luau attachments are normalized for executor transport", () => {
     "local value = 1\nprint(value)\n"
   );
   assert.equal(normalizeChatGptLuauSource("print('already normalized')\n"), "print('already normalized')\n");
+});
+
+test("ChatGPT Luau attachments accept common Windows text encodings", () => {
+  const utf16leBody = Buffer.from("print('utf16')\r\n", "utf16le");
+  const utf16le = Buffer.concat([Buffer.from([0xff, 0xfe]), utf16leBody]);
+  assert.deepEqual(decodeChatGptLuauSource(utf16le), {
+    source: "print('utf16')\r\n",
+    encoding: "utf-16le",
+  });
+
+  const utf16beBody = Buffer.from(utf16leBody);
+  for (let index = 0; index < utf16beBody.length; index += 2) {
+    [utf16beBody[index], utf16beBody[index + 1]] = [utf16beBody[index + 1], utf16beBody[index]];
+  }
+  const utf16be = Buffer.concat([Buffer.from([0xfe, 0xff]), utf16beBody]);
+  assert.deepEqual(decodeChatGptLuauSource(utf16be), {
+    source: "print('utf16')\r\n",
+    encoding: "utf-16be",
+  });
+
+  assert.deepEqual(decodeChatGptLuauSource(utf16leBody), {
+    source: "print('utf16')\r\n",
+    encoding: "utf-16le",
+  });
+  assert.deepEqual(decodeChatGptLuauSource(Buffer.from([0x2d, 0x2d, 0x20, 0x93, 0x70, 0x61, 0x74, 0x63, 0x68, 0x94])), {
+    source: "-- “patch”",
+    encoding: "windows-1252",
+  });
 });
 
 test("ChatGPT file redirects are validated before following them", async () => {
