@@ -2733,8 +2733,11 @@ function renderScriptsBrowser() {
         const childNode = getScriptChildNode(node, s);
         const childCount = childNode ? countScriptsRecursive(childNode) : 0;
         const sourceAvailable = s.sourceAvailable !== false;
+        const sourcePending = !sourceAvailable && s.sourceError === 'Source mapping pending.';
+        const sourceStatusText = sourcePending ? 'mapping pending' : 'source unavailable';
+        const sourceStatusTitle = sourceAvailable ? '' : ' title="' + escapeHtml(s.sourceError || 'The executor could not read or decompile this script.') + '"';
         html += '<div class="scripts-frow scripts-frow--file' + (childNode ? ' scripts-frow--hybrid' : '') + (sourceAvailable ? '' : ' scripts-frow--unavailable') + '" data-debug-id="' + escapeHtml(s.debugId) + '" data-path="' + escapeHtml(s.path) + '">';
-        html += '<div class="scripts-fname">' + FILE_ICON + '<span class="scripts-fname-text">' + escapeHtml(s.name) + '</span>' + (childCount ? '<span class="scripts-fname-count">' + childCount + ' children</span>' : '') + (sourceAvailable ? '' : '<span class="scripts-source-unavailable">source unavailable</span>') + '</div>';
+        html += '<div class="scripts-fname">' + FILE_ICON + '<span class="scripts-fname-text">' + escapeHtml(s.name) + '</span>' + (childCount ? '<span class="scripts-fname-count">' + childCount + ' children</span>' : '') + (sourceAvailable ? '' : '<span class="scripts-source-unavailable"' + sourceStatusTitle + '>' + sourceStatusText + '</span>') + '</div>';
         html += '<div class="scripts-fmeta">' + (sourceAvailable ? s.lines : '—') + '</div>';
         html += '<div class="scripts-fmeta">' + (sourceAvailable ? formatBytes(s.bytes) : '—') + '</div>';
         html += '<div class="scripts-fmeta scripts-factions">';
@@ -2993,7 +2996,7 @@ async function openScriptSource(debugId, lineNumber = null) {
         // Update code info bar
         $('scriptsCodeInfo').textContent = scriptsViewingFileSourceAvailable
             ? lines.length + ' lines (' + lines.filter(l => l.trim()).length + ' loc) · ' + formatBytes(data.source.length)
-            : 'Source unavailable from executor';
+            : (data.sourceError || 'Source unavailable from executor');
 
         // Build line number gutter
         let gutterHtml = '';

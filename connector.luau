@@ -1066,6 +1066,9 @@ local MarkScriptProcessed
 local ActiveBridge = nil
 local ScriptSourceCacheByHash = {}
 local ScriptHashByDebugId = {}
+local ScriptMappingRetryCountByDebugId = {}
+local ScriptMappingRetryScheduledByDebugId = {}
+local MaxImmediateScriptMappingRetries = 3
 local ReconcileScriptHierarchyMetadata
 local QueueScriptForMapping
 
@@ -1443,11 +1446,37 @@ end
 MarkScriptProcessed = function(debugId, uploaded)
     if MappedScriptIds[debugId] then return end
 
-    MappedScriptIds[debugId] = true
     QueuedScriptIds[debugId] = nil
     SourcesProcessed += 1
+
     if uploaded then
+        MappedScriptIds[debugId] = true
+        ScriptMappingRetryCountByDebugId[debugId] = nil
+        ScriptMappingRetryScheduledByDebugId[debugId] = nil
         MappedSources += 1
+    else
+        local retryCount = (ScriptMappingRetryCountByDebugId[debugId] or 0) + 1
+        ScriptMappingRetryCountByDebugId[debugId] = retryCount
+
+        if retryCount <= MaxImmediateScriptMappingRetries and not ScriptMappingRetryScheduledByDebugId[debugId] then
+            ScriptMappingRetryScheduledByDebugId[debugId] = true
+            local retryDelay = math.min(8, 2 ^ (retryCount - 1))
+            task.delay(retryDelay, function()
+                ScriptMappingRetryScheduledByDebugId[debugId] = nil
+                if MappedScriptIds[debugId] or QueuedScriptIds[debugId] then return end
+                if not IsScriptMappingTransportReady(ScriptSourceUploadClientId) then return end
+
+                local script = ScriptInstanceMap[debugId]
+                if not script then return end
+
+                local ok, isScript = pcall(function()
+                    return script:IsA("LuaSourceContainer")
+                end)
+                if not ok or not isScript then return end
+
+                QueueScriptForMapping(script)
+            end)
+        end
     end
 
     if SourcesProcessed >= SourcesToMap then
@@ -1544,6 +1573,9 @@ local function IsCandidateScriptForMapping(script)
     local IsAlreadyQueued = QueuedScriptIds[debugId]
     if IsAlreadyQueued then return false end
 
+    if ScriptMappingRetryScheduledByDebugId[debugId] then return false end
+    if (ScriptMappingRetryCountByDebugId[debugId] or 0) > MaxImmediateScriptMappingRetries then return false end
+
     return true
 end
 
@@ -1620,8 +1652,6 @@ QueueScriptForMapping = function(script, prepared)
     local debugId = script:GetDebugId()
     if MappedScriptIds[debugId] or QueuedScriptIds[debugId] then return end
 
-    if not prepared then prepared = PrepareScriptForMapping(script, true) end
-
     QueuedScriptIds[debugId] = true
     SourcesToMap += 1
     ScriptMappingFinished = false
@@ -1670,30 +1700,15 @@ local function StartScriptMapping(clientId)
 
         UploadScriptMetadata(clientId, VisibleScripts)
 
-        local hashesToFetch = {}
         for _, script in ipairs(CandidateScripts) do
-            local scriptHash = GetScriptHashForInstance(script)
-            if scriptHash then
-                table.insert(hashesToFetch, scriptHash)
-            end
-        end
-        FetchCachedScriptSources(clientId, hashesToFetch)
-
-        local ScriptsToMap = {}
-        for _, script in ipairs(CandidateScripts) do
-            local prepared = PrepareScriptForMapping(script, false)
             QueuedScriptIds[script:GetDebugId()] = true
-            table.insert(ScriptsToMap, {
-                script = script,
-                prepared = prepared,
-            })
         end
 
-        SourcesToMap += #ScriptsToMap
+        SourcesToMap += #CandidateScripts
         PublishScriptMappingStatus(false)
 
-        for idx, item in ScriptsToMap do
-            task.defer(MappedSourceLimiter.QueueOperation, MappedSourceLimiter, item.script, item.prepared)
+        for idx, script in CandidateScripts do
+            task.defer(MappedSourceLimiter.QueueOperation, MappedSourceLimiter, script)
             if idx % 250 == 0 then task.wait(0.1) end
         end
 
@@ -1713,6 +1728,8 @@ local function ResetScriptMappingState(clientId)
     ScriptMappingFinished = false
     ScriptSourceUploadClientId = clientId
     ScriptHashByDebugId = {}
+    ScriptMappingRetryCountByDebugId = {}
+    ScriptMappingRetryScheduledByDebugId = {}
 
     if ScriptDescendantAddedConnection then
         ScriptDescendantAddedConnection:Disconnect()

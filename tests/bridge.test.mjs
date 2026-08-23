@@ -118,6 +118,10 @@ test("the connector publishes script hierarchy metadata before source mapping", 
   assert.match(connector, /if IsCandidateScriptForMapping\(script\) then\s+QueueScriptForMapping\(script\)/);
   assert.match(connector, /if not source then\s+local builtinSource, builtinLatencyMs = TryBuiltInDecompile\(script\)/);
   assert.match(connector, /source = normalizedSource or builtinSource/);
+  assert.doesNotMatch(connector, /local ScriptsToMap = \{\}/);
+  assert.match(connector, /task\.defer\(MappedSourceLimiter\.QueueOperation, MappedSourceLimiter, script\)/);
+  assert.match(connector, /ScriptMappingRetryCountByDebugId/);
+  assert.match(connector, /QueueScriptForMapping\(script\)/);
 });
 
 test("metadata reconciliation cannot downgrade a mapped source or replace its source error", () => {
@@ -146,6 +150,34 @@ test("metadata reconciliation cannot downgrade a mapped source or replace its so
   assert.equal(script.sourceAvailable, true);
   assert.equal(script.source, "print('mapped')");
   assert.equal(script.sourceError, undefined);
+  clearScriptSourceIndex(identity.clientId);
+});
+
+test("metadata reconciliation preserves a specific decompile failure", () => {
+  const identity = { clientId: "failed-source-client", placeId: 2, jobId: "failed-source-job" };
+  clearScriptSourceIndex(identity.clientId);
+  upsertScriptSources(identity, {
+    scripts: [{
+      debugId: "failed-script",
+      path: "Players.Player.PlayerScripts.Client",
+      className: "LocalScript",
+      sourceAvailable: false,
+      sourceError: "HTTP 503: decompiler provider is starting",
+    }],
+  });
+  upsertScriptSources(identity, {
+    scripts: [{
+      debugId: "failed-script",
+      path: "Players.Player.PlayerScripts.Client",
+      className: "LocalScript",
+      sourceAvailable: false,
+      sourceError: "Source is unavailable in the current client context.",
+    }],
+  });
+
+  const script = getScriptSourceIndex(identity).scripts[0];
+  assert.equal(script.sourceAvailable, false);
+  assert.equal(script.sourceError, "HTTP 503: decompiler provider is starting");
   clearScriptSourceIndex(identity.clientId);
 });
 

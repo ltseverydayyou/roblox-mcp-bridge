@@ -86,6 +86,11 @@ function normalizeShortText(value: unknown, maxLength: number): string | undefin
   return trimmed.slice(0, maxLength);
 }
 
+function isPlaceholderSourceError(value: string | undefined): boolean {
+  return value === "Source mapping pending." ||
+    value === "Source is unavailable in the current client context.";
+}
+
 function getOrCreateStore(identity: ScriptSourceStoreIdentity): ClientScriptSourceStore {
   let store = storesByClientId.get(identity.clientId);
   if (!store || store.placeId !== identity.placeId || store.jobId !== identity.jobId) {
@@ -140,8 +145,19 @@ export function upsertScriptSources(
     const source = typeof script.source === "string" ? script.source : "";
     const sourceHash = hashSource(source);
     const scriptHash = normalizeScriptHash(script.scriptHash);
-    const sourceError = normalizeShortText(script.sourceError, 1000);
+    let sourceError = normalizeShortText(script.sourceError, 1000);
     const className = normalizeShortText(script.className, 100);
+
+    if (
+      existing &&
+      !existing.sourceAvailable &&
+      !sourceAvailable &&
+      isPlaceholderSourceError(sourceError) &&
+      existing.sourceError &&
+      !isPlaceholderSourceError(existing.sourceError)
+    ) {
+      sourceError = existing.sourceError;
+    }
 
     if (existing?.sourceAvailable && !sourceAvailable) {
       store.scripts.set(script.debugId, {
