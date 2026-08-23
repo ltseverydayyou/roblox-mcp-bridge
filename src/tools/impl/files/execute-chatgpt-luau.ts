@@ -9,6 +9,13 @@ import { openAIFileInputSchema } from "./file-schema.js";
 const MAX_EXECUTABLE_FILE_BYTES = 8 * 1024 * 1024;
 const EXECUTABLE_EXTENSIONS = new Set([".lua", ".luau", ".txt"]);
 
+export function normalizeChatGptLuauSource(source: string): string {
+  // Some ChatGPT attachments retain Windows line endings or a UTF-8 BOM.
+  // Normalize both before prepending the thread identity so executor parsers
+  // receive the same source that ChatGPT's direct-source fallback would send.
+  return source.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
 export default function register(server: McpServer): void {
   server.registerTool(
     "execute-chatgpt-luau",
@@ -54,6 +61,7 @@ export default function register(server: McpServer): void {
             true
           );
         }
+        source = normalizeChatGptLuauSource(source);
         if (source.includes("\0")) {
           return toolTextResponse(
             `Refusing to execute ${downloaded.fileName}: the source contains NUL bytes.`,

@@ -23,6 +23,7 @@ import {
   sanitizeUploadedFileName,
   validateChatGptDownloadUrl,
 } from "../dist/files/chatgpt-file.js";
+import { normalizeChatGptLuauSource } from "../dist/tools/impl/files/execute-chatgpt-luau.js";
 import { compareVersions } from "../dist/update/checker.js";
 import { SERVER_VERSION } from "../dist/version.js";
 import {
@@ -344,6 +345,14 @@ test("ChatGPT file URLs require public HTTPS destinations", () => {
 test("ChatGPT filenames cannot escape the staging directory", () => {
   assert.equal(sanitizeUploadedFileName("../../payload.luau", "file_123"), "payload.luau");
   assert.equal(sanitizeUploadedFileName("bad:name?.lua", "file_123"), "bad_name_.lua");
+});
+
+test("ChatGPT Luau attachments are normalized for executor transport", () => {
+  assert.equal(
+    normalizeChatGptLuauSource("\uFEFFlocal value = 1\r\nprint(value)\r"),
+    "local value = 1\nprint(value)\n"
+  );
+  assert.equal(normalizeChatGptLuauSource("print('already normalized')\n"), "print('already normalized')\n");
 });
 
 test("ChatGPT file redirects are validated before following them", async () => {
