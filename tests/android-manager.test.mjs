@@ -214,6 +214,15 @@ test("built-in console keeps vertical touch gestures inside its own scroller", (
   assert.match(mainActivity, /canScrollVertically/);
 });
 
+test("Android manager motion is lightweight and follows the system animation setting", () => {
+  assert.match(activityLayout, /android:id="@\+id\/contentRoot"/);
+  assert.match(activityLayout, /android:animateLayoutChanges="true"/);
+  assert.match(mainActivity, /ValueAnimator\.areAnimatorsEnabled\(\)/);
+  assert.match(mainActivity, /animateScreenEntrance\(\)/);
+  assert.match(mainActivity, /scaleX\(pressed \? 0\.97f : 1f\)/);
+  assert.match(mainActivity, /setStatusBusy\(tunnelStatus, true\)/);
+});
+
 test("app updates download, verify, and invoke Android's installer without a browser", () => {
   assert.match(updateChecker, /RobloxMcpManager-Android-v/);
   assert.match(updateChecker, /releases\?per_page=20/);

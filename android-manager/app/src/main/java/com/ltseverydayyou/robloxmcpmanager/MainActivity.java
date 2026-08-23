@@ -1,6 +1,8 @@
 package com.ltseverydayyou.robloxmcpmanager;
 
 import android.Manifest;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
@@ -15,6 +17,9 @@ import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Base64;
 import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -39,6 +44,8 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 public final class MainActivity extends Activity {
     private static final String PREFS = "manager_settings";
@@ -64,6 +71,7 @@ public final class MainActivity extends Activity {
     private TextView gptFilesSummary;
     private LinearLayout gptFilesContainer;
     private File pendingGptExport;
+    private final Map<TextView, ObjectAnimator> busyStatusAnimators = new IdentityHashMap<>();
     private static final int REQUEST_EXPORT_GPT_FILE = 7134;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -73,6 +81,8 @@ public final class MainActivity extends Activity {
         bindViews();
         loadSettings();
         wireActions();
+        installButtonMotion(findViewById(R.id.contentRoot));
+        animateScreenEntrance();
         updateLanAddress();
         outputView.setMovementMethod(new ScrollingMovementMethod());
         outputView.setOnTouchListener((view, event) -> {
@@ -118,6 +128,71 @@ public final class MainActivity extends Activity {
     @Override protected void onStop() {
         saveSettings();
         super.onStop();
+    }
+
+    @Override protected void onDestroy() {
+        for (ObjectAnimator animator : busyStatusAnimators.values()) animator.cancel();
+        busyStatusAnimators.clear();
+        super.onDestroy();
+    }
+
+    private boolean animationsEnabled() {
+        return ValueAnimator.areAnimatorsEnabled();
+    }
+
+    private void animateScreenEntrance() {
+        ViewGroup root = findViewById(R.id.contentRoot);
+        if (root == null || !animationsEnabled()) return;
+        float offset = 14f * getResources().getDisplayMetrics().density;
+        for (int index = 0; index < root.getChildCount(); index++) {
+            View child = root.getChildAt(index);
+            child.setAlpha(0f);
+            child.setTranslationY(offset);
+            child.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setStartDelay(Math.min(index, 9) * 45L)
+                .setDuration(280L)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
+        }
+    }
+
+    private void installButtonMotion(View view) {
+        if (view instanceof Button) {
+            view.setOnTouchListener((button, event) -> {
+                if (!animationsEnabled() || !button.isEnabled()) return false;
+                int action = event.getActionMasked();
+                boolean pressed = action == MotionEvent.ACTION_DOWN;
+                if (pressed || action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    button.animate().cancel();
+                    button.animate()
+                        .scaleX(pressed ? 0.97f : 1f)
+                        .scaleY(pressed ? 0.97f : 1f)
+                        .setDuration(pressed ? 70L : 140L)
+                        .setInterpolator(new DecelerateInterpolator())
+                        .start();
+                }
+                return false;
+            });
+            return;
+        }
+        if (!(view instanceof ViewGroup)) return;
+        ViewGroup group = (ViewGroup) view;
+        for (int index = 0; index < group.getChildCount(); index++) installButtonMotion(group.getChildAt(index));
+    }
+
+    private void setStatusBusy(TextView view, boolean busy) {
+        ObjectAnimator current = busyStatusAnimators.remove(view);
+        if (current != null) current.cancel();
+        view.setAlpha(1f);
+        if (!busy || !animationsEnabled()) return;
+        ObjectAnimator animator = ObjectAnimator.ofFloat(view, View.ALPHA, 1f, 0.52f, 1f);
+        animator.setDuration(1100L);
+        animator.setRepeatCount(ValueAnimator.INFINITE);
+        animator.setInterpolator(new DecelerateInterpolator());
+        busyStatusAnimators.put(view, animator);
+        animator.start();
     }
 
     private void bindViews() {
@@ -210,11 +285,13 @@ public final class MainActivity extends Activity {
         appendOutput("\nStarting the embedded Node bridge" + (lanMode ? " with authenticated LAN relay..." : " on localhost..."));
         runtimeStatus.setText("EMBEDDED NODE: STARTING");
         runtimeStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(runtimeStatus, true);
         healthSummary.postDelayed(() -> refreshStatus(true, 30), 1000);
     }
 
     private void prepareRuntime() {
         runtimeStatus.setText("EMBEDDED NODE: EXTRACTING");
+        setStatusBusy(runtimeStatus, true);
         new Thread(() -> {
             try {
                 File runtime = AssetInstaller.install(this);
@@ -254,6 +331,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     runtimeStatus.setText("EMBEDDED NODE: RUNNING");
                     runtimeStatus.setTextColor(getColor(R.color.success));
+                    setStatusBusy(runtimeStatus, false);
                     healthSummary.setText(healthBase() + "\nBridge: RUNNING on 127.0.0.1:" + requestedPort + lanExposure()
                         + "\nTunnel: " + readTunnelState());
                     healthSummary.setTextColor(getColor(R.color.success));
@@ -266,6 +344,7 @@ public final class MainActivity extends Activity {
                     if (retriesRemaining > 0 && !fatal) {
                         runtimeStatus.setText("EMBEDDED NODE: STARTING");
                         runtimeStatus.setTextColor(getColor(R.color.warning));
+                        setStatusBusy(runtimeStatus, true);
                         healthSummary.setText(healthBase() + "\nBridge: starting…\n" + serviceState + "\nTunnel: " + readTunnelState());
                         healthSummary.setTextColor(getColor(R.color.warning));
                         healthSummary.postDelayed(() -> refreshStatus(reportFailure, retriesRemaining - 1), 1000);
@@ -288,6 +367,7 @@ public final class MainActivity extends Activity {
         runtimeStatus.setText((runtime.isFile() ? "EMBEDDED NODE: READY" : "EMBEDDED NODE: BUNDLED — TAP PREPARE")
             + "\nOPENAI TUNNEL-CLIENT " + TunnelClient.VERSION + ": " + (tunnelBundled ? "READY" : "MISSING"));
         runtimeStatus.setTextColor(getColor(runtime.isFile() && tunnelBundled ? R.color.success : R.color.warning));
+        setStatusBusy(runtimeStatus, false);
         runtimeSourceStatus.setText("MCP SOURCE: " + RuntimeUpdateChecker.currentUpdateId(this));
         runtimeSourceStatus.setTextColor(getColor(R.color.muted));
     }
@@ -346,6 +426,10 @@ public final class MainActivity extends Activity {
         String state = readTunnelState();
         tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": " + state);
         tunnelStatus.setTextColor(getColor(state.startsWith("READY") ? R.color.success : R.color.warning));
+        String normalized = state.toUpperCase();
+        boolean busy = !(normalized.startsWith("READY") || normalized.startsWith("ERROR")
+            || normalized.startsWith("EXITED") || normalized.startsWith("STOPPED") || normalized.equals("NOT STARTED"));
+        setStatusBusy(tunnelStatus, busy);
     }
 
     private String validateTunnelInput(boolean requireKey) {
@@ -363,17 +447,21 @@ public final class MainActivity extends Activity {
         String profile = value(profileField);
         String tunnelId = value(tunnelIdField);
         int bridgePort = port();
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": CONFIGURING…");
+        tunnelStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(tunnelStatus, true);
         appendOutput("\nConfiguring tunnel profile " + profile + " for localhost:" + bridgePort + "/mcp...");
         new Thread(() -> {
             try {
                 TunnelClient.Result result = TunnelClient.configure(this, profile, tunnelId, bridgePort);
                 runOnUiThread(() -> {
                     appendOutput("\n" + result.output);
+                    updateTunnelStatus();
                     if (result.exitCode == 0) toast("Tunnel profile configured");
                     else showMessage("Tunnel configuration failed", result.output);
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> showMessage("Tunnel configuration failed", error.getMessage()));
+                runOnUiThread(() -> { updateTunnelStatus(); showMessage("Tunnel configuration failed", error.getMessage()); });
             }
         }, "tunnel-configure").start();
     }
@@ -389,6 +477,9 @@ public final class MainActivity extends Activity {
         String runtimeKey = value(runtimeKeyField);
         int bridgePort = port();
         runtimeKeyField.setText("");
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": RUNNING DOCTOR…");
+        tunnelStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(tunnelStatus, true);
         appendOutput("\nRunning tunnel doctor (runtime key cleared from the screen)...");
         new Thread(() -> {
             try {
@@ -396,11 +487,12 @@ public final class MainActivity extends Activity {
                 TunnelClient.Result result = TunnelClient.doctor(this, profile, runtimeKey);
                 runOnUiThread(() -> {
                     appendOutput("\n--- tunnel doctor ---\n" + result.output);
+                    updateTunnelStatus();
                     if (result.exitCode == 0) toast("Tunnel doctor passed");
                     else showMessage("Tunnel doctor failed", result.output);
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> showMessage("Tunnel doctor failed", error.getMessage()));
+                runOnUiThread(() -> { updateTunnelStatus(); showMessage("Tunnel doctor failed", error.getMessage()); });
             }
         }, "tunnel-doctor").start();
     }
@@ -417,6 +509,9 @@ public final class MainActivity extends Activity {
         int bridgePort = port();
         runtimeKeyField.setText("");
         new File(getFilesDir(), TunnelService.STATUS_FILE).delete();
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": CHECKING…");
+        tunnelStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(tunnelStatus, true);
         appendOutput("\nChecking the localhost MCP endpoint and running Tunnel Doctor before startup...");
         new Thread(() -> {
             try {
@@ -432,7 +527,7 @@ public final class MainActivity extends Activity {
                     tunnelStatus.postDelayed(() -> refreshTunnelStatus(45), 800);
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> showMessage("Start tunnel", error.getMessage()));
+                runOnUiThread(() -> { updateTunnelStatus(); showMessage("Start tunnel", error.getMessage()); });
             }
         }, "tunnel-preflight").start();
     }
@@ -449,12 +544,18 @@ public final class MainActivity extends Activity {
     private void stopTunnel() {
         TunnelService.stop(this);
         runtimeKeyField.setText("");
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": STOPPING…");
+        tunnelStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(tunnelStatus, true);
         appendOutput("\nStopping OpenAI tunnel-client...");
         tunnelStatus.postDelayed(this::updateTunnelStatus, 800);
     }
 
     private void restartTunnel() {
         TunnelService.restart(this);
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": RESTARTING…");
+        tunnelStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(tunnelStatus, true);
         appendOutput("\nRestarting OpenAI tunnel-client with its memory-only key. No reconfiguration is needed...");
         tunnelStatus.postDelayed(() -> refreshTunnelStatus(45), 500);
     }
@@ -675,9 +776,11 @@ public final class MainActivity extends Activity {
         runtimeUpdateCheckRunning = true;
         runtimeSourceStatus.setText("MCP SOURCE: CHECKING FOR UPDATES…");
         runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(runtimeSourceStatus, true);
         if (userInitiated) appendOutput("\nChecking GitHub for an MCP source update...");
         RuntimeUpdateChecker.check((result, error) -> runOnUiThread(() -> {
             runtimeUpdateCheckRunning = false;
+            setStatusBusy(runtimeSourceStatus, false);
             if (error != null) {
                 runtimeSourceStatus.setText("MCP SOURCE: UPDATE CHECK FAILED");
                 runtimeSourceStatus.setTextColor(getColor(R.color.warning));
@@ -719,9 +822,11 @@ public final class MainActivity extends Activity {
     private void downloadRuntimeUpdate(RuntimeUpdateChecker.Result result) {
         runtimeSourceStatus.setText("MCP SOURCE: DOWNLOADING " + result.updateId + "…");
         runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+        setStatusBusy(runtimeSourceStatus, true);
         appendOutput("\nDownloading and verifying MCP source " + result.updateId + "...");
         RuntimeUpdateChecker.downloadAndPrepare(this, result, (prepared, error) -> runOnUiThread(() -> {
             if (error != null) {
+                setStatusBusy(runtimeSourceStatus, false);
                 runtimeSourceStatus.setText("MCP SOURCE: UPDATE FAILED");
                 showMessage("MCP source update failed", error.getMessage());
                 appendOutput("\nMCP source update failed: " + error.getMessage());
@@ -743,6 +848,7 @@ public final class MainActivity extends Activity {
                         preferences.edit().remove("dismissedRuntimeUpdate").apply();
                         runtimeSourceStatus.setText("MCP SOURCE: CURRENT · " + result.updateId);
                         runtimeSourceStatus.setTextColor(getColor(R.color.success));
+                        setStatusBusy(runtimeSourceStatus, false);
                         appendOutput("\nMCP source updated to " + result.updateId + ".");
                         if (restartBridge) {
                             new File(getFilesDir(), BridgeService.STATUS_FILE).delete();
@@ -760,6 +866,7 @@ public final class MainActivity extends Activity {
                         }
                         runtimeSourceStatus.setText("MCP SOURCE: ACTIVATION FAILED");
                         runtimeSourceStatus.setTextColor(getColor(R.color.warning));
+                        setStatusBusy(runtimeSourceStatus, false);
                         showMessage("MCP source activation failed", activationError.getMessage());
                     });
                 }
@@ -838,6 +945,7 @@ public final class MainActivity extends Activity {
             actions.addView(download, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
             actions.addView(delete, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
             row.addView(actions, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            installButtonMotion(row);
             gptFilesContainer.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
     }
