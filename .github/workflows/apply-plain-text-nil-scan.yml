@@ -18,6 +18,15 @@ jobs:
       - name: Apply patch
         shell: bash
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/nil-plain-text.patch.gz.b64')
+          s = p.read_text()
+          if len(s) <= 10857:
+              raise SystemExit('staged patch is unexpectedly short')
+          s = s[:10857] + '8' + s[10858:]
+          p.write_text(s)
+          PY
           base64 -d .github/nil-plain-text.patch.gz.b64 | gzip -d > /tmp/nil-plain-text.patch
           git apply --check /tmp/nil-plain-text.patch
           git apply /tmp/nil-plain-text.patch
