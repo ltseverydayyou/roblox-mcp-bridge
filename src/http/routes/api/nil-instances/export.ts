@@ -209,6 +209,7 @@ export async function GET(_req: IncomingMessage, res: ServerResponse, url: URL):
 
   const client = getActiveClients().find((entry) => entry.clientId === clientId);
   if (!client) return json(res, 404, { error: "Client not found" });
+  const activeClientId = client.clientId;
 
   const nilIdentity: NilInstanceStoreIdentity = {
     clientId: client.clientId,
@@ -246,7 +247,7 @@ export async function GET(_req: IncomingMessage, res: ServerResponse, url: URL):
       const record = scripts[index]!;
       const debugId = record.DebugId!;
       if (scriptResults.has(debugId)) continue;
-      scriptResults.set(debugId, await ensureScriptSource(clientId, scriptIdentity, debugId));
+      scriptResults.set(debugId, await ensureScriptSource(activeClientId, scriptIdentity, debugId));
     }
   }
 
