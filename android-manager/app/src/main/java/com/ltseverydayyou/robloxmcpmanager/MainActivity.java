@@ -15,8 +15,10 @@ import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Base64;
 import android.view.MotionEvent;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -24,6 +26,8 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileReader;
+import java.io.FileInputStream;
+import java.io.OutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.Inet4Address;
@@ -32,6 +36,8 @@ import java.net.NetworkInterface;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Enumeration;
 
 public final class MainActivity extends Activity {
@@ -55,6 +61,10 @@ public final class MainActivity extends Activity {
     private boolean automaticRuntimeCheckStarted;
     private boolean automaticManagerCheckStarted;
     private boolean runtimeUpdateCheckRunning;
+    private TextView gptFilesSummary;
+    private LinearLayout gptFilesContainer;
+    private File pendingGptExport;
+    private static final int REQUEST_EXPORT_GPT_FILE = 7134;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -78,6 +88,7 @@ public final class MainActivity extends Activity {
         updateRuntimeStatus();
         updateBackgroundStatus();
         updateTunnelStatus();
+        refreshGptFiles();
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
     }
 
@@ -88,6 +99,7 @@ public final class MainActivity extends Activity {
         updateBackgroundStatus();
         updateTunnelStatus();
         refreshStatus(false);
+        refreshGptFiles();
         if (!automaticRuntimeCheckStarted) {
             automaticRuntimeCheckStarted = true;
             checkRuntimeUpdate(false);
@@ -121,6 +133,8 @@ public final class MainActivity extends Activity {
         backgroundStatus = findViewById(R.id.backgroundStatus);
         tunnelStatus = findViewById(R.id.tunnelStatus);
         runtimeSourceStatus = findViewById(R.id.runtimeSourceStatus);
+        gptFilesSummary = findViewById(R.id.gptFilesSummary);
+        gptFilesContainer = findViewById(R.id.gptFilesContainer);
     }
 
     private void loadSettings() {
@@ -150,6 +164,8 @@ public final class MainActivity extends Activity {
         findViewById(R.id.copyLoaderButton).setOnClickListener(v -> copyLoader());
         findViewById(R.id.copyPcRelayButton).setOnClickListener(v -> copyPcRelayArguments());
         findViewById(R.id.bridgeLogsButton).setOnClickListener(v -> readLogs());
+        findViewById(R.id.refreshGptFilesButton).setOnClickListener(v -> refreshGptFiles());
+        findViewById(R.id.clearGptFilesButton).setOnClickListener(v -> confirmClearGptFiles());
         findViewById(R.id.managerUpdateButton).setOnClickListener(v -> checkManagerUpdate(true));
         findViewById(R.id.batteryOptimizationButton).setOnClickListener(v -> requestUnrestrictedBattery());
         findViewById(R.id.appSettingsButton).setOnClickListener(v -> openAppSettings());
@@ -772,6 +788,144 @@ public final class MainActivity extends Activity {
                 showMessage("Could not open Android installer", installError.getMessage());
             }
         }));
+    }
+
+
+    private File gptFilesDirectory() {
+        File directory = new File(getCacheDir(), "chatgpt-files");
+        if (!directory.isDirectory()) directory.mkdirs();
+        return directory;
+    }
+
+    private void refreshGptFiles() {
+        if (gptFilesContainer == null || gptFilesSummary == null) return;
+        File[] files = gptFilesDirectory().listFiles(File::isFile);
+        if (files == null) files = new File[0];
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+
+        long totalBytes = 0;
+        for (File file : files) totalBytes += file.length();
+        gptFilesSummary.setText(files.length == 0
+            ? "No ChatGPT files are cached."
+            : files.length + (files.length == 1 ? " cached file · " : " cached files · ") + formatBytes(totalBytes));
+        gptFilesContainer.removeAllViews();
+
+        for (File file : files) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(0, 8, 0, 12);
+
+            TextView name = new TextView(this);
+            name.setText(file.getName() + "\n" + formatBytes(file.length()));
+            name.setTextColor(getColor(R.color.text));
+            name.setTextSize(13);
+            name.setTextIsSelectable(true);
+            row.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            LinearLayout actions = new LinearLayout(this);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+
+            Button download = new Button(this);
+            download.setText("Download");
+            download.setAllCaps(false);
+            download.setOnClickListener(v -> exportGptFile(file));
+
+            Button delete = new Button(this);
+            delete.setText("Delete");
+            delete.setAllCaps(false);
+            delete.setOnClickListener(v -> confirmDeleteGptFile(file));
+
+            actions.addView(download, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            actions.addView(delete, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            row.addView(actions, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            gptFilesContainer.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    private void exportGptFile(File file) {
+        if (!file.isFile()) {
+            refreshGptFiles();
+            toast("Cached file no longer exists");
+            return;
+        }
+        pendingGptExport = file;
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/octet-stream");
+        intent.putExtra(Intent.EXTRA_TITLE, file.getName());
+        startActivityForResult(intent, REQUEST_EXPORT_GPT_FILE);
+    }
+
+    private void confirmDeleteGptFile(File file) {
+        new AlertDialog.Builder(this)
+            .setTitle("Delete cached ChatGPT file?")
+            .setMessage(file.getName() + "\n\nThis only deletes the manager's cached copy.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete", (dialog, which) -> {
+                if (file.delete() || !file.exists()) {
+                    appendOutput("\nDeleted cached ChatGPT file: " + file.getName());
+                    toast("Cached file deleted");
+                } else {
+                    showMessage("Delete failed", "Could not delete " + file.getName());
+                }
+                refreshGptFiles();
+            })
+            .show();
+    }
+
+    private void confirmClearGptFiles() {
+        File[] files = gptFilesDirectory().listFiles(File::isFile);
+        if (files == null || files.length == 0) {
+            toast("ChatGPT file cache is empty");
+            return;
+        }
+        final File[] cached = files;
+        new AlertDialog.Builder(this)
+            .setTitle("Delete all cached ChatGPT files?")
+            .setMessage("Delete " + cached.length + (cached.length == 1 ? " cached file?" : " cached files?") + " This cannot be undone.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete all", (dialog, which) -> {
+                int deleted = 0;
+                for (File file : cached) if (file.delete() || !file.exists()) deleted++;
+                appendOutput("\nDeleted " + deleted + " of " + cached.length + " cached ChatGPT files.");
+                toast("GPT file cache cleared");
+                refreshGptFiles();
+            })
+            .show();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_EXPORT_GPT_FILE) return;
+        File source = pendingGptExport;
+        pendingGptExport = null;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null || source == null) return;
+        Uri destination = data.getData();
+        new Thread(() -> {
+            try (FileInputStream input = new FileInputStream(source);
+                 OutputStream output = getContentResolver().openOutputStream(destination, "w")) {
+                if (output == null) throw new IllegalStateException("Android did not provide a writable destination.");
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                output.flush();
+                runOnUiThread(() -> {
+                    appendOutput("\nDownloaded cached ChatGPT file: " + source.getName());
+                    toast("File saved");
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> showMessage("Download failed", error.getMessage()));
+            }
+        }, "gpt-file-export").start();
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        double kb = bytes / 1024.0;
+        if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb);
+        double mb = kb / 1024.0;
+        if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb);
+        return String.format(java.util.Locale.US, "%.2f GB", mb / 1024.0);
     }
 
     private int port() {

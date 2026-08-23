@@ -137,9 +137,14 @@ public final class BridgeService extends Service {
             File log = new File(getFilesDir(), "bridge.log");
             File status = new File(getFilesDir(), STATUS_FILE);
             writeState("NATIVE_NODE_STARTING");
+            File chatGptFiles = new File(getCacheDir(), "chatgpt-files");
+            if (!chatGptFiles.isDirectory() && !chatGptFiles.mkdirs()) {
+                throw new IllegalStateException("Could not create ChatGPT file cache at " + chatGptFiles.getAbsolutePath());
+            }
             int result = NativeNode.start(new String[]{
                 "node", new File(runtime, "main.mjs").getAbsolutePath(),
-                Integer.toString(port), log.getAbsolutePath(), status.getAbsolutePath(), host, lanToken
+                Integer.toString(port), log.getAbsolutePath(), status.getAbsolutePath(), host, lanToken,
+                chatGptFiles.getAbsolutePath()
             });
             Log.i("RobloxMcpBridge", "Embedded Node exited with " + result);
             writeState("EXITED Embedded Node returned code " + result);

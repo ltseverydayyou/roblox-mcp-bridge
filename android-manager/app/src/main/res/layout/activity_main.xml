@@ -101,6 +101,19 @@
         </LinearLayout>
 
         <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="GPT files" />
+            <TextView style="@style/HintText" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Files imported from ChatGPT are kept in the app-private MCP cache. Download saves a copy through Android's document picker. Delete removes the cached copy from the bridge." />
+            <TextView android:id="@+id/gptFilesSummary" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp" android:text="No ChatGPT files are cached." android:textColor="@color/muted" android:textSize="13sp" />
+            <LinearLayout android:id="@+id/gptFilesContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <Button android:id="@+id/refreshGptFilesButton" style="@style/ManagerButton.Secondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Refresh files" />
+                <Button android:id="@+id/clearGptFilesButton" style="@style/ManagerButton.Danger" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Delete all" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Built-in console" />
             <TextView android:id="@+id/outputView" android:layout_width="match_parent" android:layout_height="220dp"
                 android:background="@drawable/field_background" android:fontFamily="monospace" android:gravity="bottom" android:padding="12dp"

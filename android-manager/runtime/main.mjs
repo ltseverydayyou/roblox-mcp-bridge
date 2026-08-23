@@ -9,6 +9,7 @@ const logPath = path.resolve(logArgument);
 const statusPath = path.resolve(process.argv[4] || path.join(runtimeDir, "bridge-service-status.txt"));
 const bridgeHost = process.argv[5] || "127.0.0.1";
 const lanToken = process.argv[6] || "";
+const chatGptUploadDir = process.argv[7] || path.join(runtimeDir, "chatgpt-files");
 
 function writeStatus(value) {
   try {
@@ -24,6 +25,8 @@ process.env.ROBLOX_MCP_HOST = bridgeHost;
 process.env.ROBLOX_MCP_PORT = String(Number.isInteger(port) ? port : 16384);
 process.env.ROBLOX_MCP_UPDATE_CHECK = "false";
 process.env.ROBLOX_MCP_HTTP = "true";
+process.env.ROBLOX_MCP_UPLOAD_DIR = path.resolve(chatGptUploadDir);
+fs.mkdirSync(process.env.ROBLOX_MCP_UPLOAD_DIR, { recursive: true });
 if (lanToken) process.env.ROBLOX_MCP_LAN_TOKEN = lanToken;
 
 const logStream = fs.createWriteStream(logPath, { flags: "a" });
