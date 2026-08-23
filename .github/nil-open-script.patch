@@ -1,0 +1,117 @@
+--- a/src/http/assets/dashboard/dashboard.js
++++ b/src/http/assets/dashboard/dashboard.js
+@@ -2517,7 +2517,12 @@
+         const scriptBadge = item.IsScript ? '<span class="nil-script-badge">script</span>' : '';
+         const title = escapeHtml(item.RelativePath || item.Path || item.Name || 'Instance');
+         const debugId = escapeHtml(item.DebugId || '—');
+-        return '<div class="nil-frow" title="' + title + '">' +
++        const canInspect = item.IsScript && item.DebugId;
++        const inspectAttrs = canInspect
++            ? ' data-debug-id="' + debugId + '" data-nil-script="1"'
++            : '';
++        const rowTitle = canInspect ? 'Click to inspect source — ' + title : title;
++        return '<div class="nil-frow' + (canInspect ? ' nil-frow--script' : '') + '"' + inspectAttrs + ' title="' + rowTitle + '">' +
+             '<div class="nil-fname" style="padding-left:' + (depth * 16) + 'px">' + icon + '<span class="nil-fname-main">' + escapeHtml(item.Name || 'Instance') + '</span>' + rootBadge + scriptBadge + '</div>' +
+             '<div class="nil-fmeta">' + escapeHtml(item.ClassName || 'Instance') + '</div>' +
+             '<div class="nil-fmeta">' + childCount + '</div>' +
+@@ -2573,6 +2578,27 @@
+     });
+ }
+ if (nilInstancesScanBtn) nilInstancesScanBtn.addEventListener('click', scanNilInstances);
++
++async function openNilInstanceScript(debugId) {
++    if (!debugId || !selectedClientId) return;
++
++    // Reuse the normal Scripts source viewer/decompiler instead of maintaining a
++    // second code viewer. Nil scripts are resolved live by DebugId on first open.
++    scriptsBrowsePath = [];
++    scriptsViewingFile = null;
++    scriptsSearchQuery = '';
++    if ($('scriptsSearch')) $('scriptsSearch').value = '';
++    showView('scripts');
++    await openScriptSource(debugId);
++}
++
++if (nilInstancesList) {
++    nilInstancesList.addEventListener('click', (event) => {
++        const row = event.target.closest('.nil-frow[data-nil-script="1"][data-debug-id]');
++        if (!row) return;
++        openNilInstanceScript(row.dataset.debugId);
++    });
++}
+ 
+ async function fetchScripts() {
+     if (!selectedClientId) return;
+--- a/src/http/assets/dashboard/dashboard.css
++++ b/src/http/assets/dashboard/dashboard.css
+@@ -2782,3 +2782,8 @@
+     .nil-file-header > div:last-child, .nil-frow > div:last-child { display: none; }
+     .nil-scan-meta { grid-template-columns: 1fr; }
+ }
++
++.nil-frow--script { cursor: pointer; }
++.nil-frow--script:hover { background: var(--surface-hover, rgba(255,255,255,.045)); }
++.nil-frow--script .nil-fname-main { text-decoration-thickness: 1px; text-underline-offset: 3px; }
++.nil-frow--script:hover .nil-fname-main { text-decoration: underline; }
+--- a/src/http/routes/api/scripts/source.ts
++++ b/src/http/routes/api/scripts/source.ts
+@@ -36,20 +36,15 @@
+ 
+   let index = getScriptSourceIndex(identity);
+   let script = index.scripts.find((s) => s.debugId === debugId);
++  let liveLookupError: string | undefined;
+ 
+-  if (!script) {
+-    res.writeHead(404, { "Content-Type": "application/json" });
+-    res.end(JSON.stringify({ error: "Script not found" }));
+-    return;
+-  }
+-
+-  // The hierarchy sync can know about a LocalScript/ModuleScript before its
+-  // background source-mapping attempt succeeds. If the dashboard opens one of
+-  // those entries, ask the live client to decompile that exact DebugId. The
+-  // get-script-content handler uploads the complete source into this store
+-  // before returning its bounded preview, so a successful on-demand decompile
+-  // immediately heals stale "source unavailable" rows.
+-  if (!script.sourceAvailable) {
++  // Normal indexed scripts and manually discovered nil scripts both resolve by
++  // DebugId. Nil scripts are intentionally not injected into the regular script
++  // hierarchy during scanning, so they may not exist in the source store yet.
++  // Ask the live client to decompile the exact DebugId whenever the stored entry
++  // is missing or unavailable. The connector caches nil scan results by DebugId,
++  // and get-script-content uploads the full decompiled source into this store.
++  if (!script || !script.sourceAvailable) {
+     const callId = SendArbitraryDataToClient(
+       "get-script-content",
+       { debugId, startLine: 1, endLine: 1, maxLines: 1 },
+@@ -59,14 +54,27 @@
+ 
+     if (callId && callId !== "INVALID_CLIENT") {
+       try {
+-        await GetResponseOfIdFromClient(callId, 90_000);
+-      } catch {
+-        // Keep the existing metadata/error below if the live fallback times out.
++        const liveResponse = await GetResponseOfIdFromClient(callId, 90_000);
++        if (liveResponse.error) liveLookupError = liveResponse.error;
++      } catch (error) {
++        liveLookupError = error instanceof Error ? error.message : String(error);
+       }
+ 
+       index = getScriptSourceIndex(identity);
+       script = index.scripts.find((s) => s.debugId === debugId) ?? script;
++    } else if (callId === "INVALID_CLIENT") {
++      liveLookupError = "Client not found";
++    } else {
++      liveLookupError = "Failed to dispatch live script decompile";
+     }
++  }
++
++  if (!script) {
++    res.writeHead(404, { "Content-Type": "application/json" });
++    res.end(JSON.stringify({
++      error: liveLookupError || "Script was found by the nil-instance scan but is no longer available on the live client",
++    }));
++    return;
+   }
+ 
+   res.writeHead(200, { "Content-Type": "application/json" });
