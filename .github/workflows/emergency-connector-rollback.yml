@@ -1,0 +1,27 @@
+name: Emergency connector rollback
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore connector
+        run: |
+          git checkout 9d80f75345138d83284626b02cd9ab576f4fbc04 -- connector.luau
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add connector.luau
+          if git diff --cached --quiet; then
+            echo "Connector already matches the known-good revision."
+            exit 0
+          fi
+          git commit -m "Restore known-good connector client handshake"
+          git push
