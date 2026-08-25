@@ -1,0 +1,204 @@
+name: Repair decompiler patch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore large files from pre-patch commit
+        run: |
+          git checkout 9d80f75345138d83284626b02cd9ab576f4fbc04 -- connector.luau src/http/assets/dashboard/dashboard.js tests/upstream-ports.test.mjs
+
+      - name: Reapply intended changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('connector.luau')
+          s = p.read_text()
+          old = '''    local source, errorMessage, needsBuiltin = RequestServerDecompile(prepared.bytecode)
+    if not source then
+        local builtinSource, builtinLatencyMs = TryBuiltInDecompile(script)
+        if builtinSource then
+            local normalizedSource = RequestServerDecompile(prepared.bytecode, {
+                requestedProvider = "builtin",
+                builtinSource = builtinSource,
+                builtinLatencyMs = builtinLatencyMs,
+            })
+            source = normalizedSource or builtinSource
+            errorMessage = nil
+        elseif needsBuiltin then
+            source, errorMessage = RequestServerDecompile(prepared.bytecode, {
+                disabledProviders = { "builtin" },
+            })
+        end
+    end
+'''
+          new = '''    local source, errorMessage, needsBuiltin = RequestServerDecompile(prepared.bytecode)
+    --// Only invoke the executor decompiler when the server's ordered provider
+    --// chain explicitly reaches the built-in provider. A generic network/provider
+    --// failure must not silently bypass the configured decompiler order. \\--
+    if not source and needsBuiltin then
+        local builtinSource, builtinLatencyMs = TryBuiltInDecompile(script)
+        if builtinSource then
+            local normalizedSource = RequestServerDecompile(prepared.bytecode, {
+                requestedProvider = "builtin",
+                builtinSource = builtinSource,
+                builtinLatencyMs = builtinLatencyMs,
+            })
+            source = normalizedSource or builtinSource
+            errorMessage = nil
+        else
+            source, errorMessage = RequestServerDecompile(prepared.bytecode, {
+                disabledProviders = { "builtin" },
+            })
+        end
+    end
+'''
+          assert old in s
+          p.write_text(s.replace(old, new))
+
+          p = Path('src/http/assets/dashboard/dashboard.js')
+          s = p.read_text()
+          old = '''        const sourcePending = !sourceAvailable && s.sourceError === 'Source mapping pending.';
+        const sourceStatusText = sourcePending ? 'mapping pending' : 'source unavailable';
+        const sourceStatusTitle = sourceAvailable ? '' : ' title="' + escapeHtml(s.sourceError || 'The executor could not read or decompile this script.') + '"';
+        html += '<div class="scripts-frow scripts-frow--file' + (childNode ? ' scripts-frow--hybrid' : '') + (sourceAvailable ? '' : ' scripts-frow--unavailable') + '" data-debug-id="' + escapeHtml(s.debugId) + '" data-path="' + escapeHtml(s.path) + '">';
+        html += '<div class="scripts-fname">' + FILE_ICON + '<span class="scripts-fname-text">' + escapeHtml(s.name) + '</span>' + (childCount ? '<span class="scripts-fname-count">' + childCount + ' children</span>' : '') + (sourceAvailable ? '' : '<span class="scripts-source-unavailable"' + sourceStatusTitle + '>' + sourceStatusText + '</span>') + '</div>';
+'''
+          new = '''        const sourcePending = !sourceAvailable && s.sourceError === 'Source mapping pending.';
+        const sourceStatusTitle = sourcePending ? ' title="' + escapeHtml(s.sourceError) + '"' : '';
+        html += '<div class="scripts-frow scripts-frow--file' + (childNode ? ' scripts-frow--hybrid' : '') + (sourcePending ? ' scripts-frow--unavailable' : '') + '" data-debug-id="' + escapeHtml(s.debugId) + '" data-path="' + escapeHtml(s.path) + '">';
+        html += '<div class="scripts-fname">' + FILE_ICON + '<span class="scripts-fname-text">' + escapeHtml(s.name) + '</span>' + (childCount ? '<span class="scripts-fname-count">' + childCount + ' children</span>' : '') + (sourcePending ? '<span class="scripts-source-unavailable"' + sourceStatusTitle + '>mapping pending</span>' : '') + '</div>';
+'''
+          assert old in s
+          p.write_text(s.replace(old, new))
+
+          p = Path('tests/upstream-ports.test.mjs')
+          s = p.read_text()
+          old = '''import { decompileBytecode } from "../dist/decompiler/run.js";
+import {
+  DEFAULT_DECOMPILER_SETTINGS,
+  decompilerSettingsIssues,
+  toConnectorDecompilerSettings,
+} from "../dist/decompiler/settings.js";
+'''
+          new = '''import { decompileBytecode } from "../dist/decompiler/run.js";
+import { reportDecompilerHealth } from "../dist/decompiler/health.js";
+import {
+  DEFAULT_DECOMPILER_SETTINGS,
+  decompilerSettingsIssues,
+  toConnectorDecompilerSettings,
+} from "../dist/decompiler/settings.js";
+'''
+          assert old in s
+          s = s.replace(old, new)
+
+          marker = '''test("current Claude Code Windows shims resolve without a command shell", () => {'''
+          insert = r'''
+
+test("slow-provider load balancing never promotes built-in ahead of configured fallbacks", async (t) => {
+  const settings = structuredClone(DEFAULT_DECOMPILER_SETTINGS);
+  for (const provider of Object.values(settings.providers)) provider.enabled = false;
+  settings.providerOrder = ["luaexpert", "luacid", "builtin"];
+  settings.providers.luaexpert.enabled = true;
+  settings.providers.luacid.enabled = true;
+  settings.providers.luacid.options = {
+    ...settings.providers.luacid.options,
+    transport: "http",
+    transportExplicit: true,
+  };
+  settings.providers.builtin.enabled = true;
+  settings.runtime.adaptiveFallback = false;
+  settings.runtime.loadBalanceSlowProviders = true;
+  settings.runtime.overallTimeoutMs = 5000;
+
+  reportDecompilerHealth("priority-order-test", [
+    { id: "luaexpert", status: "slow", slowCount: 1 },
+    { id: "luacid", status: "healthy", slowCount: 0 },
+    { id: "builtin", status: "healthy", slowCount: 0 },
+  ]);
+
+  let releaseLuaExpert;
+  let releaseLuacid;
+  const luaExpertGate = new Promise((resolve) => { releaseLuaExpert = resolve; });
+  const luacidGate = new Promise((resolve) => { releaseLuacid = resolve; });
+  let luaExpertCalls = 0;
+  let luacidCalls = 0;
+
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const target = String(url);
+    if (target.includes("lua.expert")) {
+      luaExpertCalls += 1;
+      if (luaExpertCalls === 1) await luaExpertGate;
+      return new Response("return 'luaexpert'", { status: 200 });
+    }
+    if (target.includes("luacid.dev")) {
+      luacidCalls += 1;
+      if (luacidCalls === 1) await luacidGate;
+      return new Response("return 'luacid'", { status: 200 });
+    }
+    throw new Error(`Unexpected decompiler URL: ${target}`);
+  });
+
+  const input = {
+    bytecodeBase64: Buffer.from("priority-bytecode").toString("base64"),
+    builtinAvailable: true,
+    builtinSource: "return 'builtin'",
+    clientId: "priority-order-test",
+  };
+
+  const first = decompileBytecode(settings, input);
+  while (luaExpertCalls < 1) await new Promise((resolve) => setImmediate(resolve));
+
+  const second = decompileBytecode(settings, input);
+  while (luacidCalls < 1) await new Promise((resolve) => setImmediate(resolve));
+
+  const third = decompileBytecode(settings, input);
+  releaseLuaExpert();
+  releaseLuacid();
+
+  const results = await Promise.all([first, second, third]);
+  assert.equal(results.every((result) => result.ok), true);
+  assert.equal(results.some((result) => result.providerId === "builtin"), false);
+});
+
+test("connector only invokes built-in decompile when the server explicitly requests it", () => {
+  const connector = fs.readFileSync(path.join(root, "connector.luau"), "utf8");
+  assert.match(connector, /if not source and needsBuiltin then/);
+  assert.doesNotMatch(connector, /if not source then\s+local builtinSource/);
+});
+
+test("scripts browser does not render a source unavailable badge", () => {
+  const dashboard = fs.readFileSync(path.join(root, "src/http/assets/dashboard/dashboard.js"), "utf8");
+  assert.doesNotMatch(dashboard, /sourceStatusText/);
+  assert.doesNotMatch(dashboard, />source unavailable<\/span>/i);
+  assert.match(dashboard, />mapping pending<\/span>/);
+});
+
+'''
+          assert marker in s
+          p.write_text(s.replace(marker, insert + marker))
+
+      - name: Commit repaired files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add connector.luau src/http/assets/dashboard/dashboard.js tests/upstream-ports.test.mjs
+          git commit -m "Restore large files and apply decompiler fallback fix"
+          git push
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
