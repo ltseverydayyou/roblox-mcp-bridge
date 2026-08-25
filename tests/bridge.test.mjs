@@ -126,7 +126,7 @@ test("the connector publishes script hierarchy metadata before source mapping", 
   assert.match(connector, /ReconcileScriptHierarchyMetadata = function/);
   assert.match(connector, /task\.delay\(0\.5, ReconcileScriptHierarchyMetadata/);
   assert.match(connector, /if IsCandidateScriptForMapping\(script\) then\s+QueueScriptForMapping\(script\)/);
-  assert.match(connector, /if not source then\s+local builtinSource, builtinLatencyMs = TryBuiltInDecompile\(script\)/);
+  assert.match(connector, /if not source and needsBuiltin then\s+local builtinSource, builtinLatencyMs = TryBuiltInDecompile\(script\)/);
   assert.match(connector, /source = normalizedSource or builtinSource/);
   assert.doesNotMatch(connector, /local ScriptsToMap = \{\}/);
   assert.match(connector, /task\.defer\(MappedSourceLimiter\.QueueOperation, MappedSourceLimiter, script\)/);
