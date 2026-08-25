@@ -1417,10 +1417,7 @@ local function DecompileScriptSource(script, prepared)
     end
 
     local source, errorMessage, needsBuiltin = RequestServerDecompile(prepared.bytecode)
-    --// Only invoke the executor decompiler when the server's ordered provider
-    --// chain explicitly reaches the built-in provider. A generic network/provider
-    --// failure must not silently bypass the configured decompiler order. \\--
-    if not source and needsBuiltin then
+    if not source then
         local builtinSource, builtinLatencyMs = TryBuiltInDecompile(script)
         if builtinSource then
             local normalizedSource = RequestServerDecompile(prepared.bytecode, {
@@ -1430,7 +1427,7 @@ local function DecompileScriptSource(script, prepared)
             })
             source = normalizedSource or builtinSource
             errorMessage = nil
-        else
+        elseif needsBuiltin then
             source, errorMessage = RequestServerDecompile(prepared.bytecode, {
                 disabledProviders = { "builtin" },
             })
