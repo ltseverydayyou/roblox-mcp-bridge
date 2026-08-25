@@ -132,13 +132,23 @@ function orderProvidersForRequest(
     return candidates;
   }
 
+  // The configured provider order is a fallback contract. Slow-provider load
+  // balancing may redistribute work between providers ahead of the built-in
+  // executor fallback, but it must never promote built-in ahead of a provider
+  // that the user explicitly placed before it.
+  const builtinIndex = candidates.indexOf("builtin");
+  const balanceEnd = builtinIndex >= 0 ? builtinIndex : candidates.length;
+  if (balanceEnd <= 1) return candidates;
+
   const priorityIndex = new Map(candidates.map((id, index) => [id, index]));
-  return [...candidates].sort((left, right) => {
+  const balancedPrefix = candidates.slice(0, balanceEnd).sort((left, right) => {
     const leftScore = providerLoadScore(left);
     const rightScore = providerLoadScore(right);
     if (leftScore !== rightScore) return leftScore - rightScore;
     return (priorityIndex.get(left) ?? 0) - (priorityIndex.get(right) ?? 0);
   });
+
+  return [...balancedPrefix, ...candidates.slice(balanceEnd)];
 }
 
 function resolveProviderEndpoint(endpoint: string): string {
