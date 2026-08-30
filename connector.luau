@@ -3353,9 +3353,9 @@ while true do
 
         local results = {}
         for _, rootGui in ipairs(roots) do
-            for _, obj in ipairs(rootGui:GetDescendants()) do
+            for _, obj in rootGui:QueryDescendants("GuiObject") do
                 if #results >= limit then break end
-                if not obj:IsA("GuiObject") or not IsActuallyVisible(obj) then continue end
+                if not IsActuallyVisible(obj) then continue end
                 local text = nil
                 if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then text = obj.Text end
                 if textFilter ~= "" and not string.find(string.lower(tostring(text or obj.Name)), textFilter, 1, true) then continue end
@@ -3420,20 +3420,18 @@ while true do
         local results = {}
         local limit = math.max(1, math.min(tonumber(data.limit) or 30, 100))
         if character then
-            for _, animator in ipairs(character:GetDescendants()) do
-                if animator:IsA("Animator") then
-                    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                        if #results >= limit then break end
-                        local animatorDebugId = animator:GetDebugId()
-                        InstanceByDebugId[animatorDebugId] = animator
-                        table.insert(results, {
-                            Name = track.Name, AnimationId = track.Animation and track.Animation.AnimationId or nil,
-                            AnimatorDebugId = animatorDebugId,
-                            Priority = tostring(track.Priority), Speed = track.Speed, TimePosition = track.TimePosition,
-                            Length = track.Length, WeightCurrent = track.WeightCurrent, WeightTarget = track.WeightTarget,
-                            Looped = track.Looped, IsPlaying = track.IsPlaying, Animator = SafeFullName(animator),
-                        })
-                    end
+            for _, animator in character:QueryDescendants("Animator") do
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    if #results >= limit then break end
+                    local animatorDebugId = animator:GetDebugId()
+                    InstanceByDebugId[animatorDebugId] = animator
+                    table.insert(results, {
+                        Name = track.Name, AnimationId = track.Animation and track.Animation.AnimationId or nil,
+                        AnimatorDebugId = animatorDebugId,
+                        Priority = tostring(track.Priority), Speed = track.Speed, TimePosition = track.TimePosition,
+                        Length = track.Length, WeightCurrent = track.WeightCurrent, WeightTarget = track.WeightTarget,
+                        Looped = track.Looped, IsPlaying = track.IsPlaying, Animator = SafeFullName(animator),
+                    })
                 end
                 if #results >= limit then break end
             end
@@ -3445,8 +3443,7 @@ while true do
         local limit = math.max(1, math.min(tonumber(data.limit) or 30, 100))
         local playingOnly = data.playingOnly ~= false
         local results = {}
-        for _, sound in ipairs(game:GetDescendants()) do
-            if not sound:IsA("Sound") then continue end
+        for _, sound in game:QueryDescendants("Sound") do
             if playingOnly and not sound.Playing then continue end
             local soundDebugId = sound:GetDebugId()
             InstanceByDebugId[soundDebugId] = sound
@@ -3475,18 +3472,20 @@ while true do
         pcall(function() result.NetworkPingSeconds = Players.LocalPlayer:GetNetworkPing() end)
         pcall(function() result.LuaHeapKb = gcinfo() end)
         local counts = { Sound = 0, PlayingSound = 0, LuaSourceContainer = 0, GuiObject = 0, BasePart = 0, PlayingAnimation = 0 }
-        for _, obj in ipairs(game:GetDescendants()) do
+        for _, obj in game:QueryDescendants("Sound, Animator, LuaSourceContainer, GuiObject, BasePart") do
             if obj:IsA("Sound") then
                 counts.Sound += 1
                 if obj.Playing then counts.PlayingSound += 1 end
-            end
-            if obj:IsA("Animator") then
+            elseif obj:IsA("Animator") then
                 local ok, tracks = pcall(function() return obj:GetPlayingAnimationTracks() end)
                 if ok then counts.PlayingAnimation += #tracks end
+            elseif obj:IsA("LuaSourceContainer") then
+                counts.LuaSourceContainer += 1
+            elseif obj:IsA("GuiObject") then
+                counts.GuiObject += 1
+            elseif obj:IsA("BasePart") then
+                counts.BasePart += 1
             end
-            if obj:IsA("LuaSourceContainer") then counts.LuaSourceContainer += 1 end
-            if obj:IsA("GuiObject") then counts.GuiObject += 1 end
-            if obj:IsA("BasePart") then counts.BasePart += 1 end
         end
         result.Counts = counts
         return result
@@ -3553,9 +3552,8 @@ while true do
             table.insert(roots, CoreGui)
             local captured = 0
             for _, guiRoot in ipairs(roots) do
-                for _, obj in ipairs(guiRoot:GetDescendants()) do
+                for _, obj in guiRoot:QueryDescendants("GuiObject") do
                     if captured >= 250 then break end
-                    if not obj:IsA("GuiObject") then continue end
                     local visible = true
                     local current = obj
                     while current and current ~= game do
@@ -3579,8 +3577,8 @@ while true do
 
         if data.includeSounds == true then
             snapshot.Sounds = {}
-            for _, sound in ipairs(game:GetDescendants()) do
-                if sound:IsA("Sound") and sound.Playing then
+            for _, sound in game:QueryDescendants("Sound") do
+                if sound.Playing then
                     local id = sound:GetDebugId()
                     snapshot.Sounds[id] = { Path = SafeFullName(sound), SoundId = sound.SoundId, Volume = sound.Volume }
                 end
@@ -3592,8 +3590,7 @@ while true do
             local player = Players.LocalPlayer
             local character = player and player.Character
             if character then
-                for _, animator in ipairs(character:GetDescendants()) do
-                    if not animator:IsA("Animator") then continue end
+                for _, animator in character:QueryDescendants("Animator") do
                     local animatorId = animator:GetDebugId()
                     for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
                         local animationId = track.Animation and track.Animation.AnimationId or ""
