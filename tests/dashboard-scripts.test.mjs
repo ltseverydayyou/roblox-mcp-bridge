@@ -89,3 +89,11 @@ test("a metadata-only parent script still forms a hybrid script node", () => {
   assert.equal(parent.childFolderName, "Initiator");
   assert.equal(mainUi.children.Initiator.scripts[0].name, "ChildScript.luau");
 });
+
+test("overview injects Game ID and copy controls for Place ID and Game ID", () => {
+  const route = readFileSync(new URL("../src/http/routes/(dashboard)/index.ts", import.meta.url), "utf8");
+  assert.match(route, /overviewGameId/);
+  assert.match(route, /makeCopyButton\("placeId", "Place ID"\)/);
+  assert.match(route, /makeCopyButton\("gameId", "Game ID"\)/);
+  assert.match(route, /client\?\.gameId/);
+});
