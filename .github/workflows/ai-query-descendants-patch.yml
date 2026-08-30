@@ -1,0 +1,99 @@
+name: Apply QueryDescendants optimization
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch connector
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('connector.luau')
+          s = p.read_text()
+          replacements = [
+              ('''            for _, obj in ipairs(rootGui:GetDescendants()) do\n                if #results >= limit then break end\n                if not obj:IsA("GuiObject") or not IsActuallyVisible(obj) then continue end\n''', '''            for _, obj in rootGui:QueryDescendants("GuiObject") do\n                if #results >= limit then break end\n                if not IsActuallyVisible(obj) then continue end\n'''),
+              ('''            for _, animator in ipairs(character:GetDescendants()) do\n                if animator:IsA("Animator") then\n                    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do\n                        if #results >= limit then break end\n                        local animatorDebugId = animator:GetDebugId()\n                        InstanceByDebugId[animatorDebugId] = animator\n                        table.insert(results, {\n                            Name = track.Name, AnimationId = track.Animation and track.Animation.AnimationId or nil,\n                            AnimatorDebugId = animatorDebugId,\n                            Priority = tostring(track.Priority), Speed = track.Speed, TimePosition = track.TimePosition,\n                            Length = track.Length, WeightCurrent = track.WeightCurrent, WeightTarget = track.WeightTarget,\n                            Looped = track.Looped, IsPlaying = track.IsPlaying, Animator = SafeFullName(animator),\n                        })\n                    end\n                end\n                if #results >= limit then break end\n            end\n''', '''            for _, animator in character:QueryDescendants("Animator") do\n                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do\n                    if #results >= limit then break end\n                    local animatorDebugId = animator:GetDebugId()\n                    InstanceByDebugId[animatorDebugId] = animator\n                    table.insert(results, {\n                        Name = track.Name, AnimationId = track.Animation and track.Animation.AnimationId or nil,\n                        AnimatorDebugId = animatorDebugId,\n                        Priority = tostring(track.Priority), Speed = track.Speed, TimePosition = track.TimePosition,\n                        Length = track.Length, WeightCurrent = track.WeightCurrent, WeightTarget = track.WeightTarget,\n                        Looped = track.Looped, IsPlaying = track.IsPlaying, Animator = SafeFullName(animator),\n                    })\n                end\n                if #results >= limit then break end\n            end\n'''),
+              ('''        for _, sound in ipairs(game:GetDescendants()) do\n            if not sound:IsA("Sound") then continue end\n            if playingOnly and not sound.Playing then continue end\n''', '''        for _, sound in game:QueryDescendants("Sound") do\n            if playingOnly and not sound.Playing then continue end\n'''),
+              ('''        for _, obj in ipairs(game:GetDescendants()) do\n            if obj:IsA("Sound") then\n                counts.Sound += 1\n                if obj.Playing then counts.PlayingSound += 1 end\n            end\n            if obj:IsA("Animator") then\n                local ok, tracks = pcall(function() return obj:GetPlayingAnimationTracks() end)\n                if ok then counts.PlayingAnimation += #tracks end\n            end\n            if obj:IsA("LuaSourceContainer") then counts.LuaSourceContainer += 1 end\n            if obj:IsA("GuiObject") then counts.GuiObject += 1 end\n            if obj:IsA("BasePart") then counts.BasePart += 1 end\n        end\n''', '''        for _, obj in game:QueryDescendants("Sound, Animator, LuaSourceContainer, GuiObject, BasePart") do\n            if obj:IsA("Sound") then\n                counts.Sound += 1\n                if obj.Playing then counts.PlayingSound += 1 end\n            elseif obj:IsA("Animator") then\n                local ok, tracks = pcall(function() return obj:GetPlayingAnimationTracks() end)\n                if ok then counts.PlayingAnimation += #tracks end\n            elseif obj:IsA("LuaSourceContainer") then\n                counts.LuaSourceContainer += 1\n            elseif obj:IsA("GuiObject") then\n                counts.GuiObject += 1\n            elseif obj:IsA("BasePart") then\n                counts.BasePart += 1\n            end\n        end\n'''),
+              ('''                for _, obj in ipairs(guiRoot:GetDescendants()) do\n                    if captured >= 250 then break end\n                    if not obj:IsA("GuiObject") then continue end\n''', '''                for _, obj in guiRoot:QueryDescendants("GuiObject") do\n                    if captured >= 250 then break end\n'''),
+              ('''            for _, sound in ipairs(game:GetDescendants()) do\n                if sound:IsA("Sound") and sound.Playing then\n''', '''            for _, sound in game:QueryDescendants("Sound") do\n                if sound.Playing then\n'''),
+              ('''                for _, animator in ipairs(character:GetDescendants()) do\n                    if not animator:IsA("Animator") then continue end\n''', '''                for _, animator in character:QueryDescendants("Animator") do\n'''),
+          ]
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit('Expected connector block was not found; refusing partial patch')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          if s.count('GetDescendants') != 1:
+              raise SystemExit(f'Expected exactly one generic GetDescendants fallback, found {s.count("GetDescendants")}')
+          PY
+      - name: Add regression test
+        shell: bash
+        run: |
+          cat > tests/query-descendants.test.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import test from "node:test";
+
+          const connector = readFileSync(new URL("../connector.luau", import.meta.url), "utf8");
+
+          function handlerSource(name) {
+            const marker = `Bridge:BindToType("${name}"`;
+            const start = connector.indexOf(marker);
+            assert.notEqual(start, -1, `${name} handler should exist`);
+            const next = connector.indexOf("Bridge:BindToType(", start + marker.length);
+            return connector.slice(start, next === -1 ? connector.length : next);
+          }
+
+          test("typed inspection handlers use QueryDescendants instead of raw descendant scans", () => {
+            const expectations = [
+              ["inspect-visible-gui", 'QueryDescendants("GuiObject")'],
+              ["inspect-animations", 'QueryDescendants("Animator")'],
+              ["inspect-sounds", 'QueryDescendants("Sound")'],
+              ["get-performance-stats", 'QueryDescendants("Sound, Animator, LuaSourceContainer, GuiObject, BasePart")'],
+            ];
+
+            for (const [name, selector] of expectations) {
+              const source = handlerSource(name);
+              assert.ok(source.includes(selector));
+              assert.doesNotMatch(source, /GetDescendants\s*\(/);
+            }
+          });
+
+          test("state snapshots use typed QueryDescendants selectors", () => {
+            const start = connector.indexOf("local function CaptureStateSnapshot");
+            const end = connector.indexOf("local function DiffStateSnapshots", start);
+            assert.notEqual(start, -1);
+            assert.notEqual(end, -1);
+            const source = connector.slice(start, end);
+
+            assert.match(source, /guiRoot:QueryDescendants\("GuiObject"\)/);
+            assert.match(source, /game:QueryDescendants\("Sound"\)/);
+            assert.match(source, /character:QueryDescendants\("Animator"\)/);
+            assert.doesNotMatch(source, /GetDescendants\s*\(/);
+          });
+          EOF
+      - name: Validate
+        run: |
+          node --test tests/query-descendants.test.mjs
+          test "$(grep -o 'GetDescendants' connector.luau | wc -l)" -eq 1
+          git diff --check
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/ai-query-descendants-patch.yml
+          git config user.name "Vyperia"
+          git config user.email "117316014+ltseverydayyou@users.noreply.github.com"
+          git add -A
+          git commit -m "Use QueryDescendants for typed inspection scans"
+          git push
