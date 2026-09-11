@@ -56,6 +56,37 @@ body {
 }
 .topbar-center { display: flex; align-items: center; justify-content: center; padding: 0 24px; position: relative; }
 .topbar-right { display: flex; align-items: center; padding: 0 16px; }
+.mobile-nav-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.mobile-nav-toggle:hover,
+.mobile-nav-toggle[aria-expanded="true"] {
+    background: var(--surface-hover);
+    border-color: var(--border-light);
+    color: var(--text);
+}
+.mobile-nav-scrim {
+    display: none;
+    position: fixed;
+    inset: 48px 0 0;
+    z-index: 89;
+    width: 100%;
+    border: 0;
+    background: rgba(0,0,0,0.48);
+    cursor: pointer;
+}
+.mobile-nav-scrim.mobile-nav-scrim--open { display: block; }
 .topbar-section { font-size: 13px; color: var(--text-secondary); }
 .topbar-client-selector {
     display: flex; align-items: center; gap: 8px;
@@ -2155,7 +2186,22 @@ body.decompiler-drag-active * {
     .decompiler-runtime-toggle-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
-    .sidebar { display: none; }
+    .topbar { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .topbar-left { justify-content: flex-start; border-right: 0; padding-left: 8px; }
+    .topbar-center { padding: 0 8px; }
+    .topbar-section { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar-right { padding: 0 8px 0 0; }
+    .topbar-client-selector { max-width: 220px; }
+    .mobile-nav-toggle { display: inline-flex; }
+    .sidebar {
+        display: flex;
+        width: min(260px, calc(100vw - 48px));
+        transform: translateX(calc(-100% - 16px));
+        transition: transform 180ms ease;
+        z-index: 90;
+        box-shadow: 14px 0 34px rgba(0,0,0,0.36);
+    }
+    .sidebar.sidebar--mobile-open { transform: translateX(0); }
     .main-content { flex-basis: 100%; width: 100%; margin-left: 0; }
     .view { padding: 20px 16px; }
     .update-banner { margin: 12px 16px 0; flex-wrap: wrap; }
