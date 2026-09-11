@@ -28,7 +28,11 @@
             <button class="topbar-back" id="topbarBack" style="display:none" title="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg></button>
             <span class="topbar-section" id="topbarSection">Clients</span>
         </div>
-        <div class="topbar-right"></div>
+        <div class="topbar-right">
+            <button class="mobile-nav-toggle" id="mobileNavToggle" type="button" aria-label="Open navigation" aria-controls="mainSidebar" aria-expanded="false">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+            </button>
+        </div>
     </nav>
 
     <!-- ─── Client selector dropdown ───────────────────────── -->
@@ -46,9 +50,11 @@
     <div id="topbarRole" style="display:none"></div>
 
     <!-- ─── Main layout ───────────────────────────────────── -->
+    <button class="mobile-nav-scrim" id="mobileNavScrim" type="button" aria-label="Close navigation"></button>
+
     <div class="layout">
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="mainSidebar">
             <nav class="sidebar-nav" id="sidebarNavHome">
                 <button class="sidebar-item sidebar-item--active" data-view="clients"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Clients</button>
                 <button class="sidebar-item" data-view="server"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>Server</button>
