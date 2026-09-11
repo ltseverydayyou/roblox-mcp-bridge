@@ -64,6 +64,9 @@ const viewNilInstances = $('viewNilInstances');
 const topbarBack = $('topbarBack');
 const sidebarNavHome = $('sidebarNavHome');
 const sidebarNavClient = $('sidebarNavClient');
+const mainSidebar = $('mainSidebar');
+const mobileNavToggle = $('mobileNavToggle');
+const mobileNavScrim = $('mobileNavScrim');
 
 const noClientSearch = $('noClientSearch');
 const noClientList = $('noClientList');
@@ -411,6 +414,26 @@ setInterval(updateUptime, 1000);
 /* ── View switching ──────────────────────────────────────── */
 const allViews = () => [viewClients, viewOverview, viewTools, viewServer, viewSettings, viewServerLogs, viewScripts, viewNilInstances];
 
+function setMobileNavOpen(open) {
+    const isOpen = Boolean(open);
+    mainSidebar.classList.toggle('sidebar--mobile-open', isOpen);
+    mobileNavScrim.classList.toggle('mobile-nav-scrim--open', isOpen);
+    mobileNavToggle.setAttribute('aria-expanded', String(isOpen));
+    mobileNavToggle.setAttribute('aria-label', isOpen ? 'Close navigation' : 'Open navigation');
+}
+
+mobileNavToggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setMobileNavOpen(mobileNavToggle.getAttribute('aria-expanded') !== 'true');
+});
+mobileNavScrim.addEventListener('click', () => setMobileNavOpen(false));
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') setMobileNavOpen(false);
+});
+window.addEventListener('resize', () => {
+    if (window.innerWidth > 680) setMobileNavOpen(false);
+});
+
 function setSidebarMode(mode) {
     dashboardMode = mode;
     sidebarNavHome.style.display = mode === 'home' ? 'flex' : 'none';
@@ -467,13 +490,17 @@ function showView(name) {
 
 function bindSidebarNav(nav) {
     nav.querySelectorAll('.sidebar-item').forEach(btn => {
-        btn.addEventListener('click', () => showView(btn.dataset.view));
+        btn.addEventListener('click', () => {
+            showView(btn.dataset.view);
+            setMobileNavOpen(false);
+        });
     });
 }
 bindSidebarNav(sidebarNavHome);
 bindSidebarNav(sidebarNavClient);
 
 topbarBack.addEventListener('click', () => {
+    setMobileNavOpen(false);
     rememberedClientSuppressed = true;
     selectedClientId = null;
     resetScriptsState();
