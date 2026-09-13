@@ -24,6 +24,7 @@ $script:ConfigFile = [System.IO.Path]::GetFullPath($ConfigPath)
 $script:ManagerExecutable = [string]$env:ROBLOX_MCP_MANAGER_EXE
 $script:ManagerVersion = if ($env:ROBLOX_MCP_MANAGER_VERSION) { [string]$env:ROBLOX_MCP_MANAGER_VERSION } else { "source" }
 $script:PromptedForUpdate = $false
+$script:PromptedForSourceUpdate = $false
 $script:PromptedForManagerUpdate = $false
 $script:LatestManagerRelease = $null
 $script:Busy = $false
@@ -37,6 +38,7 @@ $script:TunnelErrorSource = "RobloxMcpManager.Tunnel.Error"
 $script:ClosingManager = $false
 $script:RepositoryUpdatePanel = $null
 $script:RepositoryUpdateText = $null
+$script:RepositoryUpdateState = $null
 
 function Add-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -229,6 +231,41 @@ function Compare-VersionText {
     try { return ([version]$Local).CompareTo([version]$Remote) } catch { return 0 }
 }
 
+function Get-RepositorySourceUpdateState {
+    param([string]$Directory)
+    if (-not (Test-RepositoryDirectory $Directory)) { return $null }
+    $git = Find-Git
+    if (-not $git) { return $null }
+    $repo = [IO.Path]::GetFullPath($Directory)
+    if (-not (Test-Path -LiteralPath (Join-Path $repo ".git"))) { return $null }
+
+    try {
+        $fetchOutput = (& $git -C $repo fetch --quiet origin main 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            if ($fetchOutput) { Add-Log "Source update check failed: $fetchOutput" "WARN" }
+            return $null
+        }
+
+        $localCommit = (& $git -C $repo rev-parse HEAD 2>$null | Out-String).Trim()
+        $remoteCommit = (& $git -C $repo rev-parse FETCH_HEAD 2>$null | Out-String).Trim()
+        $counts = (& $git -C $repo rev-list --left-right --count "HEAD...FETCH_HEAD" 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $localCommit -or -not $remoteCommit -or -not $counts) { return $null }
+
+        $parts = @($counts -split '\s+' | Where-Object { $_ })
+        if ($parts.Count -lt 2) { return $null }
+        return [pscustomobject]@{
+            LocalCommit = $localCommit
+            RemoteCommit = $remoteCommit
+            Ahead = [int]$parts[0]
+            Behind = [int]$parts[1]
+            HasUpdate = ([int]$parts[1] -gt 0)
+        }
+    }
+    catch {
+        Add-Log "Source update check failed: $($_.Exception.Message)" "WARN"
+        return $null
+    }
+}
 function Get-NodeVersion {
     $node = Find-Node
     if (-not $node) { return $null }
@@ -712,6 +749,9 @@ function Start-InteractiveUpdate {
         Invoke-ManagedProcess $git @("-C", $script:Config.RepositoryDirectory, "pull", "--ff-only") $script:Config.RepositoryDirectory | Out-Null
         Add-Log "Rebuilding the updated MCP with Node.js..."
         Invoke-ManagedProcess $node @($updater, "--update", "--yes", "--plain", "--server-root", $script:Config.RepositoryDirectory) $script:Config.RepositoryDirectory | Out-Null
+        $script:RepositoryUpdateState = $null
+        $script:PromptedForUpdate = $true
+        $script:PromptedForSourceUpdate = $true
         Add-Log "MCP update completed. Reload the bridge to use the new build." "OK"
     }
     finally { Set-Busy $false "Ready" }
@@ -1132,12 +1172,65 @@ function Restart-AsAdministrator {
 }
 
 function Show-RepositoryUpdateNotice {
-    param([string]$LocalVersion, [string]$RemoteVersion)
+    param([string]$LocalVersion, [string]$RemoteVersion, $SourceState = $null)
     $script:PromptedForUpdate = $true
     if ($null -eq $script:RepositoryUpdatePanel) { return }
-    $script:RepositoryUpdateText.Text = "MCP v$RemoteVersion is available. You have v$LocalVersion."
+
+    if ($null -ne $SourceState -and $SourceState.HasUpdate) {
+        $localShort = $SourceState.LocalCommit.Substring(0, [Math]::Min(8, $SourceState.LocalCommit.Length))
+        $remoteShort = $SourceState.RemoteCommit.Substring(0, [Math]::Min(8, $SourceState.RemoteCommit.Length))
+        $script:RepositoryUpdateText.Text = "New MCP source is available ($localShort -> $remoteShort)."
+    }
+    elseif ($LocalVersion -and $RemoteVersion) {
+        $script:RepositoryUpdateText.Text = "MCP v$RemoteVersion is available. You have v$LocalVersion."
+    }
+    else {
+        $script:RepositoryUpdateText.Text = "A newer MCP source build is available."
+    }
+
     $script:RepositoryUpdatePanel.Visible = $true
     $script:RepositoryUpdatePanel.BringToFront()
+}
+
+function Check-RepositorySourceUpdate {
+    param([bool]$Manual = $false)
+    if (-not $Manual -and $script:PromptedForSourceUpdate) { return }
+
+    $repo = $script:RepoBox.Text.Trim()
+    if (-not (Test-RepositoryDirectory $repo)) { return }
+
+    $state = Get-RepositorySourceUpdateState $repo
+    if ($null -eq $state) {
+        if ($Manual) { throw "Could not check the MCP source revision. Check Git/GitHub access and try again." }
+        return
+    }
+
+    $script:RepositoryUpdateState = $state
+    if (-not $state.HasUpdate) {
+        if ($Manual) {
+            [Windows.Forms.MessageBox]::Show("Your Roblox MCP Bridge source is already current.", "MCP source is current", 0, 64) | Out-Null
+        }
+        return
+    }
+
+    $script:PromptedForSourceUpdate = $true
+    $localVersion = Get-LocalVersion $repo
+    $remoteVersion = Get-RemoteVersion
+    Show-RepositoryUpdateNotice $localVersion $remoteVersion $state
+
+    $localShort = $state.LocalCommit.Substring(0, [Math]::Min(8, $state.LocalCommit.Length))
+    $remoteShort = $state.RemoteCommit.Substring(0, [Math]::Min(8, $state.RemoteCommit.Length))
+    $message = "A newer Roblox MCP Bridge source update is available.`r`n`r`nInstalled commit: $localShort`r`nLatest commit: $remoteShort`r`nRemote commits available: $($state.Behind)`r`n`r`nUpdate the MCP source and rebuild it now?"
+    if ($state.Ahead -gt 0) {
+        $message += "`r`n`r`nThis checkout also has $($state.Ahead) local-only commit(s). The updater uses fast-forward-only mode and will stop instead of overwriting them."
+    }
+
+    Add-Log "MCP source update available: $localShort -> $remoteShort ($($state.Behind) remote commit(s))." "WARN"
+    if ([Windows.Forms.MessageBox]::Show($message, "MCP source update available", 4, 64) -eq "Yes") {
+        Start-InteractiveUpdate
+        $script:RepositoryUpdateState = $null
+        Refresh-Status
+    }
 }
 
 function Refresh-Status {
@@ -1152,7 +1245,22 @@ function Refresh-Status {
     $bridgeRunning = Test-BridgeRunning $script:AddressBox.Text
     $localVersion = if ($repoReady) { Get-LocalVersion $script:RepoBox.Text } else { $null }
     $remoteVersion = if ($localVersion) { Get-RemoteVersion } else { $null }
-    $updateText = if (-not $localVersion) { "not installed" } elseif (-not $remoteVersion) { "fetch failed" } elseif ((Compare-VersionText $localVersion $remoteVersion) -lt 0) { "v$remoteVersion available" } else { "current" }
+    $sourceUpdate = $script:RepositoryUpdateState
+    $updateText = if (-not $localVersion) {
+        "not installed"
+    }
+    elseif ($null -ne $sourceUpdate -and $sourceUpdate.HasUpdate) {
+        "$($sourceUpdate.Behind) source commit(s) available"
+    }
+    elseif (-not $remoteVersion) {
+        "fetch failed"
+    }
+    elseif ((Compare-VersionText $localVersion $remoteVersion) -lt 0) {
+        "v$remoteVersion available"
+    }
+    else {
+        "current"
+    }
     $nodeReady = $nodeVersion -and $nodeVersion.Major -ge 18 -and $npm
     Set-StatusValue "Git" $(if ($git) { "Installed" } else { "Missing" }) $(if ($git) { "Good" } else { "Bad" })
     Set-StatusValue "Node" $(if ($nodeReady) { "v$nodeVersion" } else { "Missing / old" }) $(if ($nodeReady) { "Good" } else { "Bad" })
@@ -1169,8 +1277,13 @@ function Refresh-Status {
     $script:HealthTitle.Text = if ($ready) { "Everything looks good" } else { "A few things need attention" }
     $script:HealthSubtitle.Text = if ($ready) { "Start the bridge when you are ready." } else { "Use Quick setup below to finish installation." }
 
-    if (-not $script:PromptedForUpdate -and $localVersion -and $remoteVersion -and (Compare-VersionText $localVersion $remoteVersion) -lt 0) {
-        Show-RepositoryUpdateNotice $localVersion $remoteVersion
+    if (-not $script:PromptedForUpdate) {
+        if ($null -ne $sourceUpdate -and $sourceUpdate.HasUpdate) {
+            Show-RepositoryUpdateNotice $localVersion $remoteVersion $sourceUpdate
+        }
+        elseif ($localVersion -and $remoteVersion -and (Compare-VersionText $localVersion $remoteVersion) -lt 0) {
+            Show-RepositoryUpdateNotice $localVersion $remoteVersion
+        }
     }
 }
 
@@ -1530,8 +1643,15 @@ $script:Form.Add_FormClosing({
     if ($null -ne $script:TunnelWindow -and -not $script:TunnelWindow.IsDisposed) { $script:TunnelWindow.Dispose() }
 })
 $script:Form.Add_Shown({
-    if ($PreviewPath) { $script:PromptedForUpdate = $true; $script:PromptedForManagerUpdate = $true }
+    if ($PreviewPath) { $script:PromptedForUpdate = $true; $script:PromptedForSourceUpdate = $true; $script:PromptedForManagerUpdate = $true }
     Refresh-Status
+    if (-not $PreviewPath -and -not $script:PromptedForSourceUpdate) {
+        try {
+            Check-RepositorySourceUpdate $false
+            Refresh-Status
+        }
+        catch { Add-Log "MCP source update check failed: $($_.Exception.Message)" "WARN" }
+    }
     if (-not $PreviewPath -and -not $script:PromptedForManagerUpdate) {
         try { Check-ManagerUpdate $false } catch { Add-Log "Manager update check failed: $($_.Exception.Message)" "WARN" }
     }
