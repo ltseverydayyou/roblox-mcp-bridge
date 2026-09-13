@@ -915,6 +915,33 @@ function Show-TunnelWindow {
     $window.Show($script:Form)
 }
 
+function Set-ClipboardTextSta {
+    param([Parameter(Mandatory = $true)][string]$Text)
+
+    $runspace = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $powershell = $null
+    try {
+        $runspace.ApartmentState = [System.Threading.ApartmentState]::STA
+        $runspace.ThreadOptions = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
+        $runspace.Open()
+
+        $powershell = [PowerShell]::Create()
+        $powershell.Runspace = $runspace
+        [void]$powershell.AddScript('param($Value) Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText($Value)')
+        [void]$powershell.AddArgument($Text)
+        [void]$powershell.Invoke()
+
+        if ($powershell.HadErrors) {
+            $message = ($powershell.Streams.Error | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+            throw $message
+        }
+    } finally {
+        if ($null -ne $powershell) { $powershell.Dispose() }
+        $runspace.Close()
+        $runspace.Dispose()
+    }
+}
+
 function Copy-RobloxLoader {
     Update-ConfigFromFields
     $address = $script:Config.BridgeAddress
@@ -954,7 +981,7 @@ function Copy-RobloxLoader {
         "    task.wait(2)"
         "end"
     ) -join "`r`n"
-    [Windows.Forms.Clipboard]::SetText($loader)
+    Set-ClipboardTextSta $loader
     Add-Log "Roblox loader copied to the clipboard." "OK"
 }
 
