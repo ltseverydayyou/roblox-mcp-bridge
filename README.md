@@ -210,7 +210,7 @@ The bridge checks its published version shortly after startup and every six hour
 
 ### Beginner Windows MCP Manager `.exe`
 
-`RobloxMcpManager.exe` is the easiest Windows setup. It is a standalone control panel intended for people who do not want to use Git, npm, or PowerShell manually. Download it from the [latest GitHub release](https://github.com/ltseverydayyou/roblox-mcp-bridge/releases/latest), open it, and click **INSTALL ALL REQUIRED**.
+`RobloxMcpManager.exe` is the easiest Windows setup. It is a standalone WebView2 control panel that uses the same HTML/CSS design system, theme controls, animations, cards, toasts, and compact layout as the localhost MCP dashboard. Download it from the [latest GitHub release](https://github.com/ltseverydayyou/roblox-mcp-bridge/releases/latest), open it, then use **Setup → Install / repair** to install/repair prerequisites and the bridge.
 
 ### Android MCP Manager `.apk`
 
@@ -259,7 +259,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\create-windows-lau
   -OutputDirectory "D:\Roblox MCP Manager"
 ```
 
-The generated `.exe` now embeds its manager UI and works by itself. It uses a modern dark control-panel layout and embeds the official Luau logo from the same [`luau-lang/site` source](https://github.com/luau-lang/site/blob/master/logo.svg) used by this project's author profile. Starting with v2.3.6, the manager checks GitHub releases for its own updates, verifies the published SHA-256 digest, atomically replaces its launcher while preserving a `.previous-...exe` backup, and offers to restart itself. The updater also compares the running EXE against the release asset SHA-256 when the version number is unchanged, so a rebuilt/replaced `RobloxMcpManager-vX.Y.Z.exe` asset is detected without requiring another version bump. `RobloxMcpManager.config.json` is optional and only prefills non-secret paths/settings; if it is missing, the manager starts with safe defaults and can install or locate everything. No third-party EXE-builder module is downloaded.
+The generated `.exe` embeds a native WebView2 host plus the manager HTML, the localhost dashboard CSS, WebView2 bridge assemblies, and the project icon, then self-extracts those runtime files under `%LOCALAPPDATA%\RobloxMcpManager\Runtime\vX.Y.Z`. The UI therefore uses the same dashboard design tokens and motion system instead of a separate WinForms/PowerShell visual layer. The manager checks both `origin/main` and GitHub manager releases, verifies published SHA-256 digests before installing manager updates, preserves a `.previous-...exe` backup, and detects refreshed same-version EXE assets by digest. If an MCP source or manager update is found while the manager is not the foreground window, Windows 10/11 receives a native notification; focused sessions use the dashboard-style animated toast instead. `RobloxMcpManager.config.json` remains optional and only prefills non-secret paths/settings; runtime API keys stay memory-only. No third-party EXE-builder module is downloaded.
 
 ### Force-update recovery (Windows)
 

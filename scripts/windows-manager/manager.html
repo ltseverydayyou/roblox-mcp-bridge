@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Roblox MCP Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="dashboard.css">
+<style>
+body { user-select:none; }
+input, textarea, .terminal-output { user-select:text; }
+.manager-brand-avatar { width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--surface-raised); }
+.manager-brand-avatar img { width:100%;height:100%;object-fit:cover; }
+.manager-top-version { font-family:var(--mono);font-size:11px;color:var(--text-tertiary);white-space:nowrap; }
+.manager-status-pill { display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:99px;background:var(--surface);font-size:11px;color:var(--text-secondary); }
+.manager-status-dot { width:6px;height:6px;border-radius:50%;background:var(--green); }
+.manager-status-dot.offline { background:var(--amber); }
+.manager-hero { display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:20px; }
+.manager-title { font-size:20px;font-weight:600;margin-bottom:4px; }
+.manager-sub { font-size:13px;color:var(--text-secondary); }
+.manager-action-row { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+.manager-action-grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px; }
+.manager-action-btn { width:100%;padding:9px 12px;border-radius:6px;background:var(--surface-raised);color:var(--text);border:1px solid var(--border);font-family:var(--sans);font-size:12px;font-weight:500;cursor:pointer;transition:all var(--transition); }
+.manager-action-btn:hover { background:var(--surface-hover);border-color:var(--border-light); }
+.manager-action-btn.primary { background:var(--text);color:var(--bg);border-color:var(--text); }
+.manager-action-btn.primary:hover { opacity:.86; }
+.manager-action-btn.danger { color:var(--red); }
+.manager-source-head { display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px; }
+.manager-source-state { display:flex;align-items:center;gap:8px; }
+.manager-source-badge { font-family:var(--mono);font-size:10px;font-weight:600;padding:3px 7px;border-radius:99px;background:var(--surface-raised);color:var(--text-tertiary); }
+.manager-source-badge.good { background:var(--green-dim);color:var(--green); }
+.manager-source-badge.warn { background:var(--amber-dim);color:var(--amber); }
+.manager-source-badge.bad { background:var(--red-dim);color:var(--red); }
+.manager-source-badge.busy { background:var(--blue-dim);color:var(--blue); }
+.manager-progress-label { display:flex;justify-content:space-between;gap:12px;font-size:11px;color:var(--text-tertiary);margin:7px 0 8px; }
+.manager-progress-segment { width:0%;background:var(--blue); }
+.manager-progress-segment.good { background:var(--green); }
+.manager-progress-segment.warn { background:var(--amber); }
+.manager-progress-segment.bad { background:var(--red); }
+.manager-mini-grid { display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:12px; }
+.manager-mini { background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;min-width:0; }
+.manager-mini-label { font-size:9px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px; }
+.manager-mini-value { font-family:var(--mono);font-size:10px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.manager-inline-field { display:flex;gap:8px;align-items:center; }
+.manager-inline-field input { flex:1;max-width:none!important; }
+.manager-terminal-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden; }
+.manager-terminal-toolbar { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface-raised); }
+.manager-terminal-title { display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500; }
+.manager-live-dot { width:6px;height:6px;border-radius:50%;background:var(--text-tertiary); }
+.manager-live-dot.running { background:var(--green);animation:livePulse 2s infinite; }
+.terminal-output { height:390px;overflow:auto;padding:12px 14px;background:#080808;color:#c9c9c9;font-family:var(--mono);font-size:11px;line-height:1.6;white-space:pre-wrap; }
+.terminal-output::-webkit-scrollbar { width:5px; }
+.terminal-output::-webkit-scrollbar-thumb { background:var(--border);border-radius:99px; }
+.manager-log-line { display:grid;grid-template-columns:70px 58px 1fr;gap:10px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px; }
+.manager-log-time { color:var(--text-tertiary);font-family:var(--mono); }
+.manager-log-level { font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase; }
+.manager-log-level.info { color:var(--blue); }.manager-log-level.ok { color:var(--green); }.manager-log-level.warn { color:var(--amber); }.manager-log-level.error { color:var(--red); }
+.manager-log-msg { color:var(--text-secondary); }
+.manager-appearance-note { font-size:11px;color:var(--text-tertiary);margin-top:8px; }
+.manager-path-value { font-family:var(--mono);font-size:11px;color:var(--text-secondary);overflow-wrap:anywhere; }
+.view.manager-view { display:none; }
+.view.manager-view.active { display:block; animation:fadeInUp 260ms cubic-bezier(.16,1,.3,1) both; }
+.toast-action { margin-left:8px;padding:4px 8px;border-radius:5px;background:var(--surface-raised);border:1px solid var(--border);color:var(--text);font:500 11px var(--sans);cursor:pointer; }
+.toast-action:hover { border-color:var(--border-light); }
+@media (max-width:1000px) { .manager-mini-grid { grid-template-columns:repeat(3,1fr); }.manager-action-grid{grid-template-columns:repeat(2,1fr);} }
+</style>
+</head>
+<body class="dashboard-density-compact">
+<nav class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-client-selector" style="cursor:default">
+      <div class="manager-brand-avatar"><img src="mcp-icon.png" alt=""></div>
+      <span class="client-selector-name" style="color:var(--text)">Roblox MCP Manager</span>
+    </div>
+  </div>
+  <div class="topbar-center"><span class="topbar-section" id="topbarSection">Dashboard</span></div>
+  <div class="topbar-right" style="gap:10px">
+    <span class="manager-status-pill"><span class="manager-status-dot offline" id="topBridgeDot"></span><span id="topBridgeText">Bridge stopped</span></span>
+    <span class="manager-top-version" id="topVersion">v-</span>
+  </div>
+</nav>
+<div class="layout">
+<aside class="sidebar" id="mainSidebar">
+  <nav class="sidebar-nav">
+    <button class="sidebar-item sidebar-item--active" data-view="dashboard"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard</button>
+    <button class="sidebar-item" data-view="setup"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852 1 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setup</button>
+    <button class="sidebar-item" data-view="tunnel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>ChatGPT Tunnel</button>
+    <button class="sidebar-item" data-view="logs"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Logs</button>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="sidebar-footer-row"><div class="sidebar-uptime"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span id="uptimeChip">00:00:00</span></div><button class="sidebar-link" id="openGithub" title="Project repository" style="background:none;border:0;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg></button></div>
+    <div class="sidebar-credit">Same frontend design system as the localhost MCP dashboard.</div>
+  </div>
+</aside>
+<main class="main-content">
+  <div class="view manager-view active" id="view-dashboard">
+    <div class="manager-hero"><div><h1 class="manager-title">Roblox MCP Manager</h1><p class="manager-sub">Install, update and run the bridge using the same interface as the localhost dashboard.</p></div><div class="manager-action-row"><button class="settings-test-btn" id="checkAllBtn">Refresh status</button><button class="settings-save-btn" id="openDashboardBtn">Open dashboard</button></div></div>
+    <div class="overview-cards">
+      <div class="info-card"><div class="info-card-label">MCP Version</div><div class="info-card-value info-card-value--mono" id="statVersion">-</div></div>
+      <div class="info-card"><div class="info-card-label">Source</div><div class="info-card-value info-card-value--mono" id="statSource">-</div></div>
+      <div class="info-card"><div class="info-card-label">Bridge</div><div class="info-card-value" id="statBridge">-</div></div>
+      <div class="info-card"><div class="info-card-label">Build</div><div class="info-card-value" id="statBuild">-</div></div>
+      <div class="info-card"><div class="info-card-label">Git</div><div class="info-card-value info-card-value--mono" id="statGit">-</div></div>
+      <div class="info-card"><div class="info-card-label">Node.js</div><div class="info-card-value info-card-value--mono" id="statNode">-</div></div>
+      <div class="info-card"><div class="info-card-label">Tunnel</div><div class="info-card-value" id="statTunnel">Stopped</div></div>
+      <div class="info-card"><div class="info-card-label">Address</div><div class="info-card-value info-card-value--mono" id="statAddress">localhost:16384</div></div>
+    </div>
+    <div class="settings-card">
+      <div class="settings-card-body">
+        <div class="manager-source-head"><div><div class="settings-card-title">MCP source</div><div class="settings-card-desc" id="sourceDesc" style="margin-bottom:0">Checking origin/main...</div></div><div class="manager-source-state"><span class="manager-source-badge busy" id="sourceBadge">CHECKING</span><button class="settings-test-btn" id="sourceActionBtn" disabled>Checking...</button></div></div>
+        <div class="manager-progress-label"><span id="sourceProgressText">Contacting GitHub and comparing revisions</span><span id="sourceProgressPercent">0%</span></div>
+        <div class="github-progress"><div class="github-progress-segment manager-progress-segment" id="sourceProgress"></div></div>
+        <div class="manager-mini-grid">
+          <div class="manager-mini"><div class="manager-mini-label">Version</div><div class="manager-mini-value" id="srcVersion">-</div></div>
+          <div class="manager-mini"><div class="manager-mini-label">Branch</div><div class="manager-mini-value" id="srcBranch">-</div></div>
+          <div class="manager-mini"><div class="manager-mini-label">Local</div><div class="manager-mini-value" id="srcLocal">-</div></div>
+          <div class="manager-mini"><div class="manager-mini-label">Remote</div><div class="manager-mini-value" id="srcRemote">-</div></div>
+          <div class="manager-mini"><div class="manager-mini-label">Build</div><div class="manager-mini-value" id="srcBuild">-</div></div>
+          <div class="manager-mini"><div class="manager-mini-label">Tree</div><div class="manager-mini-value" id="srcTree">-</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-card">
+      <div class="settings-card-body"><div class="settings-card-title">Quick actions</div><div class="settings-card-desc">Common bridge operations.</div><div class="manager-action-grid"><button class="manager-action-btn primary" data-action="startBridge">Start bridge</button><button class="manager-action-btn" data-action="reloadBridge">Reload bridge</button><button class="manager-action-btn" data-action="copyLoader">Copy loader</button><button class="manager-action-btn" data-action="openDashboard">Open dashboard</button></div></div>
+    </div>
+  </div>
+
+  <div class="view manager-view" id="view-setup">
+    <div class="settings-header"><h2 class="settings-title">Setup</h2><p class="settings-sub">Paths, bridge configuration and manager appearance.</p></div>
+    <div class="settings-card"><div class="settings-card-body"><div class="settings-card-title">Installation</div><div class="settings-card-desc">Local paths used by the manager.</div><div class="settings-control-grid">
+      <div class="settings-field"><label>Repository</label><div class="manager-inline-field"><input id="repositoryPath" type="text"><button class="settings-test-btn" data-action="browseRepository">Browse</button></div></div>
+      <div class="settings-field"><label>Bridge address</label><input id="bridgeAddress" type="text" value="localhost:16384"></div>
+      <div class="settings-field"><label>Tunnel client</label><div class="manager-inline-field"><input id="tunnelClient" type="text"><button class="settings-test-btn" data-action="browseTunnel">Browse</button></div></div>
+      <div class="settings-field"><label>Tunnel profile</label><input id="tunnelProfile" type="text" value="roblox-executor"></div>
+      <div class="settings-field"><label>Tunnel ID</label><input id="tunnelId" type="text" placeholder="tunnel_..."></div>
+      <div class="settings-field"><label>Runtime API key</label><input id="runtimeKey" type="password" placeholder="Memory-only; never saved"></div>
+    </div></div><div class="settings-card-footer"><span class="settings-card-footer-hint">The runtime API key is never written to disk.</span><div class="settings-card-actions"><button class="settings-test-btn" data-action="restartAdmin">Restart as admin</button><button class="settings-test-btn" data-action="installTunnelClient">Install tunnel client</button><button class="settings-test-btn" data-action="installEverything">Install / repair</button><button class="settings-save-btn" id="saveConfigBtn">Save configuration</button></div></div></div>
+    <div class="settings-card"><div class="settings-card-body"><div class="settings-card-title">Dashboard appearance</div><div class="settings-card-desc">These are the same appearance controls used by the localhost dashboard.</div><div class="settings-control-grid">
+      <div class="settings-field"><label>Accent color</label><div class="settings-color-row"><input type="color" id="appearanceAccent" value="#3b82f6"><div class="settings-color-presets"><button type="button" data-accent="#3b82f6" style="--preset:#3b82f6"></button><button type="button" data-accent="#8b5cf6" style="--preset:#8b5cf6"></button><button type="button" data-accent="#ec4899" style="--preset:#ec4899"></button><button type="button" data-accent="#22c55e" style="--preset:#22c55e"></button><button type="button" data-accent="#f59e0b" style="--preset:#f59e0b"></button></div></div></div>
+      <div class="settings-field"><label>Interface density</label><select id="appearanceDensity"><option value="comfortable">Comfortable</option><option value="compact" selected>Compact</option></select></div>
+      <div class="settings-field"><label>Corner style</label><select id="appearanceCorners"><option value="rounded">Rounded</option><option value="soft">Soft</option><option value="square">Square</option></select></div>
+      <div class="settings-field"><label>Code font size <span id="fontSizeValue">13px</span></label><input type="range" id="appearanceFontSize" min="11" max="18" value="13"></div>
+    </div><div class="settings-toggle-grid"><label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="appearanceMotion" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Interface animations</span></label></div></div><div class="settings-card-footer"><span class="settings-card-footer-hint">Stored locally in the manager WebView profile.</span><button class="settings-save-btn" id="saveAppearanceBtn">Save appearance</button></div></div>
+  </div>
+
+  <div class="view manager-view" id="view-tunnel">
+    <div class="settings-header"><h2 class="settings-title">ChatGPT Tunnel</h2><p class="settings-sub">Run the OpenAI tunnel client without a separate terminal window.</p></div>
+    <div class="manager-action-row" style="margin-bottom:12px"><button class="settings-save-btn" data-action="startTunnel">Start tunnel</button><button class="settings-test-btn" data-action="stopTunnel">Stop</button><button class="settings-test-btn" data-action="configureTunnel">Configure</button><span class="manager-status-pill" style="margin-left:auto"><span class="manager-live-dot" id="tunnelDot"></span><span id="tunnelState">Stopped</span></span></div>
+    <div class="manager-terminal-card"><div class="manager-terminal-toolbar"><div class="manager-terminal-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Tunnel output</div><button class="logs-btn" id="clearTunnelBtn">Clear</button></div><pre class="terminal-output" id="tunnelOutput">Tunnel console ready.
+</pre></div>
+  </div>
+
+  <div class="view manager-view" id="view-logs">
+    <div class="logs-header"><h2 class="logs-title">Manager activity</h2><div class="logs-controls"><button class="logs-btn" id="clearLogsBtn">Clear</button></div></div>
+    <div class="logs-table-wrap"><div class="logs-table-header" style="grid-template-columns:70px 58px 1fr"><span>Time</span><span>Level</span><span>Message</span></div><div id="managerLogs"></div></div>
+  </div>
+</main>
+</div>
+<div class="toast-container" id="toastContainer"></div>
+<script>
+const $ = id => document.getElementById(id);
+const startTime = Date.now();
+const toastIcons = {
+ success:'<svg class="toast-icon toast-icon--success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>',
+ error:'<svg class="toast-icon toast-icon--error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+ info:'<svg class="toast-icon toast-icon--info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+};
+function escapeHtml(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+function showToast(message,type='info',duration=3500,actionText='',actionFn=null){const c=$('toastContainer'),t=document.createElement('div');t.className='toast';t.innerHTML=(toastIcons[type]||toastIcons.info)+'<span class="toast-msg">'+escapeHtml(message)+'</span>'+(actionText?'<button class="toast-action">'+escapeHtml(actionText)+'</button>':'')+'<button class="toast-close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';c.appendChild(t);const close=()=>{t.classList.add('toast--removing');setTimeout(()=>t.remove(),200)};t.querySelector('.toast-close').onclick=close;if(actionText){t.querySelector('.toast-action').onclick=()=>{actionFn?.();close();}}setTimeout(()=>t.parentElement&&close(),duration);}
+function send(action,data={}){window.chrome?.webview?.postMessage(JSON.stringify({action,...data}));}
+function addLog(level,message){const root=$('managerLogs');const row=document.createElement('div');row.className='manager-log-line logs-row--entering';const time=new Date().toLocaleTimeString([], {hour12:false});row.innerHTML='<span class="manager-log-time">'+escapeHtml(time)+'</span><span class="manager-log-level '+level+'">'+escapeHtml(level)+'</span><span class="manager-log-msg">'+escapeHtml(message)+'</span>';root.prepend(row);setTimeout(()=>row.classList.remove('logs-row--entering'),250);}
+function setView(name){document.querySelectorAll('.manager-view').forEach(v=>v.classList.toggle('active',v.id==='view-'+name));document.querySelectorAll('.sidebar-item').forEach(b=>b.classList.toggle('sidebar-item--active',b.dataset.view===name));$('topbarSection').textContent=({dashboard:'Dashboard',setup:'Setup',tunnel:'ChatGPT Tunnel',logs:'Logs'})[name]||name;}
+document.querySelectorAll('.sidebar-item').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{const action=b.dataset.action;if(action==='startTunnel'||action==='configureTunnel') send(action,{runtimeKey:$('runtimeKey').value}); else send(action);});
+$('checkAllBtn').onclick=()=>{send('status');send('checkSource');};$('openDashboardBtn').onclick=()=>send('openDashboard');$('openGithub').onclick=()=>send('openGithub');
+$('sourceActionBtn').onclick=()=>send($('sourceActionBtn').dataset.action||'checkSource');
+$('saveConfigBtn').onclick=()=>send('saveConfig',{repository:$('repositoryPath').value,address:$('bridgeAddress').value,tunnelClient:$('tunnelClient').value,profile:$('tunnelProfile').value,tunnelId:$('tunnelId').value});
+$('clearTunnelBtn').onclick=()=>{$('tunnelOutput').textContent='';};$('clearLogsBtn').onclick=()=>{$('managerLogs').innerHTML='';};
+function applyAppearance(p){const accent=p.accent||'#3b82f6';document.documentElement.style.setProperty('--blue',accent);document.documentElement.style.setProperty('--blue-dim',accent+'1f');document.body.classList.toggle('dashboard-density-compact',(p.density||'compact')==='compact');document.body.classList.toggle('dashboard-motion-off',p.motion===false);const radius=p.corners==='square'?'0px':p.corners==='soft'?'5px':'8px';const radiusLg=p.corners==='square'?'0px':p.corners==='soft'?'8px':'12px';document.documentElement.style.setProperty('--radius',radius);document.documentElement.style.setProperty('--radius-lg',radiusLg);document.documentElement.style.setProperty('--code-font-size',(p.fontSize||13)+'px');}
+function loadAppearance(){try{return JSON.parse(localStorage.getItem('managerAppearance')||'{}')}catch{return {}}}
+let appearance=Object.assign({accent:'#3b82f6',density:'compact',corners:'rounded',fontSize:13,motion:true},loadAppearance());applyAppearance(appearance);$('appearanceAccent').value=appearance.accent;$('appearanceDensity').value=appearance.density;$('appearanceCorners').value=appearance.corners;$('appearanceFontSize').value=appearance.fontSize;$('appearanceMotion').checked=appearance.motion!==false;$('fontSizeValue').textContent=appearance.fontSize+'px';
+document.querySelectorAll('[data-accent]').forEach(b=>b.onclick=()=>{$('appearanceAccent').value=b.dataset.accent;});$('appearanceFontSize').oninput=()=>{$('fontSizeValue').textContent=$('appearanceFontSize').value+'px';};$('saveAppearanceBtn').onclick=()=>{appearance={accent:$('appearanceAccent').value,density:$('appearanceDensity').value,corners:$('appearanceCorners').value,fontSize:+$('appearanceFontSize').value,motion:$('appearanceMotion').checked};localStorage.setItem('managerAppearance',JSON.stringify(appearance));applyAppearance(appearance);showToast('Appearance saved','success');};
+setInterval(()=>{const s=Math.floor((Date.now()-startTime)/1000),h=String(Math.floor(s/3600)).padStart(2,'0'),m=String(Math.floor((s%3600)/60)).padStart(2,'0'),x=String(s%60).padStart(2,'0');$('uptimeChip').textContent=h+':'+m+':'+x;},1000);
+function setSourceState(s){const badge=$('sourceBadge'),btn=$('sourceActionBtn'),bar=$('sourceProgress');badge.className='manager-source-badge '+(s.state||'busy');badge.textContent=(s.badge||'WORKING').toUpperCase();$('sourceDesc').textContent=s.title||'';$('sourceProgressText').textContent=s.detail||'';const pct=Math.round((s.progress||0)*100);$('sourceProgressPercent').textContent=pct+'%';bar.style.width=pct+'%';bar.className='github-progress-segment manager-progress-segment '+(s.state||'');btn.disabled=!!s.disabled;btn.textContent=s.actionText||'Check again';btn.dataset.action=s.action||'checkSource';}
+window.managerReceive = m => { if(typeof m==='string') try{m=JSON.parse(m)}catch{return;} switch(m.type){
+ case 'status': $('statVersion').textContent=m.version||'-';$('topVersion').textContent=m.version||'-';$('statSource').textContent=(m.branch||'-')+' @ '+(m.commit||'-');$('statBridge').textContent=m.bridgeRunning?'Running':'Stopped';$('statBuild').textContent=m.buildReady?'Ready':'Missing / stale';$('statGit').textContent=m.git||'Missing';$('statNode').textContent=m.node||'Missing';$('statAddress').textContent=m.address||'localhost:16384';$('topBridgeDot').classList.toggle('offline',!m.bridgeRunning);$('topBridgeText').textContent=m.bridgeRunning?'Bridge running':'Bridge stopped';$('srcVersion').textContent=m.version||'-';$('srcBranch').textContent=m.branch||'-';$('srcBuild').textContent=m.buildReady?'Ready':'Missing';break;
+ case 'config': $('repositoryPath').value=m.repository||'';$('bridgeAddress').value=m.address||'localhost:16384';$('tunnelClient').value=m.tunnelClient||'';$('tunnelProfile').value=m.profile||'roblox-executor';$('tunnelId').value=m.tunnelId||'';break;
+ case 'source': setSourceState(m);if(m.local!==undefined)$('srcLocal').textContent=m.local||'-';if(m.remote!==undefined)$('srcRemote').textContent=m.remote||'-';if(m.tree!==undefined)$('srcTree').textContent=m.tree||'-';break;
+ case 'toast': showToast(m.message,m.level||'info',m.duration||4200,m.actionText||'',m.action?()=>send(m.action):null);addLog(m.logLevel||m.level||'info',m.message);break;
+ case 'bridge': $('statBridge').textContent=m.running?'Running':'Stopped';$('topBridgeDot').classList.toggle('offline',!m.running);$('topBridgeText').textContent=m.running?'Bridge running':'Bridge stopped';break;
+ case 'tunnel': $('statTunnel').textContent=m.running?'Running':'Stopped';$('tunnelState').textContent=m.running?'Running':'Stopped';$('tunnelDot').classList.toggle('running',!!m.running);break;
+ case 'tunnelLog': $('tunnelOutput').textContent+='['+new Date().toLocaleTimeString([], {hour12:false})+'] '+m.line+'\n';$('tunnelOutput').scrollTop=$('tunnelOutput').scrollHeight;break;
+ case 'path': if(m.target==='repository')$('repositoryPath').value=m.value||'';if(m.target==='tunnel')$('tunnelClient').value=m.value||'';break;
+ }};
+window.addEventListener('DOMContentLoaded',()=>{send('ready');setTimeout(()=>send('checkSource'),300);});
+</script>
+</body></html>
