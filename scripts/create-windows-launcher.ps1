@@ -146,9 +146,17 @@ try {
     }
 
     $payloadAssignments = New-Object Text.StringBuilder
+    $payloadSignature = New-Object Text.StringBuilder
     foreach ($entry in $payload.GetEnumerator()) {
         $base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($entry.Value))
         [void]$payloadAssignments.AppendLine("        WritePayload(Path.Combine(runtime, `"$($entry.Key)`"), `"$base64`");")
+        [void]$payloadSignature.Append($entry.Key).Append(":").Append((Get-FileHash -LiteralPath $entry.Value -Algorithm SHA256).Hash.ToLowerInvariant()).Append("|")
+    }
+    $payloadHasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $runtimeBuildId = ([BitConverter]::ToString($payloadHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($payloadSignature.ToString()))).Replace("-", "").ToLowerInvariant()).Substring(0, 12)
+    } finally {
+        $payloadHasher.Dispose()
     }
 
     $bootstrapSource = @"
@@ -172,7 +180,7 @@ internal static class RobloxMcpManagerBootstrap
     {
         try
         {
-            string runtime = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RobloxMcpManager", "Runtime", "v$managerVersion");
+            string runtime = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RobloxMcpManager", "Runtime", "v$managerVersion-$runtimeBuildId");
             Directory.CreateDirectory(runtime);
 $($payloadAssignments.ToString())
             string host = Path.Combine(runtime, "RobloxMcpManager.Host.exe");
@@ -201,8 +209,20 @@ $($payloadAssignments.ToString())
         byte[] data = Convert.FromBase64String(base64);
         if (File.Exists(path))
         {
-            FileInfo info = new FileInfo(path);
-            if (info.Length == data.Length) return;
+            try
+            {
+                byte[] existing = File.ReadAllBytes(path);
+                if (existing.Length == data.Length)
+                {
+                    bool same = true;
+                    for (int i = 0; i < data.Length; i++)
+                    {
+                        if (existing[i] != data[i]) { same = false; break; }
+                    }
+                    if (same) return;
+                }
+            }
+            catch { }
         }
         File.WriteAllBytes(path, data);
     }
