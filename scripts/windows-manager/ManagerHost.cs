@@ -183,7 +183,7 @@ namespace RobloxMcpWebManager
                     var saved = json.Deserialize<Dictionary<string, object>>(text);
                     object v;
                     if (saved.TryGetValue("RepositoryDirectory", out v) && Directory.Exists(Convert.ToString(v))) config["repository"] = Convert.ToString(v);
-                    if (saved.TryGetValue("TunnelClientExecutable", out v)) config["tunnelClient"] = Convert.ToString(v);
+                    if (saved.TryGetValue("TunnelClientExecutable", out v) && !String.IsNullOrWhiteSpace(Convert.ToString(v))) config["tunnelClient"] = Convert.ToString(v);
                     if (saved.TryGetValue("BridgeAddress", out v)) config["address"] = Convert.ToString(v);
                     if (saved.TryGetValue("ProfileName", out v)) config["profile"] = Convert.ToString(v);
                     if (saved.TryGetValue("TunnelId", out v)) config["tunnelId"] = Convert.ToString(v);
@@ -370,6 +370,7 @@ namespace RobloxMcpWebManager
                     ["commit"]=commit, ["buildReady"]=buildReady, ["bridgeRunning"]=bridgeRunning, ["address"]=GetConfig("address")
                 });
                 Send(new Dictionary<string, object> { ["type"]="bridge", ["running"]=bridgeRunning });
+                Send(new Dictionary<string, object> { ["type"]="tunnel", ["running"]=IsConfiguredTunnelRunning() });
             });
         }
 
@@ -850,9 +851,70 @@ namespace RobloxMcpWebManager
             Environment.SetEnvironmentVariable("Path", machine + ";" + user, EnvironmentVariableTarget.Process);
         }
 
+        private bool TryGetConfiguredTunnelHealthPort(out int port)
+        {
+            port = 0;
+            try
+            {
+                string profile = GetConfig("profile");
+                string profilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "tunnel-client", profile + ".yaml");
+                if (!File.Exists(profilePath)) return false;
+                foreach (string raw in File.ReadAllLines(profilePath))
+                {
+                    string line = raw.Trim();
+                    if (!line.StartsWith("listen_addr:", StringComparison.OrdinalIgnoreCase)) continue;
+                    string value = line.Substring("listen_addr:".Length).Trim().Trim('"');
+                    int colon = value.LastIndexOf(':');
+                    return colon >= 0 && Int32.TryParse(value.Substring(colon + 1), out port) && port > 0;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private bool IsConfiguredTunnelRunning()
+        {
+            try
+            {
+                if (tunnelProcess != null && !tunnelProcess.HasExited) return true;
+            }
+            catch { }
+
+            int port;
+            if (!TryGetConfiguredTunnelHealthPort(out port)) return false;
+            try
+            {
+                var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + "/readyz");
+                request.Method = "GET";
+                request.Timeout = 700;
+                request.ReadWriteTimeout = 700;
+                request.Proxy = null;
+                using (var response = (HttpWebResponse)request.GetResponse())
+                using (var reader = new StreamReader(response.GetResponseStream()))
+                {
+                    return response.StatusCode == HttpStatusCode.OK && String.Equals(reader.ReadToEnd().Trim(), "ready", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch { return false; }
+        }
+
         private async Task StartTunnelAsync(Dictionary<string, object> msg)
         {
-            if (tunnelProcess != null && !tunnelProcess.HasExited) { Toast("Tunnel is already running", "success", "ok"); return; }
+            if (IsConfiguredTunnelRunning())
+            {
+                Send(new Dictionary<string,object>{{"type","tunnel"},{"running",true}});
+                Send(new Dictionary<string,object>{{"type","tunnelLog"},{"line","Tunnel is already running for the configured profile; reusing the existing instance."}});
+                Toast("ChatGPT tunnel is already running", "success", "ok");
+                return;
+            }
+            int configuredTunnelPort;
+            if (TryGetConfiguredTunnelHealthPort(out configuredTunnelPort) && IsPortOpen(configuredTunnelPort, 180))
+            {
+                Send(new Dictionary<string,object>{{"type","tunnel"},{"running",false}});
+                Send(new Dictionary<string,object>{{"type","tunnelLog"},{"line","The configured tunnel port " + configuredTunnelPort + " is already occupied, but its health endpoint is not ready. A duplicate tunnel was not started."}});
+                Toast("Tunnel port " + configuredTunnelPort + " is already occupied by an unhealthy or stale process.", "error", "error");
+                return;
+            }
             string exe=GetConfig("tunnelClient"); if(!File.Exists(exe)){Toast("tunnel-client.exe was not found","error","error");return;}
             string key=msg.ContainsKey("runtimeKey")?Convert.ToString(msg["runtimeKey"]):""; string profile=GetConfig("profile");
             await Task.Run(()=>{
@@ -872,7 +934,13 @@ namespace RobloxMcpWebManager
         private void TryStopTunnel()
         {
             try { if(tunnelProcess!=null&&!tunnelProcess.HasExited){tunnelProcess.Kill();tunnelProcess.WaitForExit(3000);} } catch { }
-            Send(new Dictionary<string,object>{{"type","tunnel"},{"running",false}}); if(!closing)Toast("ChatGPT tunnel stopped","success","ok");
+            bool stillRunning = IsConfiguredTunnelRunning();
+            Send(new Dictionary<string,object>{{"type","tunnel"},{"running",stillRunning}});
+            if (!closing)
+            {
+                if (stillRunning) Toast("The configured tunnel is running outside this manager, so it was left running.","info","warn");
+                else Toast("ChatGPT tunnel stopped","success","ok");
+            }
         }
 
         private async Task ConfigureTunnelAsync(Dictionary<string, object> msg)
