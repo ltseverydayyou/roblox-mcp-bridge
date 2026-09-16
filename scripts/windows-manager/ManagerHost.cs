@@ -231,6 +231,7 @@ namespace RobloxMcpWebManager
                     case "openDashboard": OpenDashboard(); break;
                     case "openGithub": OpenExternal("https://github.com/ltseverydayyou/roblox-mcp-bridge"); break;
                     case "openRelease": OpenExternal("https://github.com/ltseverydayyou/roblox-mcp-bridge/releases/latest"); break;
+                    case "checkManagerUpdate": managerUpdateChecked = false; _ = CheckManagerUpdateAsync(true); break;
                     case "updateManager": _ = InstallManagerUpdateAsync(); break;
                     case "browseRepository": BrowseRepository(); break;
                     case "browseTunnel": BrowseTunnel(); break;
@@ -372,10 +373,11 @@ namespace RobloxMcpWebManager
             });
         }
 
-        private async Task CheckManagerUpdateAsync()
+        private async Task CheckManagerUpdateAsync(bool manual = false)
         {
-            if (managerUpdateChecked) return;
+            if (managerUpdateChecked && !manual) return;
             managerUpdateChecked = true;
+            if (manual) Toast("Checking for Roblox MCP Manager updates...", "info", "info");
 
             await Task.Run(() => {
                 try
@@ -430,18 +432,31 @@ namespace RobloxMcpWebManager
                         if (newerVersion || sameVersionAssetRefresh)
                         {
                             string notificationKey = latest + ":" + latestManagerSha256;
-                            if (!String.Equals(lastManagerNotificationKey, notificationKey, StringComparison.OrdinalIgnoreCase))
+                            string title = "Roblox MCP Manager update available";
+                            string message = newerVersion ? "Manager v" + latest + " is available." : "A refreshed v" + installed + " manager build is available.";
+                            if (manual)
                             {
                                 lastManagerNotificationKey = notificationKey;
-                                string title = "Roblox MCP Manager update available";
-                                string message = newerVersion ? "Manager v" + latest + " is available." : "A refreshed v" + installed + " manager build is available.";
+                                Toast(message, "info", "warn", "Update app", "updateManager");
+                            }
+                            else if (!String.Equals(lastManagerNotificationKey, notificationKey, StringComparison.OrdinalIgnoreCase))
+                            {
+                                lastManagerNotificationKey = notificationKey;
                                 DeliverUpdateNotification(title, message, "Update app", "updateManager");
                             }
                         }
-                        else lastManagerNotificationKey = "";
+                        else
+                        {
+                            lastManagerNotificationKey = "";
+                            if (manual) Toast("Roblox MCP Manager v" + installed + " is up to date.", "success", "ok");
+                        }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    managerUpdateChecked = false;
+                    if (manual) Toast("Manager update check failed: " + ex.Message, "error", "error");
+                }
             });
         }
 
