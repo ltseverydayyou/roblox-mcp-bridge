@@ -34,6 +34,7 @@ namespace RobloxMcpWebManager
         private Dictionary<string, object> config = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         private Process tunnelProcess;
         private Process bridgeProcess;
+        private IntPtr bridgeJob = IntPtr.Zero;
         private System.Windows.Forms.Timer sourceUpdateTimer;
         private System.Windows.Forms.Timer managerUpdateTimer;
         private bool managerUpdateChecked;
@@ -50,6 +51,57 @@ namespace RobloxMcpWebManager
 
         [DllImport("user32.dll")]
         private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string lpName);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool SetInformationJobObject(IntPtr hJob, int JobObjectInfoClass, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IO_COUNTERS
+        {
+            public ulong ReadOperationCount;
+            public ulong WriteOperationCount;
+            public ulong OtherOperationCount;
+            public ulong ReadTransferCount;
+            public ulong WriteTransferCount;
+            public ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+        {
+            public long PerProcessUserTimeLimit;
+            public long PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize;
+            public UIntPtr MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass;
+            public uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        {
+            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+            public IO_COUNTERS IoInfo;
+            public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit;
+            public UIntPtr PeakProcessMemoryUsed;
+            public UIntPtr PeakJobMemoryUsed;
+        }
+
+        private const int JobObjectExtendedLimitInformation = 9;
+        private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
 
         public ManagerForm()
         {
@@ -75,6 +127,8 @@ namespace RobloxMcpWebManager
                 try { if (sourceUpdateTimer != null) { sourceUpdateTimer.Stop(); sourceUpdateTimer.Dispose(); } } catch { }
                 try { if (managerUpdateTimer != null) { managerUpdateTimer.Stop(); managerUpdateTimer.Dispose(); } } catch { }
                 TryStopTunnel();
+                StopBridgeProcessTree();
+                CloseBridgeJob();
             };
         }
 
@@ -171,6 +225,7 @@ namespace RobloxMcpWebManager
                     case "checkSource": _ = CheckSourceAsync(true); break;
                     case "updateSource": _ = UpdateSourceAsync(); break;
                     case "startBridge": _ = StartBridgeAsync(); break;
+                    case "stopBridge": _ = StopBridgeAsync(false); break;
                     case "reloadBridge": _ = ReloadBridgeAsync(); break;
                     case "copyLoader": CopyLoader(); break;
                     case "openDashboard": OpenDashboard(); break;
@@ -572,6 +627,7 @@ namespace RobloxMcpWebManager
                     psi.EnvironmentVariables["ROBLOX_MCP_HOST"] = GetConfig("address").StartsWith("localhost", StringComparison.OrdinalIgnoreCase) ? "127.0.0.1" : "0.0.0.0";
                     psi.EnvironmentVariables["ROBLOX_MCP_PORT"] = GetPort().ToString();
                     bridgeProcess = Process.Start(psi);
+                    AttachBridgeToKillOnCloseJob(bridgeProcess);
                     Thread.Sleep(1000);
                     bool running = IsPortOpen(GetPort(), 300);
                     Send(new Dictionary<string, object> { ["type"]="bridge", ["running"]=running });
@@ -589,18 +645,83 @@ namespace RobloxMcpWebManager
 
         private async Task StopBridgeAsync(bool quiet)
         {
-            int port = GetPort();
             await Task.Run(() => {
                 try
                 {
-                    if (bridgeProcess != null && !bridgeProcess.HasExited) { bridgeProcess.Kill(); bridgeProcess.WaitForExit(3000); }
-                    string script = "$c=Get-NetTCPConnection -State Listen -LocalPort " + port + " -ErrorAction SilentlyContinue; foreach($x in $c){$p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$x.OwningProcess) -ErrorAction SilentlyContinue; if($p -and $p.Name -eq 'node.exe' -and $p.CommandLine -match 'dist[\\/]index\\.js'){Stop-Process -Id $x.OwningProcess -Force -ErrorAction SilentlyContinue}}";
-                    Run("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + Quote(script), GetConfig("repository"), 10000);
+                    StopBridgeProcessTree();
                     Send(new Dictionary<string, object> { ["type"]="bridge", ["running"]=false });
                     if (!quiet) Toast("Bridge stopped", "success", "ok");
                 }
                 catch (Exception ex) { if (!quiet) Toast(ex.Message, "error", "error"); }
             });
+        }
+
+        private void AttachBridgeToKillOnCloseJob(Process process)
+        {
+            if (process == null) return;
+            CloseBridgeJob();
+            IntPtr job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero) return;
+
+            int size = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+            IntPtr infoPtr = Marshal.AllocHGlobal(size);
+            try
+            {
+                var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                Marshal.StructureToPtr(info, infoPtr, false);
+                if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, infoPtr, (uint)size) ||
+                    !AssignProcessToJobObject(job, process.Handle))
+                {
+                    CloseHandle(job);
+                    return;
+                }
+                bridgeJob = job;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(infoPtr);
+            }
+        }
+
+        private void CloseBridgeJob()
+        {
+            IntPtr job = bridgeJob;
+            bridgeJob = IntPtr.Zero;
+            if (job != IntPtr.Zero)
+            {
+                try { CloseHandle(job); } catch { }
+            }
+        }
+
+        private void StopBridgeProcessTree()
+        {
+            int port = GetPort();
+            int pid = 0;
+            try
+            {
+                if (bridgeProcess != null && !bridgeProcess.HasExited) pid = bridgeProcess.Id;
+            }
+            catch { }
+
+            if (pid > 0)
+                Run("taskkill.exe", "/PID " + pid + " /T /F", GetConfig("repository"), 10000);
+
+            CloseBridgeJob();
+
+            try
+            {
+                if (bridgeProcess != null)
+                {
+                    if (!bridgeProcess.HasExited) bridgeProcess.WaitForExit(3000);
+                    bridgeProcess.Dispose();
+                }
+            }
+            catch { }
+            bridgeProcess = null;
+
+            string script = "$c=Get-NetTCPConnection -State Listen -LocalPort " + port + " -ErrorAction SilentlyContinue; foreach($x in $c){$p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$x.OwningProcess) -ErrorAction SilentlyContinue; if($p -and $p.Name -eq 'node.exe' -and $p.CommandLine -match 'dist[\\/]index\\.js'){Stop-Process -Id $x.OwningProcess -Force -ErrorAction SilentlyContinue}}";
+            Run("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + Quote(script), GetConfig("repository"), 10000);
         }
 
         private void CopyLoader()
