@@ -32,6 +32,7 @@ export interface DecompilerProviderSettings {
 }
 
 export interface DecompilerRuntimeSettings {
+  forcedProvider: DecompilerProviderId | null;
   adaptiveFallback: boolean;
   loadBalanceSlowProviders: boolean;
   overallTimeoutMs: number;
@@ -220,6 +221,7 @@ export const DEFAULT_PROVIDER_TIMEOUTS_MS: Record<DecompilerProviderId, number> 
 };
 
 export const DEFAULT_DECOMPILER_RUNTIME_SETTINGS: DecompilerRuntimeSettings = {
+  forcedProvider: null,
   adaptiveFallback: true,
   loadBalanceSlowProviders: true,
   overallTimeoutMs: 12000,
@@ -275,6 +277,7 @@ function cloneSettings(settings: DecompilerSettings): DecompilerSettings {
 
 function cloneRuntimeSettings(settings: DecompilerRuntimeSettings): DecompilerRuntimeSettings {
   return {
+    forcedProvider: settings.forcedProvider,
     adaptiveFallback: settings.adaptiveFallback,
     loadBalanceSlowProviders: settings.loadBalanceSlowProviders,
     overallTimeoutMs: settings.overallTimeoutMs,
@@ -352,6 +355,11 @@ function normalizeRuntimeSettings(
   const fallbackTimeouts = fallback.providerTimeoutsMs ?? DEFAULT_PROVIDER_TIMEOUTS_MS;
 
   return {
+    forcedProvider: Object.prototype.hasOwnProperty.call(input, "forcedProvider")
+      ? input.forcedProvider == null
+        ? null
+        : (toProviderId(input.forcedProvider) ?? fallback.forcedProvider)
+      : fallback.forcedProvider,
     adaptiveFallback:
       typeof input.adaptiveFallback === "boolean"
         ? input.adaptiveFallback
@@ -499,6 +507,9 @@ function providerLabel(id: DecompilerProviderId): string {
 
 export function decompilerSettingsIssues(settings: DecompilerSettings): string[] {
   const issues: string[] = [];
+  if (settings.runtime.forcedProvider && !settings.providers[settings.runtime.forcedProvider]?.enabled) {
+    issues.push(`Forced provider ${providerLabel(settings.runtime.forcedProvider)} must be enabled.`);
+  }
   for (const id of settings.providerOrder) {
     const provider = settings.providers[id];
     if (!provider?.enabled) continue;
