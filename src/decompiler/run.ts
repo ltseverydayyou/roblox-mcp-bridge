@@ -32,6 +32,7 @@ export interface DecompileResult {
   attempts: string[];
   error?: string;
   needsBuiltin?: boolean;
+  preventBuiltinFallback?: boolean;
 }
 
 interface ProviderRunResult {
@@ -500,14 +501,16 @@ export async function decompileBytecode(
   const deadline = Date.now() + (runtime.overallTimeoutMs || 12000);
   const disabledProviders = cleanDisabledProviders(input.disabledProviders);
   const requestedProvider = isProviderId(input.requestedProvider) ? input.requestedProvider : null;
+  const forcedProvider = runtime.forcedProvider && isProviderId(runtime.forcedProvider) ? runtime.forcedProvider : null;
   const candidates: DecompilerProviderId[] = [];
 
   for (const id of settings.providerOrder) {
+    if (forcedProvider && id !== forcedProvider) continue;
     const provider = settings.providers[id];
     if (!provider?.enabled) continue;
     if (disabledProviders.has(id)) continue;
 
-    const skip = shouldSkipDecompilerProvider(id, runtime);
+    const skip = forcedProvider ? { skip: false } : shouldSkipDecompilerProvider(id, runtime);
     if (skip.skip) {
       attempts.push(`[${id}] skipped: ${skip.reason ?? "provider is temporarily unavailable"}`);
       continue;
@@ -516,7 +519,9 @@ export async function decompileBytecode(
     candidates.push(id);
   }
 
-  const orderedProviders = orderProvidersForRequest(candidates, runtime, requestedProvider);
+  const orderedProviders = forcedProvider
+    ? candidates
+    : orderProvidersForRequest(candidates, runtime, requestedProvider);
 
   for (const id of orderedProviders) {
     const provider = settings.providers[id];
@@ -589,12 +594,15 @@ export async function decompileBytecode(
   }
 
   if (attempts.length === 0) {
-    attempts.push("No decompiler providers are enabled.");
+    attempts.push(forcedProvider
+      ? `Forced decompiler provider ${forcedProvider} is not enabled or available.`
+      : "No decompiler providers are enabled.");
   }
 
   return {
     ok: false,
     attempts,
     error: attempts.join("\n\n"),
+    preventBuiltinFallback: forcedProvider !== null && forcedProvider !== "builtin",
   };
 }
