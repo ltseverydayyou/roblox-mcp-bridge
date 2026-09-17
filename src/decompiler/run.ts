@@ -48,6 +48,8 @@ const ENDPOINT_BRIDGE_HOST_TOKEN = "{{BridgeHost}}";
 const MAX_ERROR_BODY_CHARS = 600;
 const LUA_EXPERT_MIN_INTERVAL_MS = 120;
 const LOAD_IDLE_RESET_MS = 5000;
+const FORCED_PROVIDER_MAX_RETRIES = 5;
+const FORCED_PROVIDER_RETRY_DELAY_MS = 200;
 let luaExpertLastCallAt = 0;
 let luaExpertQueue: Promise<void> = Promise.resolve();
 
@@ -498,10 +500,10 @@ export async function decompileBytecode(
   const runtime = runtimeOrDefault(settings.runtime);
   const bytecode = Buffer.from(input.bytecodeBase64, "base64");
   const attempts: string[] = [];
-  const deadline = Date.now() + (runtime.overallTimeoutMs || 12000);
   const disabledProviders = cleanDisabledProviders(input.disabledProviders);
   const requestedProvider = isProviderId(input.requestedProvider) ? input.requestedProvider : null;
   const forcedProvider = runtime.forcedProvider && isProviderId(runtime.forcedProvider) ? runtime.forcedProvider : null;
+  const deadline = forcedProvider ? Number.POSITIVE_INFINITY : Date.now() + (runtime.overallTimeoutMs || 12000);
   const candidates: DecompilerProviderId[] = [];
 
   for (const id of settings.providerOrder) {
@@ -543,54 +545,71 @@ export async function decompileBytecode(
       continue;
     }
 
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) {
-      attempts.push("Overall decompile deadline reached.");
-      break;
-    }
-
-    const providerTimeoutMs = Math.min(
-      runtime.providerTimeoutsMs?.[id] ?? DEFAULT_PROVIDER_TIMEOUTS_MS[id] ?? 6000,
-      remainingMs
-    );
+    const maxAttempts = forcedProvider === id ? FORCED_PROVIDER_MAX_RETRIES + 1 : 1;
     const displayName = providerDisplayName(id, provider);
-    const finishProviderAttempt = startProviderAttempt(id);
-    let result: ProviderRunResult;
-    try {
-      result = await runProvider({
+
+    for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber += 1) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        attempts.push("Overall decompile deadline reached.");
+        break;
+      }
+
+      const providerTimeoutMs = forcedProvider === id
+        ? runtime.providerTimeoutsMs?.[id] ?? DEFAULT_PROVIDER_TIMEOUTS_MS[id] ?? 6000
+        : Math.min(
+            runtime.providerTimeoutsMs?.[id] ?? DEFAULT_PROVIDER_TIMEOUTS_MS[id] ?? 6000,
+            remainingMs
+          );
+      const finishProviderAttempt = startProviderAttempt(id);
+      let result: ProviderRunResult;
+      try {
+        result = await runProvider({
+          id,
+          provider,
+          bytecode,
+          bytecodeBase64: input.bytecodeBase64,
+          builtinSource: input.builtinSource,
+          builtinLatencyMs: input.builtinLatencyMs,
+          timeoutMs: providerTimeoutMs,
+        });
+      } finally {
+        finishProviderAttempt();
+      }
+
+      if (result.ok && typeof result.result === "string" && result.result !== "") {
+        recordDecompilerProviderSuccess(id, result.latencyMs, runtime, input.clientId);
+        return {
+          ok: true,
+          providerId: id,
+          source: `-- Decompiled with ${displayName}\n${result.result}`,
+          attempts,
+        };
+      }
+
+      const error = result.error || "Provider returned no source.";
+      recordDecompilerProviderFailure({
         id,
-        provider,
-        bytecode,
-        bytecodeBase64: input.bytecodeBase64,
-        builtinSource: input.builtinSource,
-        builtinLatencyMs: input.builtinLatencyMs,
-        timeoutMs: providerTimeoutMs,
+        errorMessage: error,
+        runtime,
+        statusCode: result.statusCode,
+        timedOut: result.timedOut,
+        latencyMs: result.latencyMs,
+        clientId: input.clientId,
       });
-    } finally {
-      finishProviderAttempt();
-    }
 
-    if (result.ok && typeof result.result === "string" && result.result !== "") {
-      recordDecompilerProviderSuccess(id, result.latencyMs, runtime, input.clientId);
-      return {
-        ok: true,
-        providerId: id,
-        source: `-- Decompiled with ${displayName}\n${result.result}`,
-        attempts,
-      };
+      if (forcedProvider === id) {
+        const retryLabel = attemptNumber <= FORCED_PROVIDER_MAX_RETRIES
+          ? `; retrying (${attemptNumber}/${FORCED_PROVIDER_MAX_RETRIES})`
+          : "; retry limit reached";
+        attempts.push(`[${id}] attempt ${attemptNumber}/${maxAttempts}: ${error}${retryLabel}`);
+        if (attemptNumber < maxAttempts) {
+          await delay(FORCED_PROVIDER_RETRY_DELAY_MS);
+        }
+      } else {
+        attempts.push(`[${id}] ${error}`);
+      }
     }
-
-    const error = result.error || "Provider returned no source.";
-    recordDecompilerProviderFailure({
-      id,
-      errorMessage: error,
-      runtime,
-      statusCode: result.statusCode,
-      timedOut: result.timedOut,
-      latencyMs: result.latencyMs,
-      clientId: input.clientId,
-    });
-    attempts.push(`[${id}] ${error}`);
   }
 
   if (attempts.length === 0) {
