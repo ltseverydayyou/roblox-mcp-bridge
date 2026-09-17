@@ -1355,17 +1355,18 @@ local function RequestServerDecompile(bytecode, options)
         return StripDecompilerBanner(decoded.source)
     end
     if decoded.needsBuiltin == true and decoded.providerId == "builtin" then
-        return nil, nil, true
+        return nil, nil, true, false
     end
 
+    local preventBuiltinFallback = decoded.preventBuiltinFallback == true
     if type(decoded.error) == "string" and decoded.error ~= "" then
-        return nil, decoded.error
+        return nil, decoded.error, false, preventBuiltinFallback
     end
     if type(decoded.attempts) == "table" then
-        return nil, table.concat(decoded.attempts, "\n\n")
+        return nil, table.concat(decoded.attempts, "\n\n"), false, preventBuiltinFallback
     end
 
-    return nil, "Decompile server failed without a detailed error."
+    return nil, "Decompile server failed without a detailed error.", false, preventBuiltinFallback
 end
 
 local function PrepareScriptForMapping(script, fetchCache)
@@ -1416,8 +1417,8 @@ local function DecompileScriptSource(script, prepared)
         return nil, "Prepared script is missing bytecode.", prepared.scriptHash
     end
 
-    local source, errorMessage, needsBuiltin = RequestServerDecompile(prepared.bytecode)
-    if not source then
+    local source, errorMessage, needsBuiltin, preventBuiltinFallback = RequestServerDecompile(prepared.bytecode)
+    if not source and not preventBuiltinFallback then
         local builtinSource, builtinLatencyMs = TryBuiltInDecompile(script)
         if builtinSource then
             local normalizedSource = RequestServerDecompile(prepared.bytecode, {
