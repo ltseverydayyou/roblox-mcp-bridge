@@ -221,6 +221,7 @@ const LUACID_DEFAULT_OPTIONS = {
     upvalue_comments: false
 };
 const DEFAULT_DECOMPILER_RUNTIME = {
+    forcedProvider: null,
     adaptiveFallback: true,
     loadBalanceSlowProviders: true,
     overallTimeoutMs: 12000,
@@ -3854,7 +3855,11 @@ function normalizeDecompilerRuntime(value) {
     for (const id of Object.keys(defaults.providerTimeoutsMs)) {
         providerTimeoutsMs[id] = Math.round(clampRuntimeNumber(inputTimeouts[id], defaults.providerTimeoutsMs[id], 500, 60000));
     }
+    const forcedProvider = typeof input.forcedProvider === 'string' && knownDecompilerIds().includes(input.forcedProvider)
+        ? input.forcedProvider
+        : null;
     return {
+        forcedProvider,
         adaptiveFallback: typeof input.adaptiveFallback === 'boolean' ? input.adaptiveFallback : defaults.adaptiveFallback,
         loadBalanceSlowProviders: typeof input.loadBalanceSlowProviders === 'boolean' ? input.loadBalanceSlowProviders : defaults.loadBalanceSlowProviders,
         overallTimeoutMs: Math.round(clampRuntimeNumber(input.overallTimeoutMs, defaults.overallTimeoutMs, 3000, 60000)),
@@ -3903,6 +3908,15 @@ function renderDecompilerRuntimeSettings() {
     if (!decompilerSettings) return;
     const runtime = normalizeDecompilerRuntime(decompilerSettings.runtime);
     decompilerSettings.runtime = runtime;
+    const forcedSelect = $('decompilerForcedProvider');
+    if (forcedSelect) {
+        const enabled = activeDecompilerOrder();
+        forcedSelect.innerHTML = '<option value="">Default fallback order</option>' + enabled.map(id => {
+            const ui = providerUi(id);
+            return `<option value="${escapeHtml(id)}">${escapeHtml(ui.label)}</option>`;
+        }).join('');
+        forcedSelect.value = runtime.forcedProvider || '';
+    }
     const adaptive = $('decompilerAdaptiveFallback');
     if (adaptive) adaptive.checked = runtime.adaptiveFallback !== false;
     const loadBalance = $('decompilerLoadBalanceSlowProviders');
@@ -4144,8 +4158,10 @@ function collectDecompilerRuntimeSettings() {
         if (!Number.isFinite(value)) return fallback;
         return Math.round(clampRuntimeNumber(value, min / 1000, max / 1000) * 1000);
     };
+    const forcedProviderValue = $('decompilerForcedProvider')?.value || '';
     return {
         ...current,
+        forcedProvider: forcedProviderValue || null,
         adaptiveFallback: $('decompilerAdaptiveFallback')?.checked !== false,
         loadBalanceSlowProviders: $('decompilerLoadBalanceSlowProviders')?.checked !== false,
         overallTimeoutMs: secondsField('decompilerOverallTimeout', current.overallTimeoutMs, 3000, 60000),
