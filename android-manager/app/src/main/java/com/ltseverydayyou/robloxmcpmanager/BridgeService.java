@@ -12,7 +12,9 @@ import android.os.Handler;
 import android.os.Process;
 import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -145,7 +147,13 @@ public final class BridgeService extends Service {
                 chatGptFiles.getAbsolutePath()
             });
             Log.i("RobloxMcpBridge", "Embedded Node exited with " + result);
-            writeState("EXITED Embedded Node returned code " + result);
+            String javascriptState = readState();
+            if (javascriptState.startsWith("ERROR")) {
+                appendServiceLog("Embedded Node returned code " + result + "; preserving JavaScript failure: " + javascriptState);
+            } else {
+                writeState("EXITED Embedded Node returned code " + result
+                    + (result == 0 ? " unexpectedly after startup" : ""));
+            }
         } catch (Throwable error) {
             Log.e("RobloxMcpBridge", "Embedded runtime failed", error);
             StringWriter trace = new StringWriter();
@@ -153,6 +161,27 @@ public final class BridgeService extends Service {
             writeState("ERROR " + error.getClass().getName() + ": " + error.getMessage() + "\n" + trace);
         } finally {
             stopSelf();
+        }
+    }
+
+    private String readState() {
+        File status = new File(getFilesDir(), STATUS_FILE);
+        if (!status.isFile()) return "";
+        try (BufferedReader reader = new BufferedReader(new FileReader(status))) {
+            StringBuilder value = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null && value.length() < 16_000) value.append(line).append('\n');
+            return value.toString().trim();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private void appendServiceLog(String state) {
+        try (FileWriter writer = new FileWriter(new File(getFilesDir(), SERVICE_LOG_FILE), true)) {
+            writer.write("[" + Instant.now() + "] " + state + "\n");
+        } catch (Exception error) {
+            Log.e("RobloxMcpBridge", "Could not append service log", error);
         }
     }
 

@@ -34,6 +34,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -369,6 +370,28 @@ public final class MainActivity extends Activity {
 
         @JavascriptInterface public void stopTunnel() { runOnUiThread(MainActivity.this::stopTunnel); }
         @JavascriptInterface public void restartTunnel() { runOnUiThread(MainActivity.this::restartTunnel); }
+
+        @JavascriptInterface public String getChatGptFiles() {
+            return chatGptFilesJson();
+        }
+
+        @JavascriptInterface public void exportChatGptFile(String name) {
+            runOnUiThread(() -> {
+                try { exportGptFile(resolveGptFile(name)); }
+                catch (Exception error) { showMessage("ChatGPT file unavailable", error.getMessage()); }
+            });
+        }
+
+        @JavascriptInterface public void deleteChatGptFile(String name) {
+            runOnUiThread(() -> {
+                try { confirmDeleteGptFile(resolveGptFile(name)); }
+                catch (Exception error) { showMessage("ChatGPT file unavailable", error.getMessage()); }
+            });
+        }
+
+        @JavascriptInterface public void clearChatGptFiles() {
+            runOnUiThread(MainActivity.this::confirmClearGptFiles);
+        }
 
         @JavascriptInterface public String getLogs() {
             StringBuilder lines = new StringBuilder();
@@ -1272,6 +1295,34 @@ public final class MainActivity extends Activity {
         File directory = new File(getCacheDir(), "chatgpt-files");
         if (!directory.isDirectory()) directory.mkdirs();
         return directory;
+    }
+
+    private File resolveGptFile(String name) throws Exception {
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("File name is empty.");
+        File root = gptFilesDirectory().getCanonicalFile();
+        File candidate = new File(root, name).getCanonicalFile();
+        File parent = candidate.getParentFile();
+        if (parent == null || !parent.equals(root) || !candidate.isFile()) {
+            throw new SecurityException("Cached ChatGPT file was not found.");
+        }
+        return candidate;
+    }
+
+    private String chatGptFilesJson() {
+        JSONArray result = new JSONArray();
+        File[] files = gptFilesDirectory().listFiles(File::isFile);
+        if (files == null) return result.toString();
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+        for (File file : files) {
+            try {
+                JSONObject item = new JSONObject();
+                item.put("name", file.getName());
+                item.put("bytes", file.length());
+                item.put("modified", file.lastModified());
+                result.put(item);
+            } catch (Exception ignored) {}
+        }
+        return result.toString();
     }
 
     private void refreshGptFiles() {

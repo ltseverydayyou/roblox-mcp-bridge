@@ -201,7 +201,7 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 25/);
+  assert.match(gradle, /versionCode 26/);
   assert.match(gradle, /versionName "0\.5\.3"/);
 });
 
@@ -376,4 +376,23 @@ test("GitHub Actions can build and attach the Android APK to v2.4.9 without Wind
   assert.match(androidApkWorkflow, /gh release upload v2\.4\.9/);
   assert.match(androidApkWorkflow, /contents: write/);
   assert.match(buildAndroid, /AllowSigningCertificateMismatch/);
+});
+
+test("embedded Android bridge stays alive and preserves JavaScript startup failures", () => {
+  assert.match(entrypoint, /setInterval\(\(\) => \{\}, 60_000\)/);
+  assert.match(entrypoint, /Bridge module loaded; embedded runtime keepalive active/);
+  assert.match(entrypoint, /JavaScript startup failed/);
+  assert.match(bridgeService, /preserving JavaScript failure/);
+  assert.match(runtimeWorkflow, /Smoke test Android bridge on Node 18/);
+});
+
+test("shared Android dashboard restores ChatGPT file cache controls", () => {
+  assert.match(dashboardHtml, /androidChatGptFilesList/);
+  assert.match(dashboardHtml, /androidRefreshChatGptFilesButton/);
+  assert.match(dashboardHtml, /androidClearChatGptFilesButton/);
+  assert.match(mainActivity, /getChatGptFiles\(\)/);
+  assert.match(mainActivity, /exportChatGptFile\(String name\)/);
+  assert.match(mainActivity, /deleteChatGptFile\(String name\)/);
+  assert.match(mainActivity, /clearChatGptFiles\(\)/);
+  assert.match(dashboardJs, /refreshAndroidChatGptFiles/);
 });

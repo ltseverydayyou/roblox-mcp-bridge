@@ -484,6 +484,16 @@
 
                     <div class="settings-card">
                         <div class="settings-card-body">
+                            <div class="settings-card-title">ChatGPT files</div>
+                            <div class="settings-card-desc">Files imported from ChatGPT are kept in the Android MCP cache. Download saves a copy through Android's document picker; Delete removes only the cached bridge copy.</div>
+                            <div id="androidChatGptFilesSummary" class="settings-card-desc" style="margin-bottom:0">No ChatGPT files are cached.</div>
+                            <div id="androidChatGptFilesList" class="android-file-list"></div>
+                        </div>
+                        <div class="settings-card-footer"><div class="settings-card-actions"><button class="settings-test-btn" id="androidRefreshChatGptFilesButton">Refresh files</button><button class="settings-delete-btn" id="androidClearChatGptFilesButton">Delete all</button></div></div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-body">
                             <div class="settings-card-title">Android manager logs</div>
                             <div class="settings-card-desc">Bridge service, embedded Node, and tunnel-client logs.</div>
                             <pre id="androidManagerLogs" class="tool-output-body" style="max-height:280px;overflow:auto;white-space:pre-wrap">No logs yet.</pre>

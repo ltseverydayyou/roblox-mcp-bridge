@@ -39,15 +39,31 @@ for (const method of ["log", "info", "warn", "error"]) {
   };
 }
 
-process.on("uncaughtException", (error) => {
-  writeStatus(`ERROR JavaScript uncaught exception: ${error?.stack || error}`);
-  console.error("[Android] Uncaught exception", error);
-});
-process.on("unhandledRejection", (error) => {
-  writeStatus(`ERROR JavaScript unhandled rejection: ${error?.stack || error}`);
-  console.error("[Android] Unhandled rejection", error);
-});
+const keepAlive = setInterval(() => {}, 60_000);
+keepAlive.ref?.();
+let fatalExitScheduled = false;
+
+function fatal(label, error) {
+  const detail = error?.stack || error?.message || String(error);
+  writeStatus(`ERROR ${label}: ${detail}`);
+  console.error(`[Android] ${label}`, error);
+  if (fatalExitScheduled) return;
+  fatalExitScheduled = true;
+  clearInterval(keepAlive);
+  setTimeout(() => process.exit(1), 75);
+}
+
+process.on("uncaughtException", (error) => fatal("JavaScript uncaught exception", error));
+process.on("unhandledRejection", (error) => fatal("JavaScript unhandled rejection", error));
+
 writeStatus(`JAVASCRIPT_ENTRY Node ${process.version}`);
 console.error(`[Android] Embedded Node ${process.version}; runtime ${runtimeDir}`);
-await import("./dist/android.js");
-writeStatus(`JAVASCRIPT_LOADED Node ${process.version}`);
+try {
+  await import("./dist/android.js");
+  writeStatus(`JAVASCRIPT_LOADED Node ${process.version}`);
+  console.error("[Android] Bridge module loaded; embedded runtime keepalive active.");
+} catch (error) {
+  fatal("JavaScript startup failed", error);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  process.exit(1);
+}

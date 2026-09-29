@@ -2833,3 +2833,12 @@ body.decompiler-drag-active * {
 .nil-frow--script:hover { background: var(--surface-hover, rgba(255,255,255,.045)); }
 .nil-frow--script .nil-fname-main { text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .nil-frow--script:hover .nil-fname-main { text-decoration: underline; }
+
+/* Android-only ChatGPT file cache rendered inside the shared Settings UI. */
+.android-file-list { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+.android-file-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); }
+.android-file-info { min-width:0; flex:1; }
+.android-file-name { color:var(--text); font-family:var(--font-mono); font-size:12px; overflow-wrap:anywhere; }
+.android-file-meta { margin-top:3px; color:var(--text-muted); font-size:11px; }
+.android-file-actions { flex:0 0 auto; }
+@media (max-width: 620px) { .android-file-row { align-items:stretch; flex-direction:column; } .android-file-actions { width:100%; } .android-file-actions > button { flex:1; } }

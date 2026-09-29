@@ -37,6 +37,24 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
 
+      - name: Smoke test Android bridge on Node 18
+        shell: bash
+        run: |
+          set -euo pipefail
+          node18_dir="$RUNNER_TEMP/node18"
+          mkdir -p "$node18_dir"
+          curl -fsSL "https://nodejs.org/dist/v18.17.1/node-v18.17.1-linux-x64.tar.xz" -o "$RUNNER_TEMP/node18.tar.xz"
+          tar -xJf "$RUNNER_TEMP/node18.tar.xz" --strip-components=1 -C "$node18_dir"
+          set +e
+          timeout 6s env ROBLOX_MCP_HOST=127.0.0.1 ROBLOX_MCP_PORT=17683 ROBLOX_MCP_UPDATE_CHECK=false ROBLOX_MCP_HTTP=true "$node18_dir/bin/node" dist/android.js >"$RUNNER_TEMP/android-node18-smoke.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/android-node18-smoke.log"
+          if [ "$code" -ne 124 ]; then
+            echo "Android bridge exited unexpectedly under Node 18.17.1 with code $code" >&2
+            exit 1
+          fi
+
       - name: Package runtime source
         id: package
         shell: bash

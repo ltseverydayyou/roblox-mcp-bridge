@@ -5123,6 +5123,58 @@ function setAndroidResult(id, text, ok) {
     el.className = 'settings-test-result ' + (ok ? 'settings-test-result--ok' : 'settings-test-result--err');
 }
 
+function formatAndroidFileBytes(bytes) {
+    const value = Math.max(0, Number(bytes) || 0);
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(value / (1024 * 1024)).toFixed(value < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function refreshAndroidChatGptFiles() {
+    if (!ANDROID_MANAGER) return;
+    const summary = androidField('androidChatGptFilesSummary');
+    const list = androidField('androidChatGptFilesList');
+    if (!summary || !list || !window.AndroidManager.getChatGptFiles) return;
+    let files = [];
+    try { files = JSON.parse(window.AndroidManager.getChatGptFiles() || '[]'); } catch {}
+    if (!Array.isArray(files)) files = [];
+    const total = files.reduce((sum, file) => sum + Math.max(0, Number(file?.bytes) || 0), 0);
+    summary.textContent = files.length === 0
+        ? 'No ChatGPT files are cached.'
+        : `${files.length} cached file${files.length === 1 ? '' : 's'} · ${formatAndroidFileBytes(total)}`;
+    list.replaceChildren();
+    for (const file of files) {
+        const name = String(file?.name || '');
+        if (!name) continue;
+        const row = document.createElement('div');
+        row.className = 'android-file-row';
+        const info = document.createElement('div');
+        info.className = 'android-file-info';
+        const title = document.createElement('div');
+        title.className = 'android-file-name';
+        title.textContent = name;
+        const meta = document.createElement('div');
+        meta.className = 'android-file-meta';
+        meta.textContent = formatAndroidFileBytes(file?.bytes);
+        info.append(title, meta);
+        const actions = document.createElement('div');
+        actions.className = 'settings-card-actions android-file-actions';
+        const download = document.createElement('button');
+        download.className = 'settings-test-btn';
+        download.type = 'button';
+        download.textContent = 'Download';
+        download.addEventListener('click', () => window.AndroidManager.exportChatGptFile(name));
+        const remove = document.createElement('button');
+        remove.className = 'settings-delete-btn';
+        remove.type = 'button';
+        remove.textContent = 'Delete';
+        remove.addEventListener('click', () => window.AndroidManager.deleteChatGptFile(name));
+        actions.append(download, remove);
+        row.append(info, actions);
+        list.append(row);
+    }
+}
+
 window.refreshAndroidManagerState = function refreshAndroidManagerState() {
     if (!ANDROID_MANAGER) return;
     let state;
@@ -5168,6 +5220,7 @@ window.refreshAndroidManagerState = function refreshAndroidManagerState() {
 
     const tunnelState = String(state.tunnelState || 'not started');
     setAndroidResult('androidTunnelStatus', `TUNNEL-CLIENT ${state.tunnelVersion || ''}: ${tunnelState}`, /^READY/i.test(tunnelState));
+    refreshAndroidChatGptFiles();
 
     const hint = androidField('dashboardPreferencesStorageHint');
     if (hint) hint.textContent = storageReady
@@ -5192,6 +5245,8 @@ function initAndroidManagerUi() {
     androidField('androidAppSettingsButton')?.addEventListener('click', () => window.AndroidManager.openAppSettings());
     androidField('androidCopyLoaderButton')?.addEventListener('click', () => window.AndroidManager.copyLoader());
     androidField('androidCopyRelayButton')?.addEventListener('click', () => window.AndroidManager.copyPcRelay());
+    androidField('androidRefreshChatGptFilesButton')?.addEventListener('click', refreshAndroidChatGptFiles);
+    androidField('androidClearChatGptFilesButton')?.addEventListener('click', () => window.AndroidManager.clearChatGptFiles());
 
     androidField('androidStartBridgeButton')?.addEventListener('click', () => {
         const v = androidManagerInputs(); saveAndroidManagerInputs(); window.AndroidManager.startBridge(v.port, v.profile, v.tunnelId, v.lanMode);
