@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { getRobloxMcpConfigDir } from "../platform/config-dir.js";
 
 export const DECOMPILER_PROVIDER_IDS = [
   "builtin",
@@ -69,7 +69,7 @@ export type DecompilerSettingsInput = Partial<{
   runtime: unknown;
 }>;
 
-export const DECOMPILER_CONFIG_DIR = path.join(os.homedir(), ".roblox-mcp");
+export const DECOMPILER_CONFIG_DIR = getRobloxMcpConfigDir();
 export const DECOMPILER_SETTINGS_PATH = path.join(
   DECOMPILER_CONFIG_DIR,
   "decompiler-settings.json"

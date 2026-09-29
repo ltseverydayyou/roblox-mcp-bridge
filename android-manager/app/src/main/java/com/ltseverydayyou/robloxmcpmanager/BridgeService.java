@@ -7,7 +7,6 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.IBinder;
 import android.os.Handler;
 import android.os.Process;
@@ -26,7 +25,6 @@ public final class BridgeService extends Service {
     static final String EXTRA_HOST = "host";
     static final String EXTRA_LAN_TOKEN = "lanToken";
     private static final String CHANNEL = "embedded_bridge";
-    private static final String SERVICE_PREFS = "bridge_service_settings";
     private static final int NOTIFICATION_ID = 16384;
     static final String STATUS_FILE = "bridge-service-status.txt";
     static final String SERVICE_LOG_FILE = "bridge-service.log";
@@ -46,7 +44,7 @@ public final class BridgeService extends Service {
     }
 
     static boolean shouldBeRunning(Context context) {
-        return context.getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE).getBoolean("desiredRunning", false);
+        return new ExternalSettings(context).getBoolean("desiredRunning", false);
     }
 
     @Override public void onCreate() {
@@ -85,7 +83,7 @@ public final class BridgeService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        SharedPreferences serviceSettings = getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE);
+        ExternalSettings serviceSettings = new ExternalSettings(this);
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             serviceSettings.edit().putBoolean("desiredRunning", false).commit();
             writeState("STOPPED");

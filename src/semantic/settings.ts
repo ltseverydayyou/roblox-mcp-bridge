@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { getRobloxMcpConfigDir } from "../platform/config-dir.js";
 
 export type SemanticProvider = "openai" | "ollama";
 
@@ -38,7 +38,7 @@ export type SemanticSettingsInput = Partial<{
   saveEmbeddingsToDisk: unknown;
 }>;
 
-export const SEMANTIC_CONFIG_DIR = path.join(os.homedir(), ".roblox-mcp");
+export const SEMANTIC_CONFIG_DIR = getRobloxMcpConfigDir();
 export const SEMANTIC_SETTINGS_PATH = path.join(SEMANTIC_CONFIG_DIR, "semantic-search.json");
 
 export const DEFAULT_SEMANTIC_SETTINGS: SemanticSettings = {

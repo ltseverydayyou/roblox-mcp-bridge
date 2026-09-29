@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <WebView android:id="@+id/managerWebView"
+        android:layout_width="match_parent" android:layout_height="match_parent" />
+    <ScrollView
+    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true" android:visibility="gone">
     <LinearLayout android:id="@+id/contentRoot" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:paddingLeft="16dp" android:paddingTop="22dp"
         android:paddingRight="16dp" android:paddingBottom="32dp">
@@ -135,3 +139,4 @@
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
+</FrameLayout>

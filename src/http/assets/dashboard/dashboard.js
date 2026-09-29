@@ -1,3 +1,43 @@
+const ANDROID_MANAGER = typeof window.AndroidManager !== 'undefined';
+const dashboardNativeFetch = window.fetch.bind(window);
+if (ANDROID_MANAGER) {
+    window.fetch = (input, init) => {
+        let target = input;
+        try {
+            const base = String(window.AndroidManager.getBaseUrl ? window.AndroidManager.getBaseUrl() : 'http://127.0.0.1:16384').replace(/\/$/, '');
+            if (typeof input === 'string' && input.startsWith('/')) {
+                target = base + input;
+            } else if (input instanceof URL && input.pathname.startsWith('/api/')) {
+                target = new URL(base + input.pathname + input.search + input.hash);
+            }
+        } catch {}
+        return dashboardNativeFetch(target, init);
+    };
+}
+
+function dashboardStoredGet(key) {
+    if (ANDROID_MANAGER) {
+        try { return window.AndroidManager.getSetting(key, ''); } catch { return ''; }
+    }
+    return localStorage.getItem(key);
+}
+
+function dashboardStoredSet(key, value) {
+    if (ANDROID_MANAGER) {
+        try { window.AndroidManager.putSetting(key, String(value)); } catch {}
+        return;
+    }
+    localStorage.setItem(key, value);
+}
+
+function dashboardStoredRemove(key) {
+    if (ANDROID_MANAGER) {
+        try { window.AndroidManager.removeSetting(key); } catch {}
+        return;
+    }
+    localStorage.removeItem(key);
+}
+
 /* ── State ────────────────────────────────────────────────── */
 let selectedClientId = null;
 let currentView = 'clients';
@@ -124,7 +164,7 @@ function normalizeDashboardPreferences(value) {
 
 function loadDashboardPreferences() {
     try {
-        return normalizeDashboardPreferences(JSON.parse(localStorage.getItem(DASHBOARD_PREFERENCES_KEY) || '{}'));
+        return normalizeDashboardPreferences(JSON.parse(dashboardStoredGet(DASHBOARD_PREFERENCES_KEY) || '{}'));
     } catch {
         return { ...DEFAULT_DASHBOARD_PREFERENCES };
     }
@@ -189,8 +229,8 @@ function readDashboardPreferenceControls() {
 
 function saveDashboardPreferences(message) {
     dashboardPreferences = readDashboardPreferenceControls();
-    localStorage.setItem(DASHBOARD_PREFERENCES_KEY, JSON.stringify(dashboardPreferences));
-    if (!dashboardPreferences.rememberClient) localStorage.removeItem(DASHBOARD_LAST_CLIENT_KEY);
+    dashboardStoredSet(DASHBOARD_PREFERENCES_KEY, JSON.stringify(dashboardPreferences));
+    if (!dashboardPreferences.rememberClient) dashboardStoredRemove(DASHBOARD_LAST_CLIENT_KEY);
     applyDashboardPreferences();
     populateDashboardPreferenceControls();
     restartDashboardRefreshTimers();
@@ -1335,7 +1375,7 @@ function selectClient(clientId) {
     if (c) {
         clientSelectorName.textContent = c.username;
         clientSelectorAvatar.innerHTML = avatarHtml(c.userId, c.username, 24);
-        if (dashboardPreferences.rememberClient) localStorage.setItem(DASHBOARD_LAST_CLIENT_KEY, c.username);
+        if (dashboardPreferences.rememberClient) dashboardStoredSet(DASHBOARD_LAST_CLIENT_KEY, c.username);
     }
     setSidebarMode('client');
     showView(dashboardPreferences.defaultClientView);
@@ -4890,7 +4930,7 @@ $('saveDashboardAppearanceBtn').addEventListener('click', () => saveDashboardPre
 $('saveMcpPreferencesBtn').addEventListener('click', () => saveDashboardPreferences('MCP defaults saved'));
 $('resetDashboardPreferencesBtn').addEventListener('click', () => {
     dashboardPreferences = { ...DEFAULT_DASHBOARD_PREFERENCES };
-    localStorage.removeItem(DASHBOARD_PREFERENCES_KEY);
+    dashboardStoredRemove(DASHBOARD_PREFERENCES_KEY);
     applyDashboardPreferences();
     populateDashboardPreferenceControls();
     restartDashboardRefreshTimers();
@@ -5054,6 +5094,133 @@ $('settingsTestBtn').addEventListener('click', async () => {
     } catch(e) { r.textContent = '✗ Network error'; r.className = 'settings-test-result settings-test-result--err'; showToast('Network error testing connection', 'error'); }
 });
 
+
+/* ── Android manager shell ───────────────────────────────── */
+let androidManagerRefreshTimer = null;
+
+function androidField(id) { return $(id); }
+
+function androidManagerInputs() {
+    return {
+        port: String(androidField('androidBridgePort')?.value || '16384').trim() || '16384',
+        profile: String(androidField('androidTunnelProfile')?.value || 'roblox-executor').trim() || 'roblox-executor',
+        tunnelId: String(androidField('androidTunnelId')?.value || '').trim(),
+        lanMode: Boolean(androidField('androidLanMode')?.checked),
+        runtimeKey: String(androidField('androidRuntimeKey')?.value || '')
+    };
+}
+
+function saveAndroidManagerInputs() {
+    if (!ANDROID_MANAGER) return;
+    const values = androidManagerInputs();
+    try { window.AndroidManager.saveManagerSettings(values.port, values.profile, values.tunnelId, values.lanMode); } catch {}
+}
+
+function setAndroidResult(id, text, ok) {
+    const el = androidField(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'settings-test-result ' + (ok ? 'settings-test-result--ok' : 'settings-test-result--err');
+}
+
+window.refreshAndroidManagerState = function refreshAndroidManagerState() {
+    if (!ANDROID_MANAGER) return;
+    let state;
+    try { state = JSON.parse(window.AndroidManager.getManagerState() || '{}'); }
+    catch { return; }
+
+    const storageReady = Boolean(state.storageAccess);
+    if (androidField('androidManagerVersion')) androidField('androidManagerVersion').value = state.version || '';
+    if (androidField('androidSettingsPath')) androidField('androidSettingsPath').value = state.settingsPath || '/storage/emulated/0/Android MCP/settings.json';
+    if (androidField('androidBridgePort') && document.activeElement !== androidField('androidBridgePort')) androidField('androidBridgePort').value = state.port || '16384';
+    if (androidField('androidTunnelProfile') && document.activeElement !== androidField('androidTunnelProfile')) androidField('androidTunnelProfile').value = state.profile || 'roblox-executor';
+    if (androidField('androidTunnelId') && document.activeElement !== androidField('androidTunnelId')) androidField('androidTunnelId').value = state.tunnelId || '';
+    if (androidField('androidLanMode')) androidField('androidLanMode').checked = Boolean(state.lanMode);
+    if (androidField('androidRuntimeSource')) androidField('androidRuntimeSource').value = state.runtimeSource || '';
+
+    setAndroidResult('androidStorageStatus', storageReady
+        ? 'SETTINGS STORAGE: READY — ' + (state.settingsPath || '')
+        : 'SETTINGS STORAGE: PERMISSION REQUIRED — settings cannot persist to shared storage yet', storageReady);
+    const storageButton = androidField('androidStorageButton');
+    if (storageButton) storageButton.textContent = storageReady ? 'Storage settings' : 'Grant storage access';
+
+    const bridgeState = String(state.bridgeState || 'stopped');
+    const bridgeHealthy = Boolean(state.bridgeDesired) && !/^ERROR|^EXITED|^STOPPED/i.test(bridgeState);
+    setAndroidResult('androidBridgeStatus', 'BRIDGE: ' + bridgeState, bridgeHealthy);
+    if (androidField('androidLanAddress')) {
+        androidField('androidLanAddress').textContent = state.lanMode
+            ? (state.lanAddress ? `PC relay: http://${state.lanAddress}:${state.port} — token required` : 'LAN relay enabled; no LAN IPv4 address found.')
+            : 'LAN relay disabled. Roblox still connects through 127.0.0.1.';
+    }
+
+    const snapshotOkay = Boolean(state.snapshotSupported && state.snapshotEnabled);
+    setAndroidResult('androidSnapshotStatus', !state.snapshotSupported
+        ? 'SNAPSHOT SUPPORT: Android 11+ required'
+        : snapshotOkay
+            ? 'SNAPSHOT SUPPORT: ENABLED — screenshot-window can capture this display'
+            : 'SNAPSHOT SUPPORT: DISABLED — enable Roblox MCP screenshot capture in Accessibility', snapshotOkay);
+    const snapshotButton = androidField('androidSnapshotButton');
+    if (snapshotButton) snapshotButton.textContent = snapshotOkay ? 'Snapshot settings' : 'Enable snapshot support';
+
+    setAndroidResult('androidBatteryStatus', state.batteryUnrestricted
+        ? 'BATTERY: UNRESTRICTED — background bridge/tunnel allowed'
+        : 'BATTERY: OPTIMIZED — Android may stop the bridge or tunnel', Boolean(state.batteryUnrestricted));
+
+    const tunnelState = String(state.tunnelState || 'not started');
+    setAndroidResult('androidTunnelStatus', `TUNNEL-CLIENT ${state.tunnelVersion || ''}: ${tunnelState}`, /^READY/i.test(tunnelState));
+
+    const hint = androidField('dashboardPreferencesStorageHint');
+    if (hint) hint.textContent = storageReady
+        ? 'Saved to /storage/emulated/0/Android MCP/settings.json on Android.'
+        : 'Grant Android MCP storage access to persist these settings outside app data.';
+};
+
+function initAndroidManagerUi() {
+    if (!ANDROID_MANAGER) return;
+    const panel = androidField('androidManagerSettings');
+    if (panel) panel.style.display = 'block';
+
+    ['androidBridgePort', 'androidTunnelProfile', 'androidTunnelId', 'androidLanMode'].forEach(id => {
+        androidField(id)?.addEventListener('change', saveAndroidManagerInputs);
+    });
+    androidField('androidStorageButton')?.addEventListener('click', () => window.AndroidManager.requestStorageAccess());
+    androidField('androidAppUpdateButton')?.addEventListener('click', () => window.AndroidManager.checkAppUpdate());
+    androidField('androidPrepareRuntimeButton')?.addEventListener('click', () => window.AndroidManager.prepareRuntime());
+    androidField('androidRuntimeUpdateButton')?.addEventListener('click', () => window.AndroidManager.checkRuntimeUpdate());
+    androidField('androidSnapshotButton')?.addEventListener('click', () => window.AndroidManager.openSnapshotSupport());
+    androidField('androidBatteryButton')?.addEventListener('click', () => window.AndroidManager.requestBatteryAccess());
+    androidField('androidAppSettingsButton')?.addEventListener('click', () => window.AndroidManager.openAppSettings());
+    androidField('androidCopyLoaderButton')?.addEventListener('click', () => window.AndroidManager.copyLoader());
+    androidField('androidCopyRelayButton')?.addEventListener('click', () => window.AndroidManager.copyPcRelay());
+
+    androidField('androidStartBridgeButton')?.addEventListener('click', () => {
+        const v = androidManagerInputs(); saveAndroidManagerInputs(); window.AndroidManager.startBridge(v.port, v.profile, v.tunnelId, v.lanMode);
+    });
+    androidField('androidStopBridgeButton')?.addEventListener('click', () => window.AndroidManager.stopBridge());
+    androidField('androidConfigureTunnelButton')?.addEventListener('click', () => {
+        const v = androidManagerInputs(); saveAndroidManagerInputs(); window.AndroidManager.configureTunnel(v.port, v.profile, v.tunnelId);
+    });
+    androidField('androidDoctorTunnelButton')?.addEventListener('click', () => {
+        const v = androidManagerInputs(); window.AndroidManager.doctorTunnel(v.port, v.profile, v.tunnelId, v.runtimeKey); androidField('androidRuntimeKey').value = '';
+    });
+    androidField('androidStartTunnelButton')?.addEventListener('click', () => {
+        const v = androidManagerInputs(); window.AndroidManager.startTunnel(v.port, v.profile, v.tunnelId, v.runtimeKey); androidField('androidRuntimeKey').value = '';
+    });
+    androidField('androidStopTunnelButton')?.addEventListener('click', () => window.AndroidManager.stopTunnel());
+    androidField('androidRestartTunnelButton')?.addEventListener('click', () => window.AndroidManager.restartTunnel());
+    androidField('androidTunnelDiagnosticsButton')?.addEventListener('click', () => window.AndroidManager.openTunnelDiagnostics());
+    androidField('androidRefreshLogsButton')?.addEventListener('click', () => {
+        const logs = androidField('androidManagerLogs');
+        if (logs) logs.textContent = window.AndroidManager.getLogs() || 'No logs yet.';
+    });
+    androidField('androidApiKeysButton')?.addEventListener('click', () => window.AndroidManager.openApiKeys());
+    androidField('androidTunnelsButton')?.addEventListener('click', () => window.AndroidManager.openTunnels());
+    androidField('androidChatGptPluginsButton')?.addEventListener('click', () => window.AndroidManager.openChatGptPlugins());
+
+    window.refreshAndroidManagerState();
+    androidManagerRefreshTimer = setInterval(window.refreshAndroidManagerState, 1500);
+}
+
 /* ── Polling ─────────────────────────────────────────────── */
 let currentUpdateStatus = null;
 
@@ -5061,7 +5228,7 @@ function renderUpdatePrompt(update) {
     currentUpdateStatus = update || null;
     if (!updateBanner) return;
 
-    const dismissedVersion = localStorage.getItem('roblox-mcp-dismissed-update');
+    const dismissedVersion = dashboardStoredGet('roblox-mcp-dismissed-update');
     const shouldShow = update?.state === 'update-available' && update.latestVersion !== dismissedVersion;
     updateBanner.hidden = !shouldShow;
     if (!shouldShow) return;
@@ -5089,7 +5256,7 @@ updateCopyBtn?.addEventListener('click', async () => {
 
 updateDismissBtn?.addEventListener('click', () => {
     if (currentUpdateStatus?.latestVersion) {
-        localStorage.setItem('roblox-mcp-dismissed-update', currentUpdateStatus.latestVersion);
+        dashboardStoredSet('roblox-mcp-dismissed-update', currentUpdateStatus.latestVersion);
     }
     if (updateBanner) updateBanner.hidden = true;
 });
@@ -5105,7 +5272,7 @@ async function updateStatus() {
         renderUpdatePrompt(data.update);
 
         if (!selectedClientId && dashboardPreferences.rememberClient && !rememberedClientSuppressed) {
-            const rememberedUsername = localStorage.getItem(DASHBOARD_LAST_CLIENT_KEY);
+            const rememberedUsername = dashboardStoredGet(DASHBOARD_LAST_CLIENT_KEY);
             const rememberedClient = rememberedUsername ? clients.find(client => client.username === rememberedUsername) : null;
             if (rememberedClient) selectClient(rememberedClient.clientId);
         }
@@ -5152,4 +5319,5 @@ restartDashboardRefreshTimers();
 loadSemanticSettings();
 updateStatus();
 setSidebarMode('home');
-showView('clients');
+initAndroidManagerUi();
+showView(ANDROID_MANAGER ? 'settings' : 'clients');

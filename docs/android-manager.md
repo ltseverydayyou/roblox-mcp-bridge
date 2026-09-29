@@ -1,13 +1,13 @@
 # Roblox MCP Manager for Android
 
-The Android manager runs the Roblox MCP bridge inside its own app process. It bundles an ARM64 build of Node.js Mobile and the compiled bridge, so users do not need Termux, Git, npm, or a separate Node installation. Roblox itself is unchanged: an executor runs the normal `connector.luau` loader and connects to `127.0.0.1:16384`.
+The Android manager runs the Roblox MCP bridge inside its own app process. It bundles an ARM64 build of Node.js Mobile and the compiled bridge, so users do not need Termux, Git, npm, or a separate Node installation. The visible manager interface is the same dashboard HTML/CSS/JavaScript shipped by the localhost MCP website, rendered inside an Android WebView with Android-only manager controls exposed through a native bridge. Roblox itself is unchanged: an executor runs the normal `connector.luau` loader and connects to `127.0.0.1:16384`.
 
 ## Runtime design
 
 - Node.js Mobile 18.17.1 is packaged as `libnode.so` for `arm64-v8a`.
 - The compiled MCP bridge and its JavaScript dependencies are APK assets. On first use they are atomically extracted to the app's private storage; a version marker avoids unnecessary copies and the previous runtime is retained until activation succeeds.
 - A `specialUse` foreground service runs Node in an isolated `:bridge` process. Closing the UI does not stop it; **Stop** terminates only that isolated process, allowing a clean later restart. Android can recreate an ordinarily evicted service with its last saved port, bind address, and relay token.
-- Node binds to Android localhost by default. It binds to all interfaces only when the user explicitly enables the authenticated trusted-LAN relay. The app performs a localhost HTTP health check and reads the runtime's append-only log into the built-in console.
+- Node binds to Android localhost by default. It binds to all interfaces only when the user explicitly enables the authenticated trusted-LAN relay. The WebView uses the exact shared dashboard assets from `src/http/assets/dashboard`; there is no separately recreated Android dashboard skin.
 - The embedded Node process does not run Git or overwrite itself. Instead, the manager checks a separate `runtime-latest` GitHub prerelease when the app opens and when the user taps **Check MCP source update**. A source update is shown before installation, downloaded only with approval, checked against GitHub's SHA-256 digest, extracted with path and size limits, and activated with a previous-runtime rollback directory. If the bridge was running, the manager restarts it after activation and the executor's reconnecting loader reconnects automatically.
 - APK updates remain separate under **App update**. The manager checks for a new APK when its UI opens and every six hours while the bridge service is running, then posts a separate **Roblox MCP Manager update available** notification. Native libraries or runtime-dependency changes still require a newer APK; an incompatible source bundle is rejected with an instruction to install that APK first.
 
@@ -16,11 +16,25 @@ The current APK targets 64-bit ARM phones. It will not install on 32-bit-only de
 ## Phone setup
 
 1. Install the latest `RobloxMcpManager-Android-vX.Y.Z.apk`. Android may ask permission to install from the browser, file manager, or the manager's built-in updater.
-2. Open the manager and tap **Prepare embedded runtime** once. This copies the bundled files; it does not download Termux or development tools.
-3. Tap **Start** and wait for the health panel to say `RUNNING`.
-4. Tap **Copy executor code**.
-5. Run the copied auto-reconnect code in the mobile executor. It repeatedly fetches `/script.luau` from `127.0.0.1:16384`, waits two seconds after a disconnect/failure, and reconnects without requiring another paste.
-6. Use **Dashboard** for the local web UI and **Refresh logs** for the built-in console.
+2. Open **Settings** in the manager dashboard and grant **Storage access**. Android 11+ opens the system **All files access** page. This allows the app and embedded MCP runtime to use `/storage/emulated/0/Android MCP`.
+3. Tap **Prepare runtime** once. This copies the bundled files; it does not download Termux or development tools.
+4. Tap **Start bridge** and wait for the bridge status to become active.
+5. Tap **Copy executor code**.
+6. Run the copied auto-reconnect code in the mobile executor. It repeatedly fetches `/script.luau` from `127.0.0.1:16384`, waits two seconds after a disconnect/failure, and reconnects without requiring another paste.
+
+## Shared settings storage
+
+User-facing Android manager settings are stored in `/storage/emulated/0/Android MCP/settings.json` instead of `SharedPreferences` in the APK sandbox. This includes bridge port/LAN settings, tunnel profile metadata, update-dismissal state, and dashboard appearance/default preferences. The runtime API key remains memory-only and is never written to this file.
+
+On Android, backend MCP configuration files such as `semantic-search.json`, `semantic-embeddings.json`, and `decompiler-settings.json` also resolve under `/storage/emulated/0/Android MCP`. Android 11+ therefore requires the user-granted **All files access** permission. Legacy `manager_settings` preferences are migrated once when shared-storage access is available, then the legacy copy is cleared.
+
+The bridge service keeps update/install transaction files and logs in app-private storage because those are operational state rather than user configuration.
+
+## Shared dashboard UI
+
+The APK no longer maintains a second native card-based manager UI. `MainActivity` renders the repository's existing `src/http/assets/dashboard/index.html`, `dashboard.css`, and `dashboard.js` in a WebView. Gradle packages that source directory directly as APK assets, so Android and the localhost website use the same frontend implementation rather than visually similar copies.
+
+When the dashboard detects the injected `AndroidManager` JavaScript interface, its Settings view adds Android-only controls for embedded runtime management, bridge start/stop, shared-storage permission, snapshot accessibility, background battery access, APK/source updates, tunnel-client controls, and Android logs. Ordinary desktop/browser dashboard behavior is unchanged.
 
 ## Snapshot support
 

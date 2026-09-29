@@ -10,6 +10,7 @@ const javaRoot = "android-manager/app/src/main/java/com/ltseverydayyou/robloxmcp
 const mainActivity = read(`${javaRoot}/MainActivity.java`);
 const bridgeService = read(`${javaRoot}/BridgeService.java`);
 const screenshotService = read(`${javaRoot}/AndroidScreenshotService.java`);
+const externalSettings = read(`${javaRoot}/ExternalSettings.java`);
 const accessibilityConfig = read("android-manager/app/src/main/res/xml/accessibility_service_config.xml");
 const tunnelClient = read(`${javaRoot}/TunnelClient.java`);
 const tunnelService = read(`${javaRoot}/TunnelService.java`);
@@ -31,8 +32,44 @@ const buildAndroid = read("scripts/build-android-manager.ps1");
 const runtimeReleaseBuilder = read("scripts/prepare-android-runtime-release.mjs");
 const runtimeWorkflow = read(".github/workflows/publish-android-runtime.yml");
 const activityLayout = read("android-manager/app/src/main/res/layout/activity_main.xml");
+const dashboardHtml = read("src/http/assets/dashboard/index.html");
+const dashboardJs = read("src/http/assets/dashboard/dashboard.js");
+const configDir = read("src/platform/config-dir.ts");
+const semanticSettings = read("src/semantic/settings.ts");
+const decompilerSettings = read("src/decompiler/settings.ts");
 const packageVersion = JSON.parse(read("package.json")).version;
 
+
+
+test("Android manager renders the shared localhost dashboard UI in a WebView", () => {
+  assert.match(activityLayout, /managerWebView/);
+  assert.match(activityLayout, /android:visibility="gone"/);
+  assert.match(gradle, /\.\.\/\.\.\/src\/http\/assets/);
+  assert.match(mainActivity, /readAssetText\("dashboard\/index\.html"\)/);
+  assert.match(mainActivity, /readAssetText\("dashboard\/dashboard\.css"\)/);
+  assert.match(mainActivity, /readAssetText\("dashboard\/dashboard\.js"\)/);
+  assert.match(mainActivity, /addJavascriptInterface\(new AndroidManagerBridge\(\), "AndroidManager"\)/);
+  assert.match(mainActivity, /loadDataWithBaseURL\("http:\/\/127\.0\.0\.1:"/);
+  assert.match(dashboardHtml, /id="androidManagerSettings"/);
+  assert.match(dashboardJs, /ANDROID_MANAGER/);
+  assert.match(dashboardJs, /showView\(ANDROID_MANAGER \? 'settings' : 'clients'\)/);
+});
+
+test("Android manager persists user settings in shared Android MCP storage", () => {
+  assert.match(manifest, /MANAGE_EXTERNAL_STORAGE/);
+  assert.match(externalSettings, /Environment\.getExternalStorageDirectory\(\)/);
+  assert.match(externalSettings, /DIRECTORY_NAME = "Android MCP"/);
+  assert.match(externalSettings, /FILE_NAME = "settings\.json"/);
+  assert.match(mainActivity, /ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/);
+  assert.match(mainActivity, /new ExternalSettings\(this\)/);
+  assert.match(bridgeService, /new ExternalSettings\(this\)/);
+  assert.doesNotMatch(bridgeService, /bridge_service_settings/);
+  assert.match(dashboardJs, /window\.AndroidManager\.getSetting/);
+  assert.match(dashboardJs, /window\.AndroidManager\.putSetting/);
+  assert.match(configDir, /"Android MCP"/);
+  assert.match(semanticSettings, /getRobloxMcpConfigDir\(\)/);
+  assert.match(decompilerSettings, /getRobloxMcpConfigDir\(\)/);
+});
 
 test("Android manager exposes snapshot support controls", () => {
   assert.match(activityLayout, /snapshotSupportButton/);

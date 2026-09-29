@@ -421,6 +421,76 @@
             <!-- ─── Settings view (home mode) ───────────────────── -->
             <div class="view" id="viewSettings" style="display:none">
                 <div class="settings-header"><h2 class="settings-title">Settings</h2><p class="settings-sub">Customize the dashboard and configure MCP behavior</p></div>
+                <div id="androidManagerSettings" style="display:none">
+                    <div class="settings-card">
+                        <div class="settings-card-body">
+                            <div class="settings-card-title">Android MCP Manager</div>
+                            <div class="settings-card-desc">Native Android bridge controls using the same dashboard interface. Persistent settings are stored outside app data.</div>
+                            <div class="settings-control-grid">
+                                <div class="settings-field"><label>App version</label><input id="androidManagerVersion" type="text" readonly></div>
+                                <div class="settings-field"><label>Settings path</label><input id="androidSettingsPath" type="text" readonly></div>
+                            </div>
+                            <div id="androidStorageStatus" class="settings-test-result"></div>
+                        </div>
+                        <div class="settings-card-footer"><span class="settings-card-footer-hint">Android 11+ requires All files access for /storage/emulated/0/Android MCP.</span><div class="settings-card-actions"><button class="settings-test-btn" id="androidStorageButton">Storage access</button><button class="settings-save-btn" id="androidAppUpdateButton">Check app update</button></div></div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-body">
+                            <div class="settings-card-title">Bridge & embedded runtime</div>
+                            <div class="settings-card-desc">Start the phone-local MCP bridge, prepare the embedded runtime, and control trusted-LAN relay.</div>
+                            <div class="settings-control-grid">
+                                <div class="settings-field"><label for="androidBridgePort">Bridge port</label><input id="androidBridgePort" type="number" min="1" max="65535" value="16384"></div>
+                                <div class="settings-field"><label>Runtime source</label><input id="androidRuntimeSource" type="text" readonly></div>
+                            </div>
+                            <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="androidLanMode"><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Allow authenticated trusted-LAN relay</span></label>
+                            <div id="androidBridgeStatus" class="settings-test-result"></div>
+                            <div id="androidLanAddress" class="settings-card-desc" style="margin-top:12px;margin-bottom:0"></div>
+                        </div>
+                        <div class="settings-card-footer"><div class="settings-card-actions"><button class="settings-test-btn" id="androidPrepareRuntimeButton">Prepare runtime</button><button class="settings-test-btn" id="androidRuntimeUpdateButton">Check MCP update</button><button class="settings-save-btn" id="androidStartBridgeButton">Start bridge</button><button class="settings-delete-btn" id="androidStopBridgeButton">Stop</button></div></div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-body">
+                            <div class="settings-card-title">Snapshot support</div>
+                            <div class="settings-card-desc">Android 11+ uses the MCP accessibility service only for display screenshots requested by screenshot-window.</div>
+                            <div id="androidSnapshotStatus" class="settings-test-result"></div>
+                        </div>
+                        <div class="settings-card-footer"><span class="settings-card-footer-hint">The accessibility service does not retrieve window content.</span><button class="settings-save-btn" id="androidSnapshotButton">Snapshot settings</button></div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-body">
+                            <div class="settings-card-title">Background running</div>
+                            <div class="settings-card-desc">Keep the bridge and tunnel alive when the manager screen is closed.</div>
+                            <div id="androidBatteryStatus" class="settings-test-result"></div>
+                        </div>
+                        <div class="settings-card-footer"><div class="settings-card-actions"><button class="settings-test-btn" id="androidBatteryButton">Battery access</button><button class="settings-test-btn" id="androidAppSettingsButton">App settings</button><button class="settings-test-btn" id="androidCopyLoaderButton">Copy executor code</button><button class="settings-test-btn" id="androidCopyRelayButton">Copy PC relay</button></div></div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-body">
+                            <div class="settings-card-title">ChatGPT tunnel</div>
+                            <div class="settings-card-desc">Configure and run the bundled OpenAI tunnel-client. The runtime API key remains memory-only.</div>
+                            <div class="settings-control-grid">
+                                <div class="settings-field"><label for="androidTunnelProfile">Profile</label><input id="androidTunnelProfile" type="text" value="roblox-executor"></div>
+                                <div class="settings-field"><label for="androidTunnelId">Tunnel ID</label><input id="androidTunnelId" type="text" placeholder="tunnel_..."></div>
+                                <div class="settings-field"><label for="androidRuntimeKey">Platform runtime API key</label><input id="androidRuntimeKey" type="password" placeholder="Memory only"></div>
+                            </div>
+                            <div id="androidTunnelStatus" class="settings-test-result"></div>
+                        </div>
+                        <div class="settings-card-footer"><div class="settings-card-actions"><button class="settings-test-btn" id="androidConfigureTunnelButton">Configure</button><button class="settings-test-btn" id="androidDoctorTunnelButton">Doctor</button><button class="settings-save-btn" id="androidStartTunnelButton">Start tunnel</button><button class="settings-delete-btn" id="androidStopTunnelButton">Stop</button><button class="settings-test-btn" id="androidRestartTunnelButton">Restart</button><button class="settings-test-btn" id="androidTunnelDiagnosticsButton">Diagnostics</button></div></div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-card-body">
+                            <div class="settings-card-title">Android manager logs</div>
+                            <div class="settings-card-desc">Bridge service, embedded Node, and tunnel-client logs.</div>
+                            <pre id="androidManagerLogs" class="tool-output-body" style="max-height:280px;overflow:auto;white-space:pre-wrap">No logs yet.</pre>
+                        </div>
+                        <div class="settings-card-footer"><div class="settings-card-actions"><button class="settings-test-btn" id="androidRefreshLogsButton">Refresh logs</button><button class="settings-test-btn" id="androidApiKeysButton">API keys</button><button class="settings-test-btn" id="androidTunnelsButton">Tunnels</button><button class="settings-test-btn" id="androidChatGptPluginsButton">ChatGPT Plugins</button></div></div>
+                    </div>
+                </div>
                 <div class="settings-card">
                     <div class="settings-card-body">
                         <div class="settings-card-title">Dashboard appearance</div>
@@ -450,7 +520,7 @@
                         </div>
                         <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="settingsRememberClient" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Remember and reopen the last connected client</span></label>
                     </div>
-                    <div class="settings-card-footer"><span class="settings-card-footer-hint">Saved in this browser only.</span><button class="settings-save-btn" id="saveMcpPreferencesBtn">Save MCP defaults</button></div>
+                    <div class="settings-card-footer"><span class="settings-card-footer-hint" id="dashboardPreferencesStorageHint">Saved in this browser only.</span><button class="settings-save-btn" id="saveMcpPreferencesBtn">Save MCP defaults</button></div>
                 </div>
                 <div class="settings-card">
                     <div class="settings-card-body">

@@ -9,11 +9,11 @@ import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.ClipboardManager;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
+import android.os.Environment;
 import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Base64;
@@ -27,6 +27,14 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.webkit.WebResourceRequest;
+
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -53,7 +61,8 @@ public final class MainActivity extends Activity {
     private static final String API_KEYS_URL = "https://platform.openai.com/settings/organization/api-keys";
     private static final String TUNNELS_URL = "https://platform.openai.com/settings/organization/tunnels";
     private static final String CHATGPT_PLUGINS_URL = "https://chatgpt.com/plugins";
-    private SharedPreferences preferences;
+    private ExternalSettings preferences;
+    private WebView managerWebView;
     private TextView runtimeStatus;
     private TextView healthSummary;
     private TextView outputView;
@@ -79,10 +88,11 @@ public final class MainActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+        preferences = new ExternalSettings(this);
         bindViews();
         loadSettings();
         wireActions();
+        setupManagerWebView();
         installButtonMotion(findViewById(R.id.contentRoot));
         animateScreenEntrance();
         updateLanAddress();
@@ -107,6 +117,10 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (ExternalSettings.hasStorageAccess(this)) {
+            preferences.reload();
+            loadSettings();
+        }
         updateRuntimeStatus();
         updateLanAddress();
         updateBackgroundStatus();
@@ -114,6 +128,7 @@ public final class MainActivity extends Activity {
         updateTunnelStatus();
         refreshStatus(false);
         refreshGptFiles();
+        refreshManagerWebViewState();
         if (!automaticRuntimeCheckStarted) {
             automaticRuntimeCheckStarted = true;
             checkRuntimeUpdate(false);
@@ -138,6 +153,234 @@ public final class MainActivity extends Activity {
         for (ObjectAnimator animator : busyStatusAnimators.values()) animator.cancel();
         busyStatusAnimators.clear();
         super.onDestroy();
+    }
+
+
+    private void setupManagerWebView() {
+        managerWebView = findViewById(R.id.managerWebView);
+        WebSettings settings = managerWebView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setMediaPlaybackRequiresUserGesture(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            settings.setAllowFileAccessFromFileURLs(true);
+            settings.setAllowUniversalAccessFromFileURLs(true);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
+        managerWebView.setWebChromeClient(new WebChromeClient());
+        managerWebView.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                String host = uri.getHost();
+                if (host != null && (host.equals("127.0.0.1") || host.equals("localhost"))) return false;
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                } catch (Exception ignored) {
+                }
+                return true;
+            }
+        });
+        managerWebView.addJavascriptInterface(new AndroidManagerBridge(), "AndroidManager");
+        loadDashboardWebView();
+    }
+
+    private void loadDashboardWebView() {
+        try {
+            String html = readAssetText("dashboard/index.html");
+            String css = readAssetText("dashboard/dashboard.css");
+            String javascript = readAssetText("dashboard/dashboard.js");
+            html = html.replace("<link rel=\"stylesheet\" href=\"/dashboard.css\">", "<style>" + css + "</style>");
+            html = html.replace("<script src=\"dashboard.js\"></script>", "<script>" + javascript + "</script>");
+            managerWebView.loadDataWithBaseURL("http://127.0.0.1:" + port() + "/", html, "text/html", "UTF-8", null);
+        } catch (Exception error) {
+            managerWebView.loadData("<html><body style='background:#0a0a0a;color:#fff;font-family:sans-serif;padding:24px'><h2>Roblox MCP Manager</h2><p>Could not load the shared dashboard UI.</p><pre>" + escapeHtmlForPage(error.getMessage()) + "</pre></body></html>", "text/html", "UTF-8");
+        }
+    }
+
+    private String readAssetText(String path) throws Exception {
+        try (InputStream input = getAssets().open(path); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
+            return output.toString(StandardCharsets.UTF_8.name());
+        }
+    }
+
+    private static String escapeHtmlForPage(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    private void refreshManagerWebViewState() {
+        if (managerWebView == null) return;
+        managerWebView.post(() -> managerWebView.evaluateJavascript("if(window.refreshAndroidManagerState){window.refreshAndroidManagerState();}", null));
+    }
+
+    private void syncHiddenManagerInputs(String portValue, String profile, String tunnelId, boolean lanMode, String runtimeKey) {
+        if (portValue != null) portField.setText(portValue);
+        if (profile != null) profileField.setText(profile);
+        if (tunnelId != null) tunnelIdField.setText(tunnelId);
+        lanModeCheckbox.setChecked(lanMode);
+        if (runtimeKey != null) runtimeKeyField.setText(runtimeKey);
+        updateLanAddress();
+    }
+
+    private void saveManagerSettingsFromWeb(String portValue, String profile, String tunnelId, boolean lanMode) {
+        preferences.edit()
+            .putString("port", portValue == null || portValue.isBlank() ? "16384" : portValue.trim())
+            .putString("profile", profile == null || profile.isBlank() ? "roblox-executor" : profile.trim())
+            .putString("tunnelId", tunnelId == null ? "" : tunnelId.trim())
+            .putBoolean("lanMode", lanMode)
+            .apply();
+        runOnUiThread(() -> syncHiddenManagerInputs(
+            preferences.getString("port", "16384"),
+            preferences.getString("profile", "roblox-executor"),
+            preferences.getString("tunnelId", ""),
+            preferences.getBoolean("lanMode", false),
+            null));
+    }
+
+    private void requestExternalSettingsAccess() {
+        if (ExternalSettings.hasStorageAccess(this)) {
+            toast("Android MCP storage access is already enabled");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+            } catch (Exception ignored) {
+                startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+            }
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 7135);
+        }
+    }
+
+    private final class AndroidManagerBridge {
+        @JavascriptInterface public String getBaseUrl() {
+            return "http://127.0.0.1:" + preferences.getString("port", "16384");
+        }
+
+        @JavascriptInterface public String getManagerState() {
+            JSONObject state = new JSONObject();
+            try {
+                boolean storageAccess = ExternalSettings.hasStorageAccess(MainActivity.this);
+                PowerManager power = getSystemService(PowerManager.class);
+                state.put("storageAccess", storageAccess);
+                state.put("settingsPath", ExternalSettings.file().getAbsolutePath());
+                state.put("version", BuildConfig.VERSION_NAME);
+                state.put("port", preferences.getString("port", "16384"));
+                state.put("profile", preferences.getString("profile", "roblox-executor"));
+                state.put("tunnelId", preferences.getString("tunnelId", ""));
+                state.put("lanMode", preferences.getBoolean("lanMode", false));
+                state.put("lanWarningAccepted", preferences.getBoolean("lanWarningAccepted", false));
+                state.put("lanAddress", findLanIpv4Address() == null ? "" : findLanIpv4Address());
+                state.put("bridgeDesired", BridgeService.shouldBeRunning(MainActivity.this));
+                state.put("bridgeState", readServiceState());
+                state.put("runtimeReady", new File(getFilesDir(), "embedded-runtime/main.mjs").isFile());
+                state.put("runtimeSource", RuntimeUpdateChecker.currentUpdateId(MainActivity.this));
+                state.put("snapshotSupported", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
+                state.put("snapshotEnabled", isSnapshotSupportEnabled());
+                state.put("batteryUnrestricted", power != null && power.isIgnoringBatteryOptimizations(getPackageName()));
+                state.put("tunnelState", readTunnelState());
+                state.put("tunnelVersion", TunnelClient.VERSION);
+                state.put("tunnelBundled", TunnelClient.binary(MainActivity.this).isFile());
+            } catch (Exception error) {
+                try { state.put("error", error.getMessage()); } catch (Exception ignored) {}
+            }
+            return state.toString();
+        }
+
+        @JavascriptInterface public String getSetting(String key, String fallback) {
+            return preferences.getString(key, fallback == null ? "" : fallback);
+        }
+
+        @JavascriptInterface public void putSetting(String key, String value) {
+            preferences.edit().putString(key, value == null ? "" : value).apply();
+        }
+
+        @JavascriptInterface public void removeSetting(String key) {
+            preferences.edit().remove(key).apply();
+        }
+
+        @JavascriptInterface public void saveManagerSettings(String portValue, String profile, String tunnelId, boolean lanMode) {
+            saveManagerSettingsFromWeb(portValue, profile, tunnelId, lanMode);
+        }
+
+        @JavascriptInterface public void requestStorageAccess() { runOnUiThread(MainActivity.this::requestExternalSettingsAccess); }
+        @JavascriptInterface public void openSnapshotSupport() { runOnUiThread(MainActivity.this::openSnapshotSupportSettings); }
+        @JavascriptInterface public void requestBatteryAccess() { runOnUiThread(MainActivity.this::requestUnrestrictedBattery); }
+        @JavascriptInterface public void openAppSettings() { runOnUiThread(MainActivity.this::openAppSettings); }
+        @JavascriptInterface public void prepareRuntime() { runOnUiThread(MainActivity.this::prepareRuntime); }
+        @JavascriptInterface public void checkRuntimeUpdate() { runOnUiThread(() -> checkRuntimeUpdate(true)); }
+        @JavascriptInterface public void checkAppUpdate() { runOnUiThread(() -> checkManagerUpdate(true)); }
+        @JavascriptInterface public void copyLoader() { runOnUiThread(MainActivity.this::copyLoader); }
+        @JavascriptInterface public void copyPcRelay() { runOnUiThread(MainActivity.this::copyPcRelayArguments); }
+        @JavascriptInterface public void openApiKeys() { runOnUiThread(() -> openUrl(API_KEYS_URL)); }
+        @JavascriptInterface public void openTunnels() { runOnUiThread(() -> openUrl(TUNNELS_URL)); }
+        @JavascriptInterface public void openChatGptPlugins() { runOnUiThread(MainActivity.this::openChatGptPlugins); }
+        @JavascriptInterface public void openTunnelDiagnostics() { runOnUiThread(() -> openUrl("http://127.0.0.1:" + TunnelClient.healthPort(port()) + "/ui")); }
+
+        @JavascriptInterface public void startBridge(String portValue, String profile, String tunnelId, boolean lanMode) {
+            saveManagerSettingsFromWeb(portValue, profile, tunnelId, lanMode);
+            runOnUiThread(() -> {
+                syncHiddenManagerInputs(portValue, profile, tunnelId, lanMode, null);
+                startBridge();
+                refreshManagerWebViewState();
+            });
+        }
+
+        @JavascriptInterface public void stopBridge() {
+            runOnUiThread(() -> {
+                BridgeService.stop(MainActivity.this);
+                appendOutput("\nStopped the isolated bridge process.");
+                refreshManagerWebViewState();
+            });
+        }
+
+        @JavascriptInterface public void configureTunnel(String portValue, String profile, String tunnelId) {
+            saveManagerSettingsFromWeb(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false));
+            runOnUiThread(() -> {
+                syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), null);
+                configureTunnel();
+            });
+        }
+
+        @JavascriptInterface public void doctorTunnel(String portValue, String profile, String tunnelId, String runtimeKey) {
+            runOnUiThread(() -> {
+                syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), runtimeKey);
+                doctorTunnel();
+            });
+        }
+
+        @JavascriptInterface public void startTunnel(String portValue, String profile, String tunnelId, String runtimeKey) {
+            runOnUiThread(() -> {
+                syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), runtimeKey);
+                startTunnel();
+            });
+        }
+
+        @JavascriptInterface public void stopTunnel() { runOnUiThread(MainActivity.this::stopTunnel); }
+        @JavascriptInterface public void restartTunnel() { runOnUiThread(MainActivity.this::restartTunnel); }
+
+        @JavascriptInterface public String getLogs() {
+            StringBuilder lines = new StringBuilder();
+            try {
+                appendLogFile(lines, "Android service", new File(getFilesDir(), BridgeService.SERVICE_LOG_FILE));
+                appendLogFile(lines, "Embedded Node", new File(getFilesDir(), "bridge.log"));
+                appendLogFile(lines, "OpenAI tunnel-client", new File(getFilesDir(), TunnelService.LOG_FILE));
+            } catch (Exception error) {
+                lines.append("Could not read logs: ").append(error.getMessage());
+            }
+            return lines.toString();
+        }
     }
 
     private boolean animationsEnabled() {
