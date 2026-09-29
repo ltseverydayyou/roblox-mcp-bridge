@@ -65,7 +65,7 @@ public final class BridgeService extends Service {
         });
         ManagerUpdateChecker.check((result, error) -> {
             if (error == null && result != null) {
-                if (ManagerUpdateChecker.isNewer(result)) ManagerUpdateChecker.notifyAvailable(this, result);
+                if (ManagerUpdateChecker.isUpdateAvailable(this, result)) ManagerUpdateChecker.notifyAvailable(this, result);
                 else ManagerUpdateChecker.clearNotification(this);
             }
         });

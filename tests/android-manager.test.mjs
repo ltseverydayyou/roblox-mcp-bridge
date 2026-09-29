@@ -183,6 +183,25 @@ test("Android manager release checks notify separately from MCP source updates",
   assert.match(mainActivity, /Download & install/);
 });
 
+
+
+test("Android manager detects refreshed same-version APKs by installed APK digest", () => {
+  assert.match(updateChecker, /isUpdateAvailable\(Context context, Result result\)/);
+  assert.match(updateChecker, /context\.getApplicationInfo\(\)\.sourceDir/);
+  assert.match(updateChecker, /sha256\(installedApk\)/);
+  assert.match(updateChecker, /String updateKey\(\)/);
+  assert.match(mainActivity, /result\.updateKey\(\)/);
+  assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
+  assert.match(gradle, /versionCode 24/);
+  assert.match(gradle, /versionName "0\.5\.3"/);
+});
+
+test("Android manager chooses the highest published APK version instead of the first release asset", () => {
+  assert.match(updateChecker, /Result bestStable = null/);
+  assert.match(updateChecker, /compareVersions\(candidate\.version, bestStable\.version\) > 0/);
+  assert.match(updateChecker, /Result selected = bestStable != null \? bestStable : bestDebug/);
+});
+
 test("embedded bridge and executor loader stay on Android localhost", () => {
   assert.match(entrypoint, /bridgeHost = process\.argv\[5\] \|\| "127\.0\.0\.1"/);
   assert.match(entrypoint, /ROBLOX_MCP_HOST = bridgeHost/);

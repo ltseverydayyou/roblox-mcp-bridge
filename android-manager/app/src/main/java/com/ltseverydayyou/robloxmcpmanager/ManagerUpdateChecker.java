@@ -86,12 +86,26 @@ final class ManagerUpdateChecker {
             this.downloadUrl = downloadUrl;
             this.digest = digest;
         }
+
+        String updateKey() {
+            return version + "|" + digest.toLowerCase(Locale.US);
+        }
     }
 
     private ManagerUpdateChecker() {}
 
-    static boolean isNewer(Result result) {
-        return compareVersions(result.version, BuildConfig.VERSION_NAME) > 0;
+    static boolean isUpdateAvailable(Context context, Result result) {
+        int comparison = compareVersions(result.version, BuildConfig.VERSION_NAME);
+        if (comparison > 0) return true;
+        if (comparison < 0) return false;
+        Matcher digestMatch = SHA256_DIGEST.matcher(result.digest);
+        if (!digestMatch.matches()) return false;
+        try {
+            File installedApk = new File(context.getApplicationInfo().sourceDir);
+            return !sha256(installedApk).equalsIgnoreCase(digestMatch.group(1));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     static void notifyAvailable(Context context, Result result) {
@@ -147,33 +161,35 @@ final class ManagerUpdateChecker {
                     while ((line = reader.readLine()) != null) json.append(line);
                 }
                 JSONArray releases = new JSONArray(json.toString());
+                Result bestStable = null;
+                Result bestDebug = null;
                 for (int releaseIndex = 0; releaseIndex < releases.length(); releaseIndex++) {
                     JSONObject release = releases.getJSONObject(releaseIndex);
                     if (release.optBoolean("draft", false) || release.optBoolean("prerelease", false)) continue;
                     JSONArray assets = release.optJSONArray("assets");
                     if (assets == null) continue;
-                    Result debugFallback = null;
                     for (int i = 0; i < assets.length(); i++) {
                         JSONObject asset = assets.getJSONObject(i);
-                        String name = asset.optString("name", "");
-                        Matcher match = APK_NAME.matcher(name);
-                        if (match.matches()) {
-                            Result result = new Result(
-                                match.group(1),
-                                asset.getString("browser_download_url"),
-                                asset.optString("digest", "")
-                            );
-                            if (match.group(2) == null) {
-                                callback.complete(result, null);
-                                return;
+                        Matcher match = APK_NAME.matcher(asset.optString("name", ""));
+                        if (!match.matches()) continue;
+                        Result candidate = new Result(
+                            match.group(1),
+                            asset.getString("browser_download_url"),
+                            asset.optString("digest", "")
+                        );
+                        if (match.group(2) == null) {
+                            if (bestStable == null || compareVersions(candidate.version, bestStable.version) > 0) {
+                                bestStable = candidate;
                             }
-                            debugFallback = result;
+                        } else if (bestDebug == null || compareVersions(candidate.version, bestDebug.version) > 0) {
+                            bestDebug = candidate;
                         }
                     }
-                    if (debugFallback != null) {
-                        callback.complete(debugFallback, null);
-                        return;
-                    }
+                }
+                Result selected = bestStable != null ? bestStable : bestDebug;
+                if (selected != null) {
+                    callback.complete(selected, null);
+                    return;
                 }
                 throw new IllegalStateException("No published release contains an Android manager APK yet.");
             } catch (Exception error) {
@@ -401,6 +417,16 @@ final class ManagerUpdateChecker {
             if (!found) return false;
         }
         return true;
+    }
+
+    private static String sha256(File file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream input = new FileInputStream(file)) {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
+        }
+        return toHex(digest.digest());
     }
 
     private static String toHex(byte[] bytes) {

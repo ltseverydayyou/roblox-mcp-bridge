@@ -1053,8 +1053,8 @@ public final class MainActivity extends Activity {
                 if (userInitiated) showMessage("Manager update", error.getMessage());
                 return;
             }
-            boolean newer = ManagerUpdateChecker.isNewer(result);
-            if (!newer) {
+            boolean updateAvailable = ManagerUpdateChecker.isUpdateAvailable(this, result);
+            if (!updateAvailable) {
                 ManagerUpdateChecker.clearNotification(this);
                 preferences.edit().remove("dismissedManagerUpdate").apply();
                 if (userInitiated) {
@@ -1067,7 +1067,7 @@ public final class MainActivity extends Activity {
 
             ManagerUpdateChecker.notifyAvailable(this, result);
             String dismissed = preferences.getString("dismissedManagerUpdate", "");
-            if (!userInitiated && result.version.equals(dismissed)) return;
+            if (!userInitiated && result.updateKey().equals(dismissed)) return;
             showManagerUpdatePrompt(result);
         }));
     }
@@ -1079,9 +1079,10 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("Android manager update available")
             .setMessage("Installed: v" + BuildConfig.VERSION_NAME + "\nAvailable: v" + result.version
+                + (result.version.equals(BuildConfig.VERSION_NAME) ? " (refreshed build)" : "")
                 + "\n\nDownload and install the new APK inside the manager?" + verification)
             .setNegativeButton("Later", (dialog, which) ->
-                preferences.edit().putString("dismissedManagerUpdate", result.version).apply())
+                preferences.edit().putString("dismissedManagerUpdate", result.updateKey()).apply())
             .setPositiveButton("Download & install", (dialog, which) -> {
                 preferences.edit().remove("dismissedManagerUpdate").apply();
                 downloadManagerUpdate(result);
