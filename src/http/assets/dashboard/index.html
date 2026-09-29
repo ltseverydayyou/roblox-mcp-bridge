@@ -439,12 +439,12 @@
                     <div class="settings-card">
                         <div class="settings-card-body">
                             <div class="settings-card-title">Bridge & embedded runtime</div>
-                            <div class="settings-card-desc">Start the phone-local MCP bridge, prepare the embedded runtime, and control trusted-LAN relay.</div>
+                            <div class="settings-card-desc">Start the phone-local MCP bridge, prepare the embedded runtime, and optionally host the MCP site on the phone's LAN IPv4 address.</div>
                             <div class="settings-control-grid">
                                 <div class="settings-field"><label for="androidBridgePort">Bridge port</label><input id="androidBridgePort" type="number" min="1" max="65535" value="16384"></div>
                                 <div class="settings-field"><label>Runtime source</label><input id="androidRuntimeSource" type="text" readonly></div>
                             </div>
-                            <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="androidLanMode"><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Allow authenticated trusted-LAN relay</span></label>
+                            <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="androidLanMode"><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Host MCP site on this phone's LAN IP</span></label>
                             <div id="androidBridgeStatus" class="settings-test-result"></div>
                             <div id="androidLanAddress" class="settings-card-desc" style="margin-top:12px;margin-bottom:0"></div>
                         </div>
@@ -457,7 +457,7 @@
                             <div class="settings-card-desc">Android 11+ uses the MCP accessibility service only for display screenshots requested by screenshot-window.</div>
                             <div id="androidSnapshotStatus" class="settings-test-result"></div>
                         </div>
-                        <div class="settings-card-footer"><span class="settings-card-footer-hint">The accessibility service does not retrieve window content.</span><button class="settings-save-btn" id="androidSnapshotButton">Snapshot settings</button></div>
+                        <div class="settings-card-footer"><span class="settings-card-footer-hint">The accessibility service does not retrieve window content.</span><div class="settings-card-actions"><button class="settings-save-btn" id="androidSnapshotButton">Snapshot settings</button></div></div>
                     </div>
 
                     <div class="settings-card">

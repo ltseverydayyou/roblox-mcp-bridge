@@ -496,7 +496,7 @@ function showView(name) {
     if (name === 'clients') { targetView = viewClients; viewClients.style.display = 'flex'; }
     else if (name === 'server') { targetView = viewServer; viewServer.style.display = 'block'; renderServerGraph(); renderOverviewClients(); }
     else if (name === 'server-logs') { targetView = viewServerLogs; viewServerLogs.style.display = 'block'; fetchServerLogs(); }
-    else if (name === 'settings') { targetView = viewSettings; viewSettings.style.display = 'block'; loadSettings(); }
+    else if (name === 'settings') { targetView = viewSettings; viewSettings.style.display = 'block'; if (!ANDROID_MANAGER) loadSettings(); }
     else if (name === 'overview') { targetView = viewOverview; viewOverview.style.display = 'block'; }
     else if (name === 'tools') { 
         targetView = viewTools;
@@ -3707,6 +3707,7 @@ function showToast(message, type = 'info', duration = 3500) {
 }
 
 async function loadSettings() {
+    if (ANDROID_MANAGER) return;
     populateDashboardPreferenceControls();
     await Promise.allSettled([
         loadSemanticSettings(),
@@ -5221,8 +5222,8 @@ window.refreshAndroidManagerState = function refreshAndroidManagerState() {
     setAndroidResult('androidBridgeStatus', 'BRIDGE: ' + bridgeState, bridgeHealthy);
     if (androidField('androidLanAddress')) {
         androidField('androidLanAddress').textContent = state.lanMode
-            ? (state.lanAddress ? `PC relay: http://${state.lanAddress}:${state.port} — token required` : 'LAN relay enabled; no LAN IPv4 address found.')
-            : 'LAN relay disabled. Roblox still connects through 127.0.0.1.';
+            ? (state.lanAddress ? `LAN MCP site: http://${state.lanAddress}:${state.port} — no relay password` : 'LAN hosting enabled; no LAN IPv4 address found.')
+            : 'LAN hosting disabled. MCP site uses http://127.0.0.1:' + state.port + '.';
     }
 
     const snapshotOkay = Boolean(state.snapshotSupported && state.snapshotEnabled);

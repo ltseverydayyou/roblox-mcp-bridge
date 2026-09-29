@@ -13,10 +13,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
-import android.os.Environment;
 import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
-import android.util.Base64;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -50,7 +48,6 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Enumeration;
@@ -329,9 +326,18 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private String managerBaseUrl() {
+        String configuredPort = preferences.getString("port", "16384");
+        if (preferences.getBoolean("lanMode", false)) {
+            String ip = findLanIpv4Address();
+            if (ip != null && !ip.isEmpty()) return "http://" + ip + ":" + configuredPort;
+        }
+        return "http://127.0.0.1:" + configuredPort;
+    }
+
     private final class AndroidManagerBridge {
         @JavascriptInterface public String getBaseUrl() {
-            return "http://127.0.0.1:" + preferences.getString("port", "16384");
+            return managerBaseUrl();
         }
 
         @JavascriptInterface public String getManagerState() {
@@ -402,7 +408,7 @@ public final class MainActivity extends Activity {
                 refreshManagerWebViewState();
             });
         }
-        @JavascriptInterface public void openDashboard() { runOnUiThread(() -> openUrl("http://127.0.0.1:" + port() + "/")); }
+        @JavascriptInterface public void openDashboard() { runOnUiThread(() -> openUrl(managerBaseUrl() + "/")); }
         @JavascriptInterface public void copyLoader() { runOnUiThread(MainActivity.this::copyLoader); }
         @JavascriptInterface public void copyPcRelay() { runOnUiThread(MainActivity.this::copyPcRelayArguments); }
         @JavascriptInterface public void copyChatGptChecklist() { runOnUiThread(MainActivity.this::copyChatGptChecklist); }
@@ -597,7 +603,7 @@ public final class MainActivity extends Activity {
             appendOutput("\nStopped the isolated bridge process.");
             healthSummary.postDelayed(() -> refreshStatus(false), 800);
         });
-        findViewById(R.id.dashboardButton).setOnClickListener(v -> openUrl("http://127.0.0.1:" + port() + "/"));
+        findViewById(R.id.dashboardButton).setOnClickListener(v -> openUrl(managerBaseUrl() + "/"));
         findViewById(R.id.copyLoaderButton).setOnClickListener(v -> copyLoader());
         findViewById(R.id.copyPcRelayButton).setOnClickListener(v -> copyPcRelayArguments());
         findViewById(R.id.bridgeLogsButton).setOnClickListener(v -> readLogs());
@@ -626,16 +632,24 @@ public final class MainActivity extends Activity {
     }
 
     private void startBridge() {
-        if (lanModeCheckbox.isChecked() && !preferences.getBoolean("lanWarningAccepted", false)) {
-            new AlertDialog.Builder(this)
-                .setTitle("Enable trusted LAN relay?")
-                .setMessage("This lets a PC on the same trusted network reach the phone bridge. A generated relay token protects the connection, but you must not port-forward this port or use it on untrusted public Wi-Fi. Stop and restart the bridge after changing this option.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Enable LAN", (dialog, which) -> {
-                    preferences.edit().putBoolean("lanWarningAccepted", true).apply();
-                    startBridgeConfirmed();
-                }).show();
-            return;
+        if (lanModeCheckbox.isChecked()) {
+            String ip = findLanIpv4Address();
+            if (ip == null || ip.isEmpty()) {
+                showMessage("LAN address unavailable", "Connect the phone to Wi-Fi or a private VPN so an IPv4 address is available, then try again.");
+                return;
+            }
+            if (!preferences.getBoolean("lanWarningAccepted", false)) {
+                new AlertDialog.Builder(this)
+                    .setTitle("Host MCP site on LAN?")
+                    .setMessage("The MCP dashboard and bridge will be reachable at http://" + ip + ":" + port()
+                        + " from devices on the same network. LAN mode has no relay password, so use it only on a trusted Wi-Fi or private VPN and do not port-forward this port.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Enable LAN", (dialog, which) -> {
+                        preferences.edit().putBoolean("lanWarningAccepted", true).apply();
+                        startBridgeConfirmed();
+                    }).show();
+                return;
+            }
         }
         startBridgeConfirmed();
     }
@@ -644,8 +658,16 @@ public final class MainActivity extends Activity {
         saveSettings();
         new File(getFilesDir(), BridgeService.STATUS_FILE).delete();
         boolean lanMode = lanModeCheckbox.isChecked();
-        BridgeService.start(this, port(), lanMode ? "0.0.0.0" : "127.0.0.1", lanMode ? lanToken() : "");
-        appendOutput("\nStarting the embedded Node bridge" + (lanMode ? " with authenticated LAN relay..." : " on localhost..."));
+        String ip = lanMode ? findLanIpv4Address() : null;
+        if (lanMode && (ip == null || ip.isEmpty())) {
+            showMessage("LAN address unavailable", "Connect the phone to Wi-Fi or a private VPN so an IPv4 address is available, then try again.");
+            return;
+        }
+        BridgeService.start(this, port(), lanMode ? "0.0.0.0" : "127.0.0.1");
+        preferences.edit().remove("lanRelayToken").apply();
+        appendOutput("\nStarting the embedded Node bridge" + (lanMode
+            ? " for LAN access at http://" + ip + ":" + port() + "..."
+            : " on localhost..."));
         runtimeStatus.setText("EMBEDDED NODE: STARTING");
         runtimeStatus.setTextColor(getColor(R.color.warning));
         setStatusBusy(runtimeStatus, true);
@@ -1110,7 +1132,7 @@ public final class MainActivity extends Activity {
 
     private void copyPcRelayArguments() {
         if (!lanModeCheckbox.isChecked()) {
-            showMessage("Enable LAN relay first", "Select “Allow trusted LAN relay,” stop/start the bridge, then copy the PC arguments.");
+            showMessage("Enable LAN hosting first", "Select “Host MCP site on this phone's LAN IP,” stop/start the bridge, then copy the PC arguments.");
             return;
         }
         String ip = findLanIpv4Address();
@@ -1118,38 +1140,27 @@ public final class MainActivity extends Activity {
             showMessage("LAN address unavailable", "Connect the phone and PC to the same Wi-Fi or private VPN, then try again.");
             return;
         }
-        String arguments = "\"--baseurl\",\n\"http://" + ip + ":" + port() + "\",\n"
-            + "\"--relay-token\",\n\"" + lanToken() + "\"";
+        String arguments = "\"--baseurl\",\n\"http://" + ip + ":" + port() + "\"";
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText("Roblox MCP PC relay arguments", arguments));
-        toast("PC MCP relay arguments copied");
+        toast("PC MCP LAN address copied");
     }
 
     private void updateLanAddress() {
         if (!lanModeCheckbox.isChecked()) {
-            lanAddressText.setText("LAN access disabled. The executor still uses 127.0.0.1.");
+            lanAddressText.setText("LAN hosting disabled. MCP site: http://127.0.0.1:" + port());
             return;
         }
         String ip = findLanIpv4Address();
         lanAddressText.setText(ip == null
             ? "No LAN IPv4 address found. Connect Wi-Fi or a private VPN."
-            : "PC relay: http://" + ip + ":" + port() + "\nTrusted networks only. Never port-forward this address.");
+            : "MCP site: http://" + ip + ":" + port() + "\nNo relay password. Trusted networks only; do not port-forward this address.");
     }
 
     private String lanExposure() {
         if (!lanModeCheckbox.isChecked()) return "";
         String ip = findLanIpv4Address();
-        return ip == null ? "\nLAN relay: enabled; address unavailable" : "\nLAN relay: http://" + ip + ":" + port() + " (token required)";
-    }
-
-    private String lanToken() {
-        String existing = preferences.getString("lanRelayToken", "");
-        if (!existing.isEmpty()) return existing;
-        byte[] bytes = new byte[24];
-        new SecureRandom().nextBytes(bytes);
-        String created = Base64.encodeToString(bytes, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
-        preferences.edit().putString("lanRelayToken", created).apply();
-        return created;
+        return ip == null ? "\nLAN hosting: enabled; address unavailable" : "\nLAN MCP site: http://" + ip + ":" + port() + " (no password)";
     }
 
     private static String findLanIpv4Address() {
@@ -1287,7 +1298,6 @@ public final class MainActivity extends Activity {
             boolean restartBridge = BridgeService.shouldBeRunning(this);
             int restartPort = port();
             boolean restartLan = lanModeCheckbox.isChecked();
-            String restartToken = restartLan ? lanToken() : "";
             if (restartBridge) BridgeService.stop(this);
             runtimeSourceStatus.setText("MCP SOURCE: ACTIVATING " + result.updateId + "…");
 
@@ -1303,7 +1313,7 @@ public final class MainActivity extends Activity {
                         appendOutput("\nMCP source updated to " + result.updateId + ".");
                         if (restartBridge) {
                             new File(getFilesDir(), BridgeService.STATUS_FILE).delete();
-                            BridgeService.start(this, restartPort, restartLan ? "0.0.0.0" : "127.0.0.1", restartToken);
+                            BridgeService.start(this, restartPort, restartLan ? "0.0.0.0" : "127.0.0.1");
                             appendOutput("\nRestarting the bridge with the updated MCP source...");
                             healthSummary.postDelayed(() -> refreshStatus(true, 30), 1000);
                         }
@@ -1312,7 +1322,7 @@ public final class MainActivity extends Activity {
                 } catch (Exception activationError) {
                     runOnUiThread(() -> {
                         if (restartBridge) {
-                            BridgeService.start(this, restartPort, restartLan ? "0.0.0.0" : "127.0.0.1", restartToken);
+                            BridgeService.start(this, restartPort, restartLan ? "0.0.0.0" : "127.0.0.1");
                             appendOutput("\nRestored the previous MCP runtime and restarted the bridge.");
                         }
                         runtimeSourceStatus.setText("MCP SOURCE: ACTIVATION FAILED");
@@ -1358,8 +1368,8 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("Signing certificate changed")
             .setMessage("Android cannot install v" + result.version + " over this copy because the APK signing certificate is different."
-                + "\n\nForce update will first copy and verify the replacement APK in normal Android Downloads. It will NOT uninstall this app automatically."
-                + "\n\nOnce the replacement is visible in Downloads, you can uninstall the old app and immediately tap that APK to install the replacement. This avoids leaving the phone with no manager APK to launch."
+                + "\n\nForce update will first copy and verify the replacement APK in /storage/emulated/0/Android MCP/updates/. It will NOT uninstall this app automatically."
+                + "\n\nOnce the replacement exists in the Android MCP updates folder, you can uninstall the old app and install that staged APK. This avoids deleting the verified replacement together with app data."
                 + "\n\nYour settings remain in " + ExternalSettings.file().getAbsolutePath() + "."
                 + "\n\nInstalled certificate:\n" + download.installedSignerSha256
                 + "\n\nNew certificate:\n" + download.downloadedSignerSha256)
@@ -1371,13 +1381,13 @@ public final class MainActivity extends Activity {
     private void forceManagerUpdate(ManagerUpdateChecker.Result result, ManagerUpdateChecker.VerifiedDownload download) {
         if (!ExternalSettings.hasStorageAccess(this)) {
             showMessage("Storage access required",
-                "Force update needs storage access so the verified replacement APK can be kept in Android Downloads before the old app is removed. Enable storage access, then run App update again.");
+                "Force update needs storage access so the verified replacement APK can be kept in /storage/emulated/0/Android MCP/updates/ before the old app is removed. Enable storage access, then run App update again.");
             requestExternalSettingsAccess();
             return;
         }
         try {
             File staged = ManagerUpdateChecker.stageForcedUpdate(this, download, result);
-            appendOutput("\nVerified replacement APK copied to Android Downloads: " + staged.getName());
+            appendOutput("\nVerified replacement APK copied to Android MCP/updates: " + staged.getName());
             showPreparedForceUpdate(staged, result);
         } catch (Exception error) {
             showMessage("Force update failed", error.getMessage());
@@ -1388,11 +1398,11 @@ public final class MainActivity extends Activity {
     private void showPreparedForceUpdate(File staged, ManagerUpdateChecker.Result result) {
         new AlertDialog.Builder(this)
             .setTitle("Replacement APK is ready")
-            .setMessage("The verified v" + result.version + " APK is now in Android Downloads as:\n\n" + staged.getName()
-                + "\n\nOpen Downloads first and confirm the APK is visible. Android cannot automatically reinstall this package after uninstall because uninstalling removes this app process. When you are ready, return here and choose Uninstall old app; then tap the downloaded APK to install the replacement.")
+            .setMessage("The verified v" + result.version + " APK is now staged at:\n\n" + staged.getAbsolutePath()
+                + "\n\nOpen the update folder first and confirm the APK is there. Android cannot automatically reinstall this package after uninstall because uninstalling removes this app process. When you are ready, return here and choose Uninstall old app; then install the staged APK from Android MCP/updates.")
             .setNegativeButton("Keep current app", null)
             .setNeutralButton("Uninstall old app", (dialog, which) -> ManagerUpdateChecker.beginForcedReinstall(this, staged))
-            .setPositiveButton("Open Downloads", (dialog, which) -> ManagerUpdateChecker.openDownloads(this))
+            .setPositiveButton("Open update folder", (dialog, which) -> ManagerUpdateChecker.openUpdateFolder(this))
             .show();
     }
 
@@ -1402,9 +1412,9 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("Clear update cache")
             .setMessage("Remove " + stats[0] + " cached update file" + (stats[0] == 1 ? "" : "s")
-                + " from the old shared update cache and the manager's pending-update cache?"
+                + " from the shared update cache and the manager's pending-update cache?"
                 + "\n\nShared cache: " + path
-                + "\n\nThis does not delete settings or APKs you intentionally kept in Android Downloads.")
+                + "\n\nThis does not delete settings. It does remove staged APKs from Android MCP/updates.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Clear", (dialog, which) -> {
                 int removed = ManagerUpdateChecker.clearUpdateCache(this);

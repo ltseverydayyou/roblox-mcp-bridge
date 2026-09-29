@@ -28,6 +28,7 @@ process.env.ROBLOX_MCP_HTTP = "true";
 process.env.ROBLOX_MCP_UPLOAD_DIR = path.resolve(chatGptUploadDir);
 fs.mkdirSync(process.env.ROBLOX_MCP_UPLOAD_DIR, { recursive: true });
 if (lanToken) process.env.ROBLOX_MCP_LAN_TOKEN = lanToken;
+else delete process.env.ROBLOX_MCP_LAN_TOKEN;
 
 const logStream = fs.createWriteStream(logPath, { flags: "a" });
 for (const method of ["log", "info", "warn", "error"]) {

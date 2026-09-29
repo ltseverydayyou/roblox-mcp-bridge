@@ -205,7 +205,7 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 31/);
+  assert.match(gradle, /versionCode 32/);
   assert.match(gradle, /versionName "0\.5\.4"/);
 });
 
@@ -242,14 +242,17 @@ test("executor connector accepts mobile request API aliases and reports registra
   assert.match(connector, /GetResponseBody/);
 });
 
-test("trusted LAN relay is opt-in and bearer-token protected", () => {
-  assert.match(mainActivity, /Allow trusted LAN relay|lanModeCheckbox/);
+test("Android LAN hosting uses the phone IPv4 address without a relay password", () => {
+  assert.match(dashboardHtml, /Host MCP site on this phone's LAN IP/);
+  assert.match(mainActivity, /findLanIpv4Address\(\)/);
+  assert.match(mainActivity, /managerBaseUrl\(\)/);
+  assert.match(mainActivity, /BridgeService\.start\(this, port\(\), lanMode \? "0\.0\.0\.0" : "127\.0\.0\.1"\)/);
   assert.match(mainActivity, /--baseurl/);
-  assert.match(mainActivity, /--relay-token/);
-  assert.match(entrypoint, /ROBLOX_MCP_LAN_TOKEN/);
-  assert.match(primaryServer, /timingSafeEqual/);
-  assert.match(primaryServer, /valid LAN relay token is required/);
-  assert.match(secondaryServer, /Authorization: `Bearer \$\{RELAY_TOKEN\}`/);
+  assert.doesNotMatch(mainActivity, /"--relay-token"/);
+  assert.doesNotMatch(mainActivity, /String lanToken\(\)/);
+  assert.match(bridgeService, /remove\("lanToken"\)/);
+  assert.match(entrypoint, /delete process\.env\.ROBLOX_MCP_LAN_TOKEN/);
+  assert.match(dashboardJs, /LAN MCP site:/);
 });
 
 test("official ARM64 tunnel transport never persists a runtime key", () => {
@@ -352,16 +355,16 @@ test("app updates verify signatures and support external force-reinstall recover
   assert.match(updateChecker, /sameSigners/);
   assert.match(updateChecker, /VerifiedDownload/);
   assert.match(updateChecker, /stageForcedUpdate/);
-  assert.match(updateChecker, /Environment\.DIRECTORY_DOWNLOADS/);
-  assert.match(updateChecker, /DownloadManager/);
-  assert.match(updateChecker, /addCompletedDownload/);
+  assert.match(updateChecker, /new File\(ExternalSettings\.directory\(\), "updates"\)/);
+  assert.doesNotMatch(updateChecker, /DownloadManager/);
+  assert.match(updateChecker, /ACTION_OPEN_DOCUMENT_TREE/);
   assert.match(updateChecker, /ACTION_DELETE/);
   assert.doesNotMatch(updateChecker, /FORCE-UPDATE-README\.txt/);
   assert.match(mainActivity, /Signing certificate changed/);
   assert.match(mainActivity, /Prepare force update/);
-  assert.match(mainActivity, /Open Downloads/);
+  assert.match(mainActivity, /Open update folder/);
   assert.match(mainActivity, /Uninstall old app/);
-  assert.match(updateChecker, /ACTION_VIEW_DOWNLOADS/);
+  assert.match(updateChecker, /openUpdateFolder/);
   assert.match(updateChecker, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
   assert.match(updateChecker, /application\/vnd\.android\.package-archive/);
   assert.match(updateChecker, /FLAG_GRANT_READ_URI_PERMISSION/);
@@ -450,6 +453,9 @@ test("Android APK uses a settings-only dashboard shell", () => {
   assert.match(dashboardCss, /body\.android-manager-mode \.sidebar/);
   assert.match(dashboardCss, /#viewSettings > \.settings-card/);
   assert.match(dashboardHtml, /Android manager logs/);
+  assert.match(dashboardJs, /else if \(name === 'settings'\) \{[^\n]*if \(!ANDROID_MANAGER\) loadSettings\(\);/);
+  assert.match(dashboardJs, /async function loadSettings\(\) \{\s*if \(ANDROID_MANAGER\) return;/);
+  assert.match(dashboardCss, /body\.android-manager-mode \.settings-card-actions,[\s\S]*display: grid !important/);
 });
 
 test("Android runtime API key can be temporary or persisted", () => {

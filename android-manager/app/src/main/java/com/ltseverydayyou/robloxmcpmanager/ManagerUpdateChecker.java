@@ -1,7 +1,6 @@
 package com.ltseverydayyou.robloxmcpmanager;
 
 import android.app.Activity;
-import android.app.DownloadManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -13,7 +12,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
 import android.provider.Settings;
 
 import org.json.JSONArray;
@@ -319,12 +317,12 @@ final class ManagerUpdateChecker {
             throw new SecurityException("Storage access is required so Android can keep the replacement APK after uninstall.");
         }
 
-        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-        if (!downloads.isDirectory() && !downloads.mkdirs()) {
-            throw new IllegalStateException("Could not create the Android Downloads directory.");
+        File updates = new File(ExternalSettings.directory(), "updates");
+        if (!updates.isDirectory() && !updates.mkdirs()) {
+            throw new IllegalStateException("Could not create " + updates.getAbsolutePath());
         }
-        File target = new File(downloads, "RobloxMcpManager-Android-v" + result.version + ".apk");
-        File temporary = new File(downloads, target.getName() + ".partial");
+        File target = new File(updates, "RobloxMcpManager-Android-v" + result.version + ".apk");
+        File temporary = new File(updates, target.getName() + ".partial");
         if (temporary.exists() && !temporary.delete()) throw new IllegalStateException("Could not replace the temporary force-update file.");
         try (FileInputStream input = new FileInputStream(download.apk); FileOutputStream output = new FileOutputStream(temporary, false)) {
             byte[] buffer = new byte[64 * 1024];
@@ -333,7 +331,7 @@ final class ManagerUpdateChecker {
             output.getFD().sync();
         }
         if (target.exists() && !target.delete()) throw new IllegalStateException("Could not replace " + target.getAbsolutePath());
-        if (!temporary.renameTo(target)) throw new IllegalStateException("Could not activate the verified replacement APK in Downloads.");
+        if (!temporary.renameTo(target)) throw new IllegalStateException("Could not activate the verified replacement APK in " + updates.getAbsolutePath());
 
         Matcher digestMatch = SHA256_DIGEST.matcher(result.digest);
         if (!digestMatch.matches() || !sha256(target).equalsIgnoreCase(digestMatch.group(1))) {
@@ -346,45 +344,29 @@ final class ManagerUpdateChecker {
             throw new IllegalStateException("The replacement APK no longer requires a force update.");
         }
 
-        DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-        if (manager != null) {
-            try {
-                manager.addCompletedDownload(
-                    target.getName(),
-                    "Verified Roblox MCP Manager replacement",
-                    false,
-                    "application/vnd.android.package-archive",
-                    target.getAbsolutePath(),
-                    target.length(),
-                    true
-                );
-            } catch (Exception ignored) {
-                // The verified APK remains in the normal Downloads collection even if
-                // this deprecated registration API is blocked by an OEM build.
-            }
-        }
         return target;
     }
 
 
-    static void openDownloads(Activity activity) {
-        Intent downloads = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
-        try {
-            activity.startActivity(downloads);
-        } catch (Exception error) {
-            Intent fallback = new Intent(Intent.ACTION_VIEW);
-            fallback.setType("application/vnd.android.package-archive");
-            activity.startActivity(fallback);
+    static void openUpdateFolder(Activity activity) {
+        File updates = new File(ExternalSettings.directory(), "updates");
+        if (!updates.isDirectory() && !updates.mkdirs()) {
+            throw new IllegalStateException("Could not create " + updates.getAbsolutePath());
         }
+        Uri initial = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AAndroid%20MCP%2Fupdates");
+        Intent browse = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .putExtra("android.provider.extra.INITIAL_URI", initial)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        activity.startActivity(browse);
     }
 
     static void beginForcedReinstall(Activity activity, File downloadedApk) {
-        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File updates = new File(ExternalSettings.directory(), "updates");
         try {
             String staged = downloadedApk.getCanonicalPath();
-            String root = downloads.getCanonicalPath() + File.separator;
+            String root = updates.getCanonicalPath() + File.separator;
             if (!staged.startsWith(root) || !downloadedApk.isFile()) {
-                throw new SecurityException("Force update APK must be the verified copy in Android Downloads.");
+                throw new SecurityException("Force update APK must be the verified copy in " + updates.getAbsolutePath());
             }
         } catch (java.io.IOException error) {
             throw new IllegalStateException("Could not validate the force-update download path.", error);
