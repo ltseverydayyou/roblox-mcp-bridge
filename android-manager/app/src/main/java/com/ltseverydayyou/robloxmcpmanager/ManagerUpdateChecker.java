@@ -19,6 +19,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.io.InputStream;
@@ -46,7 +47,33 @@ final class ManagerUpdateChecker {
     }
 
     interface DownloadCallback {
-        void complete(File apk, Exception error);
+        void complete(VerifiedDownload download, Exception error);
+    }
+
+    static final class VerifiedDownload {
+        final File apk;
+        final boolean signerMatches;
+        final String installedSignerSha256;
+        final String downloadedSignerSha256;
+
+        VerifiedDownload(File apk, boolean signerMatches, String installedSignerSha256, String downloadedSignerSha256) {
+            this.apk = apk;
+            this.signerMatches = signerMatches;
+            this.installedSignerSha256 = installedSignerSha256;
+            this.downloadedSignerSha256 = downloadedSignerSha256;
+        }
+    }
+
+    private static final class PackageVerification {
+        final boolean signerMatches;
+        final String installedSignerSha256;
+        final String downloadedSignerSha256;
+
+        PackageVerification(boolean signerMatches, String installedSignerSha256, String downloadedSignerSha256) {
+            this.signerMatches = signerMatches;
+            this.installedSignerSha256 = installedSignerSha256;
+            this.downloadedSignerSha256 = downloadedSignerSha256;
+        }
     }
 
     static final class Result {
@@ -211,8 +238,13 @@ final class ManagerUpdateChecker {
                 if (!partial.renameTo(target)) throw new IllegalStateException("Could not activate the verified update APK.");
                 partial = null;
                 activated = target;
-                verifyPackage(appContext, target, result.version);
-                callback.complete(target, null);
+                PackageVerification verification = verifyPackage(appContext, target, result.version);
+                callback.complete(new VerifiedDownload(
+                    target,
+                    verification.signerMatches,
+                    verification.installedSignerSha256,
+                    verification.downloadedSignerSha256
+                ), null);
             } catch (Exception error) {
                 if (partial != null && partial.exists()) partial.delete();
                 if (activated != null && activated.exists()) activated.delete();
@@ -257,8 +289,60 @@ final class ManagerUpdateChecker {
         activity.startActivity(install);
     }
 
+    static File stageForcedUpdate(Context context, VerifiedDownload download, Result result) throws Exception {
+        if (download == null || download.apk == null || !download.apk.isFile()) {
+            throw new IllegalStateException("The verified update APK is unavailable.");
+        }
+        if (download.signerMatches) {
+            throw new IllegalStateException("Force update is only needed when the signing certificate differs.");
+        }
+        if (!ExternalSettings.hasStorageAccess(context)) {
+            throw new SecurityException("Storage access is required so the replacement APK survives uninstall. Enable Android MCP storage access, then retry Force update.");
+        }
+        File updates = new File(ExternalSettings.directory(), "updates");
+        if (!updates.isDirectory() && !updates.mkdirs()) {
+            throw new IllegalStateException("Could not create " + updates.getAbsolutePath());
+        }
+        File target = new File(updates, "RobloxMcpManager-Android-v" + result.version + ".apk");
+        File temporary = new File(updates, target.getName() + ".partial");
+        if (temporary.exists() && !temporary.delete()) throw new IllegalStateException("Could not replace the staged force-update file.");
+        try (FileInputStream input = new FileInputStream(download.apk); FileOutputStream output = new FileOutputStream(temporary, false)) {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
+            output.getFD().sync();
+        }
+        if (target.exists() && !target.delete()) throw new IllegalStateException("Could not replace " + target.getAbsolutePath());
+        if (!temporary.renameTo(target)) throw new IllegalStateException("Could not activate the staged replacement APK.");
+        File note = new File(updates, "FORCE-UPDATE-README.txt");
+        try (FileOutputStream output = new FileOutputStream(note, false)) {
+            String message = "Roblox MCP Manager replacement APK staged here because the new build uses a different Android signing certificate.\n"
+                + "After Android uninstalls the old manager, install: " + target.getName() + "\n"
+                + "Your manager settings remain in " + ExternalSettings.file().getAbsolutePath() + "\n";
+            output.write(message.getBytes(StandardCharsets.UTF_8));
+            output.getFD().sync();
+        }
+        return target;
+    }
+
+    static void beginForcedReinstall(Activity activity, File stagedApk) {
+        File updates = new File(ExternalSettings.directory(), "updates");
+        try {
+            String staged = stagedApk.getCanonicalPath();
+            String root = updates.getCanonicalPath() + File.separator;
+            if (!staged.startsWith(root) || !stagedApk.isFile()) {
+                throw new SecurityException("Force update APK must be staged under the Android MCP updates folder.");
+            }
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException("Could not validate the staged force-update path.", error);
+        }
+        Intent uninstall = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + activity.getPackageName()))
+            .putExtra(Intent.EXTRA_RETURN_RESULT, false);
+        activity.startActivity(uninstall);
+    }
+
     @SuppressWarnings("deprecation")
-    private static void verifyPackage(Context context, File apk, String expectedVersion) throws Exception {
+    private static PackageVerification verifyPackage(Context context, File apk, String expectedVersion) throws Exception {
         PackageManager manager = context.getPackageManager();
         int flags = Build.VERSION.SDK_INT >= 28
             ? PackageManager.GET_SIGNING_CERTIFICATES
@@ -276,9 +360,25 @@ final class ManagerUpdateChecker {
         if (archiveCode <= installedCode) {
             throw new SecurityException("Downloaded APK is not newer than the installed manager.");
         }
-        if (!sameSigners(installed, archive)) {
-            throw new SecurityException("Downloaded APK is not signed by the installed manager's certificate.");
+        boolean signerMatches = sameSigners(installed, archive);
+        return new PackageVerification(
+            signerMatches,
+            signerDigest(installed),
+            signerDigest(archive)
+        );
+    }
+
+    @SuppressWarnings("deprecation")
+    private static String signerDigest(PackageInfo info) throws Exception {
+        Signature[] signatures;
+        if (Build.VERSION.SDK_INT >= 28) {
+            signatures = info.signingInfo == null ? null : info.signingInfo.getApkContentsSigners();
+        } else {
+            signatures = info.signatures;
         }
+        if (signatures == null || signatures.length == 0) return "unknown";
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        return toHex(digest.digest(signatures[0].toByteArray()));
     }
 
     @SuppressWarnings("deprecation")

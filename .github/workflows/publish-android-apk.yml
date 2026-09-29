@@ -1,0 +1,68 @@
+name: Publish Android manager APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Node dependencies
+        shell: pwsh
+        run: npm ci --ignore-scripts
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android SDK components
+        shell: pwsh
+        run: |
+          $sdkmanager = Join-Path $env:ANDROID_HOME 'cmdline-tools\latest\bin\sdkmanager.bat'
+          if (-not (Test-Path -LiteralPath $sdkmanager)) {
+            $sdkmanager = (Get-Command sdkmanager.bat -ErrorAction Stop).Source
+          }
+          1..40 | ForEach-Object { 'y' } | & $sdkmanager --licenses | Out-Null
+          & $sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
+          if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed with exit code $LASTEXITCODE" }
+
+      - name: Build Android manager APK
+        shell: pwsh
+        run: |
+          ./scripts/build-android-manager.ps1 -JavaHome $env:JAVA_HOME -AndroidSdk $env:ANDROID_HOME -AllowSigningCertificateMismatch
+
+      - name: Locate APK
+        id: apk
+        shell: pwsh
+        run: |
+          $version = [string](Select-String -LiteralPath 'android-manager/app/build.gradle' -Pattern 'versionName\s+"([^"]+)"').Matches[0].Groups[1].Value
+          $apk = (Resolve-Path "android-manager/app/build/distributions/RobloxMcpManager-Android-v$version.apk").Path
+          "path=$apk" >> $env:GITHUB_OUTPUT
+          "name=RobloxMcpManager-Android-v$version.apk" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-manager-apk
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Attach APK to v2.4.9 release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v2.4.9 '${{ steps.apk.outputs.path }}' --clobber --repo '${{ github.repository }}'

@@ -4,7 +4,8 @@
 param(
     [string]$JavaHome = $env:JAVA_HOME,
     [string]$AndroidSdk = $env:ANDROID_HOME,
-    [string]$ExpectedSigningCertificateSha256 = "78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3"
+    [string]$ExpectedSigningCertificateSha256 = "78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3",
+    [switch]$AllowSigningCertificateMismatch
 )
 
 Set-StrictMode -Version Latest
@@ -87,7 +88,10 @@ if (-not $certMatch.Success) { throw "Could not read the APK signing certificate
 $certSha256 = $certMatch.Groups[1].Value.ToLowerInvariant()
 $expectedCertSha256 = $ExpectedSigningCertificateSha256.Trim().ToLowerInvariant()
 if ($expectedCertSha256 -and $certSha256 -ne $expectedCertSha256) {
-    throw "APK signing certificate mismatch. Expected $expectedCertSha256 but built $certSha256. Do not publish this APK because existing installs cannot update in place."
+    if (-not $AllowSigningCertificateMismatch) {
+        throw "APK signing certificate mismatch. Expected $expectedCertSha256 but built $certSha256. Do not publish this APK because existing installs cannot update in place."
+    }
+    Write-Warning "APK signing certificate mismatch allowed for this build. Expected $expectedCertSha256 but built $certSha256. Existing installs must use the manager's Force update reinstall flow."
 }
 
 $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -96,4 +100,8 @@ Write-Host "  $apk"
 Write-Host "SHA-256: $hash"
 Write-Host "Signing certificate SHA-256: $certSha256"
 Write-Host "Upload this file as an asset on the repository's GitHub Release; do not commit the APK to the repository." -ForegroundColor Cyan
-Write-Host "The APK signing certificate was verified against the established Android release identity." -ForegroundColor Green
+if (-not $expectedCertSha256 -or $certSha256 -eq $expectedCertSha256) {
+    Write-Host "The APK signing certificate was verified against the established Android release identity." -ForegroundColor Green
+} else {
+    Write-Host "This APK uses a different signing certificate and requires the Force update reinstall flow." -ForegroundColor Yellow
+}

@@ -118,6 +118,15 @@ The preparation step downloads the official Node.js Mobile v18.17.3 Android arch
 
 Published Android updates must keep the existing signing identity so Android can install them over v0.4.8 through v0.5.2. The established signing certificate SHA-256 is `78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3`. `scripts/build-android-manager.ps1` verifies the completed APK with Android SDK `apksigner` and aborts if its certificate fingerprint differs. The fingerprint is only a verification value; signing still requires the original private keystore.
 
+
+### Force update when the APK signing certificate changes
+
+Normal Android updates still require the new APK to have the same signing certificate as the installed manager. If the manager downloads a release whose certificate differs, it now offers **Force update** instead of discarding the verified APK. The manager first copies the replacement APK to `/storage/emulated/0/Android MCP/updates/`, writes a small recovery note beside it, and then opens Android's uninstall confirmation for the current manager. Android does not allow an ordinary app to silently uninstall itself and continue running after its own package is removed, so the final install is launched by opening the staged APK from that persistent folder after uninstall. The manager settings remain in `/storage/emulated/0/Android MCP/settings.json` and survive the reinstall.
+
+The force path still verifies the GitHub release SHA-256, package name, version, and versionCode before offering the reinstall. A certificate mismatch is the only verification failure that can enter this recovery path.
+
+A repository workflow, `.github/workflows/publish-android-apk.yml`, can build the Android manager on GitHub Actions and attach the APK to the existing `v2.4.9` release without a Windows MCP machine. When the build certificate differs from the established Android certificate, the build is explicitly marked as requiring the Force update reinstall path.
+
 ## Security boundaries
 
 - The copied executor loader always uses localhost. The bridge uses localhost unless the user explicitly enables the authenticated trusted-LAN relay.

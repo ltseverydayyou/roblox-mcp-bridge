@@ -1075,7 +1075,7 @@ public final class MainActivity extends Activity {
     private void showManagerUpdatePrompt(ManagerUpdateChecker.Result result) {
         String verification = result.digest.isEmpty()
             ? ""
-            : "\n\nThe APK will be checked against GitHub's SHA-256 digest and the installed signing certificate before Android opens the installer.";
+            : "\n\nThe APK will be checked against GitHub's SHA-256 digest, package metadata, and signing certificate. If only the signing certificate differs, the manager can stage a Force update reinstall in shared storage.";
         new AlertDialog.Builder(this)
             .setTitle("Android manager update available")
             .setMessage("Installed: v" + BuildConfig.VERSION_NAME + "\nAvailable: v" + result.version
@@ -1199,15 +1199,21 @@ public final class MainActivity extends Activity {
         ManagerUpdateChecker.clearNotification(this);
         appendOutput("\nDownloading manager v" + result.version + " inside the app...");
         toast("Downloading and verifying update");
-        ManagerUpdateChecker.download(this, result, (apk, error) -> runOnUiThread(() -> {
+        ManagerUpdateChecker.download(this, result, (download, error) -> runOnUiThread(() -> {
             if (error != null) {
                 showMessage("Update download failed", error.getMessage());
                 appendOutput("\nUpdate failed: " + error.getMessage());
                 return;
             }
             appendOutput("\nUpdate downloaded and verified: " + result.digest);
+            if (!download.signerMatches) {
+                appendOutput("\nSigning certificate mismatch. Installed: " + download.installedSignerSha256
+                    + " · Downloaded: " + download.downloadedSignerSha256);
+                showForceUpdatePrompt(result, download);
+                return;
+            }
             try {
-                boolean installerOpened = ManagerUpdateChecker.beginInstall(this, apk);
+                boolean installerOpened = ManagerUpdateChecker.beginInstall(this, download.apk);
                 if (!installerOpened) {
                     appendOutput("\nAndroid opened “Install unknown apps.” Enable “Allow from this source,” then return; the verified update will open automatically.");
                     toast("Allow installs, then return to the manager");
@@ -1216,6 +1222,48 @@ public final class MainActivity extends Activity {
                 showMessage("Could not open Android installer", installError.getMessage());
             }
         }));
+    }
+
+    private void showForceUpdatePrompt(ManagerUpdateChecker.Result result, ManagerUpdateChecker.VerifiedDownload download) {
+        String updatesPath = new File(ExternalSettings.directory(), "updates").getAbsolutePath();
+        new AlertDialog.Builder(this)
+            .setTitle("Signing certificate changed")
+            .setMessage("Android cannot install v" + result.version + " over this copy because the APK signing certificate is different."
+                + "\n\nForce update will first save the verified replacement APK under:\n" + updatesPath
+                + "\n\nThen Android will ask you to uninstall the current manager. Your settings remain in "
+                + ExternalSettings.file().getAbsolutePath()
+                + ". After uninstall, install the staged APK from the Android MCP/updates folder."
+                + "\n\nInstalled certificate:\n" + download.installedSignerSha256
+                + "\n\nNew certificate:\n" + download.downloadedSignerSha256)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Force update", (dialog, which) -> forceManagerUpdate(result, download))
+            .show();
+    }
+
+    private void forceManagerUpdate(ManagerUpdateChecker.Result result, ManagerUpdateChecker.VerifiedDownload download) {
+        if (!ExternalSettings.hasStorageAccess(this)) {
+            showMessage("Storage access required",
+                "Force update needs Android MCP storage access so the replacement APK survives uninstall. Enable storage access, then run App update again.");
+            requestExternalSettingsAccess();
+            return;
+        }
+        try {
+            File staged = ManagerUpdateChecker.stageForcedUpdate(this, download, result);
+            appendOutput("\nForce-update APK staged at " + staged.getAbsolutePath());
+            new AlertDialog.Builder(this)
+                .setTitle("Replacement APK staged")
+                .setMessage("The verified APK is saved at:\n" + staged.getAbsolutePath()
+                    + "\n\nAndroid will now ask to uninstall this manager. After uninstall, install that APK from the Android MCP/updates folder. Settings will remain in shared storage.")
+                .setNegativeButton("Not now", null)
+                .setPositiveButton("Uninstall old app", (dialog, which) -> {
+                    appendOutput("\nOpening Android uninstall confirmation for force update...");
+                    ManagerUpdateChecker.beginForcedReinstall(this, staged);
+                })
+                .show();
+        } catch (Exception error) {
+            showMessage("Force update failed", error.getMessage());
+            appendOutput("\nForce update failed: " + error.getMessage());
+        }
     }
 
 

@@ -31,6 +31,7 @@ const androidMcp = read("src/http/android-mcp.ts");
 const buildAndroid = read("scripts/build-android-manager.ps1");
 const runtimeReleaseBuilder = read("scripts/prepare-android-runtime-release.mjs");
 const runtimeWorkflow = read(".github/workflows/publish-android-runtime.yml");
+const androidApkWorkflow = read(".github/workflows/publish-android-apk.yml");
 const activityLayout = read("android-manager/app/src/main/res/layout/activity_main.xml");
 const dashboardHtml = read("src/http/assets/dashboard/index.html");
 const dashboardJs = read("src/http/assets/dashboard/dashboard.js");
@@ -297,7 +298,7 @@ test("Android manager motion is lightweight and follows the system animation set
   assert.match(mainActivity, /setStatusBusy\(tunnelStatus, true\)/);
 });
 
-test("app updates download, verify, and invoke Android's installer without a browser", () => {
+test("app updates verify signatures and support external force-reinstall recovery", () => {
   assert.match(updateChecker, /RobloxMcpManager-Android-v/);
   assert.match(updateChecker, /releases\?per_page=20/);
   assert.match(updateChecker, /optBoolean\("prerelease"/);
@@ -311,6 +312,14 @@ test("app updates download, verify, and invoke Android's installer without a bro
   assert.match(updateChecker, /MessageDigest\.getInstance\("SHA-256"\)/);
   assert.match(updateChecker, /GET_SIGNING_CERTIFICATES/);
   assert.match(updateChecker, /sameSigners/);
+  assert.match(updateChecker, /VerifiedDownload/);
+  assert.match(updateChecker, /stageForcedUpdate/);
+  assert.match(updateChecker, /Android MCP/);
+  assert.match(updateChecker, /ACTION_DELETE/);
+  assert.match(updateChecker, /FORCE-UPDATE-README\.txt/);
+  assert.match(mainActivity, /Signing certificate changed/);
+  assert.match(mainActivity, /Force update/);
+  assert.match(mainActivity, /Uninstall old app/);
   assert.match(updateChecker, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
   assert.match(updateChecker, /application\/vnd\.android\.package-archive/);
   assert.match(updateChecker, /FLAG_GRANT_READ_URI_PERMISSION/);
@@ -322,4 +331,15 @@ test("app updates download, verify, and invoke Android's installer without a bro
   assert.match(manifest, /android:exported="false"/);
   assert.match(mainActivity, /Download & install/);
   assert.match(mainActivity, /resumePendingInstall/);
+});
+
+
+test("GitHub Actions can build and attach the Android APK to v2.4.9 without Windows MCP", () => {
+  assert.match(androidApkWorkflow, /workflow_dispatch/);
+  assert.match(androidApkWorkflow, /windows-latest/);
+  assert.match(androidApkWorkflow, /build-android-manager\.ps1/);
+  assert.match(androidApkWorkflow, /AllowSigningCertificateMismatch/);
+  assert.match(androidApkWorkflow, /gh release upload v2\.4\.9/);
+  assert.match(androidApkWorkflow, /contents: write/);
+  assert.match(buildAndroid, /AllowSigningCertificateMismatch/);
 });
