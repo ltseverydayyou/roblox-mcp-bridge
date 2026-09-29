@@ -20,11 +20,11 @@ final class AssetInstaller {
         File runtime = new File(context.getFilesDir(), "embedded-runtime");
         String bundledVersion = readAsset(context.getAssets(), ASSET_ROOT + "/runtime-version.txt").trim();
         String bundledUpdateId = bundledUpdateId(context);
-        String bundledDependencyFingerprint = sha256Asset(context.getAssets(), ASSET_ROOT + "/package.json");
+        String bundledDependencyFingerprint = sha256NormalizedTextAsset(context.getAssets(), ASSET_ROOT + "/package.json");
         File marker = new File(runtime, ".installed-version");
         File runtimePackage = new File(runtime, "package.json");
         boolean runtimeMatchesBundledDependencies = runtimePackage.isFile()
-            && sha256File(runtimePackage).equalsIgnoreCase(bundledDependencyFingerprint);
+            && sha256NormalizedTextFile(runtimePackage).equalsIgnoreCase(bundledDependencyFingerprint);
         if (new File(runtime, "main.mjs").isFile() && marker.isFile()
             && readFile(marker).trim().equals(bundledVersion)
             && runtimeMatchesBundledDependencies) {
@@ -73,24 +73,23 @@ final class AssetInstaller {
         }
     }
 
-    private static String sha256Asset(AssetManager assets, String path) throws IOException {
+    private static String sha256NormalizedTextAsset(AssetManager assets, String path) throws IOException {
         try (InputStream input = assets.open(path)) {
-            return sha256(input);
+            return sha256NormalizedText(input);
         }
     }
 
-    private static String sha256File(File file) throws IOException {
+    private static String sha256NormalizedTextFile(File file) throws IOException {
         try (InputStream input = new java.io.FileInputStream(file)) {
-            return sha256(input);
+            return sha256NormalizedText(input);
         }
     }
 
-    private static String sha256(InputStream input) throws IOException {
+    private static String sha256NormalizedText(InputStream input) throws IOException {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
+            String normalized = readUtf8(input).replace("\r\n", "\n").replace("\r", "\n");
+            digest.update(normalized.getBytes(StandardCharsets.UTF_8));
             StringBuilder value = new StringBuilder(64);
             for (byte item : digest.digest()) value.append(String.format(java.util.Locale.ROOT, "%02x", item & 0xff));
             return value.toString();

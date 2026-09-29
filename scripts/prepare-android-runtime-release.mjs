@@ -39,7 +39,8 @@ fs.rmSync(output, { recursive: true, force: true });
 fs.mkdirSync(output, { recursive: true });
 fs.cpSync(dist, path.join(output, "dist"), { recursive: true });
 fs.copyFileSync(connector, path.join(output, "connector.luau"));
-const dependencyFingerprint = crypto.createHash("sha256").update(fs.readFileSync(runtimePackage)).digest("hex");
+const runtimePackageText = fs.readFileSync(runtimePackage, "utf8").replace(/\r\n?/g, "\n");
+const dependencyFingerprint = crypto.createHash("sha256").update(runtimePackageText, "utf8").digest("hex");
 fs.writeFileSync(path.join(output, "runtime-update.json"), `${JSON.stringify({
   schema: 1,
   runtimeApi: 1,

@@ -317,7 +317,7 @@ final class RuntimeUpdateChecker {
         File runtimePackage = new File(directory, "package.json");
         if (!runtimePackage.isFile()) throw new IllegalStateException("The installed Android runtime package manifest is missing.");
         String dependencyFingerprint = manifest.optString("dependencyFingerprint", "");
-        String installedFingerprint = sha256(runtimePackage);
+        String installedFingerprint = dependencyFingerprint(runtimePackage);
         if (!installedFingerprint.equalsIgnoreCase(dependencyFingerprint)) {
             throw new SecurityException("This MCP source update requires newer runtime dependencies. Install the latest APK first.");
         }
@@ -373,13 +373,12 @@ final class RuntimeUpdateChecker {
         return value.toString();
     }
 
-    private static String sha256(File file) throws Exception {
+    private static String dependencyFingerprint(File file) throws Exception {
+        String normalized = readUtf8(new FileInputStream(file), 1024 * 1024)
+            .replace("\r\n", "\n")
+            .replace("\r", "\n");
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (InputStream input = new FileInputStream(file)) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
-        }
+        digest.update(normalized.getBytes(StandardCharsets.UTF_8));
         return hex(digest.digest());
     }
 }

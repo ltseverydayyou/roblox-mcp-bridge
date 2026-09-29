@@ -142,9 +142,18 @@ test("runtime asset activation preserves the previous working bundle", () => {
 });
 
 test("APK upgrades refresh stale embedded runtime dependencies", () => {
-  assert.match(installer, /sha256Asset\(context\.getAssets\(\), ASSET_ROOT \+ "\/package\.json"\)/);
-  assert.match(installer, /sha256File\(runtimePackage\)/);
+  assert.match(installer, /sha256NormalizedTextAsset\(context\.getAssets\(\), ASSET_ROOT \+ "\/package\.json"\)/);
+  assert.match(installer, /sha256NormalizedTextFile\(runtimePackage\)/);
   assert.match(installer, /runtimeMatchesBundledDependencies/);
+});
+
+
+
+test("Android runtime dependency fingerprints ignore host line endings", () => {
+  assert.match(installer, /replace\("\\r\\n", "\\n"\)\.replace\("\\r", "\\n"\)/);
+  assert.match(runtimeUpdateChecker, /dependencyFingerprint\(runtimePackage\)/);
+  assert.match(runtimeUpdateChecker, /replace\("\\r\\n", "\\n"\)/);
+  assert.match(runtimeReleaseBuilder, /replace\(\/\\r\\n\?\/g, "\\n"\)/);
 });
 
 test("Android MCP source updates are prompted, verified, and atomically activated", () => {
@@ -192,7 +201,7 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 24/);
+  assert.match(gradle, /versionCode 25/);
   assert.match(gradle, /versionName "0\.5\.3"/);
 });
 
