@@ -319,7 +319,7 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void requestBatteryAccess() { runOnUiThread(MainActivity.this::requestUnrestrictedBattery); }
         @JavascriptInterface public void openAppSettings() { runOnUiThread(MainActivity.this::openAppSettings); }
         @JavascriptInterface public void prepareRuntime() { runOnUiThread(MainActivity.this::prepareRuntime); }
-        @JavascriptInterface public void checkRuntimeUpdate() { runOnUiThread(() -> checkRuntimeUpdate(true)); }
+        @JavascriptInterface public void checkRuntimeUpdate() { runOnUiThread(() -> MainActivity.this.checkRuntimeUpdate(true)); }
         @JavascriptInterface public void checkAppUpdate() { runOnUiThread(() -> checkManagerUpdate(true)); }
         @JavascriptInterface public void copyLoader() { runOnUiThread(MainActivity.this::copyLoader); }
         @JavascriptInterface public void copyPcRelay() { runOnUiThread(MainActivity.this::copyPcRelayArguments); }
@@ -332,7 +332,7 @@ public final class MainActivity extends Activity {
             saveManagerSettingsFromWeb(portValue, profile, tunnelId, lanMode);
             runOnUiThread(() -> {
                 syncHiddenManagerInputs(portValue, profile, tunnelId, lanMode, null);
-                startBridge();
+                MainActivity.this.startBridge();
                 refreshManagerWebViewState();
             });
         }
@@ -349,21 +349,21 @@ public final class MainActivity extends Activity {
             saveManagerSettingsFromWeb(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false));
             runOnUiThread(() -> {
                 syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), null);
-                configureTunnel();
+                MainActivity.this.configureTunnel();
             });
         }
 
         @JavascriptInterface public void doctorTunnel(String portValue, String profile, String tunnelId, String runtimeKey) {
             runOnUiThread(() -> {
                 syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), runtimeKey);
-                doctorTunnel();
+                MainActivity.this.doctorTunnel();
             });
         }
 
         @JavascriptInterface public void startTunnel(String portValue, String profile, String tunnelId, String runtimeKey) {
             runOnUiThread(() -> {
                 syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), runtimeKey);
-                startTunnel();
+                MainActivity.this.startTunnel();
             });
         }
 
