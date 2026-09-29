@@ -422,3 +422,18 @@ test("shared Android dashboard restores ChatGPT file cache controls", () => {
   assert.match(mainActivity, /clearChatGptFiles\(\)/);
   assert.match(dashboardJs, /refreshAndroidChatGptFiles/);
 });
+
+
+test("Android dashboard restores legacy manager shortcuts", () => {
+  assert.match(dashboardHtml, /id="androidRefreshStatusButton"/);
+  assert.match(dashboardHtml, /id="androidDashboardButton"/);
+  assert.match(dashboardHtml, /id="androidCopySetupStepsButton"/);
+  assert.match(dashboardHtml, /Copy PC MCP relay arguments/);
+  assert.match(dashboardHtml, /Open tunnel diagnostics/);
+  assert.match(mainActivity, /@JavascriptInterface public void refreshStatus\(\)/);
+  assert.match(mainActivity, /@JavascriptInterface public void openDashboard\(\)/);
+  assert.match(mainActivity, /@JavascriptInterface public void copyChatGptChecklist\(\)/);
+  assert.match(dashboardJs, /AndroidManager\.refreshStatus\(\)/);
+  assert.match(dashboardJs, /AndroidManager\.openDashboard\(\)/);
+  assert.match(dashboardJs, /AndroidManager\.copyChatGptChecklist\(\)/);
+});

@@ -327,8 +327,16 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void checkRuntimeUpdate() { runOnUiThread(() -> MainActivity.this.checkRuntimeUpdate(true)); }
         @JavascriptInterface public void checkAppUpdate() { runOnUiThread(() -> checkManagerUpdate(true)); }
         @JavascriptInterface public void clearUpdateCache() { runOnUiThread(MainActivity.this::confirmClearUpdateCache); }
+        @JavascriptInterface public void refreshStatus() {
+            runOnUiThread(() -> {
+                MainActivity.this.refreshStatus(true);
+                refreshManagerWebViewState();
+            });
+        }
+        @JavascriptInterface public void openDashboard() { runOnUiThread(() -> openUrl("http://127.0.0.1:" + port() + "/")); }
         @JavascriptInterface public void copyLoader() { runOnUiThread(MainActivity.this::copyLoader); }
         @JavascriptInterface public void copyPcRelay() { runOnUiThread(MainActivity.this::copyPcRelayArguments); }
+        @JavascriptInterface public void copyChatGptChecklist() { runOnUiThread(MainActivity.this::copyChatGptChecklist); }
         @JavascriptInterface public void openApiKeys() { runOnUiThread(() -> openUrl(API_KEYS_URL)); }
         @JavascriptInterface public void openTunnels() { runOnUiThread(() -> openUrl(TUNNELS_URL)); }
         @JavascriptInterface public void openChatGptPlugins() { runOnUiThread(MainActivity.this::openChatGptPlugins); }

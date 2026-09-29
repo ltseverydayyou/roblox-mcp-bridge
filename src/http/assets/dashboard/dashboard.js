@@ -5247,6 +5247,8 @@ function initAndroidManagerUi() {
     androidField('androidStorageButton')?.addEventListener('click', () => window.AndroidManager.requestStorageAccess());
     androidField('androidAppUpdateButton')?.addEventListener('click', () => window.AndroidManager.checkAppUpdate());
     androidField('androidClearUpdateCacheButton')?.addEventListener('click', () => window.AndroidManager.clearUpdateCache());
+    androidField('androidRefreshStatusButton')?.addEventListener('click', () => window.AndroidManager.refreshStatus());
+    androidField('androidDashboardButton')?.addEventListener('click', () => window.AndroidManager.openDashboard());
     androidField('androidPrepareRuntimeButton')?.addEventListener('click', () => window.AndroidManager.prepareRuntime());
     androidField('androidRuntimeUpdateButton')?.addEventListener('click', () => window.AndroidManager.checkRuntimeUpdate());
     androidField('androidSnapshotButton')?.addEventListener('click', () => window.AndroidManager.openSnapshotSupport());
@@ -5280,6 +5282,7 @@ function initAndroidManagerUi() {
     androidField('androidApiKeysButton')?.addEventListener('click', () => window.AndroidManager.openApiKeys());
     androidField('androidTunnelsButton')?.addEventListener('click', () => window.AndroidManager.openTunnels());
     androidField('androidChatGptPluginsButton')?.addEventListener('click', () => window.AndroidManager.openChatGptPlugins());
+    androidField('androidCopySetupStepsButton')?.addEventListener('click', () => window.AndroidManager.copyChatGptChecklist());
 
     window.refreshAndroidManagerState();
     androidManagerRefreshTimer = setInterval(window.refreshAndroidManagerState, 1500);
