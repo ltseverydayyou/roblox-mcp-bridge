@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_screenshot_description">Allows the Roblox MCP screenshot tool to capture the current Android display while the service is enabled.</string>
+</resources>

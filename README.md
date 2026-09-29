@@ -27,7 +27,7 @@ Use it to see connected Roblox clients, inspect scripts, run tools, view server 
 - **Typed Instance Inspection** — Batch-read useful properties, attributes, tags, stable debug IDs, and child summaries without arbitrary code.
 - **Remote Spy** — Intercept, log, block, and ignore Remotes/Bindables via [Cobalt](https://gitlab.com/upio/cobalt).
 - **GUI Interaction** — Click buttons and type into text boxes.
-- **Screenshot** — Capture Roblox window screenshots (Windows only).
+- **Screenshot** — Capture Roblox screenshots on Windows and Android. Windows targets Roblox OS windows; Android captures the current device display through the optional MCP Manager accessibility screenshot service.
 - **Multi-Client** — Connect multiple Roblox clients at once.
 - **Primary / Secondary** — Multiple MCP instances auto-coordinate with automatic promotion. Supports remote relaying via `--baseurl`. See [Advanced](docs/advanced.md).
 - **Safe Update Notices** — Checks for new releases in the background and shows a dismissible dashboard notice without installing code automatically.

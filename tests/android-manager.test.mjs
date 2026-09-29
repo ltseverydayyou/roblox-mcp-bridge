@@ -9,6 +9,8 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const javaRoot = "android-manager/app/src/main/java/com/ltseverydayyou/robloxmcpmanager";
 const mainActivity = read(`${javaRoot}/MainActivity.java`);
 const bridgeService = read(`${javaRoot}/BridgeService.java`);
+const screenshotService = read(`${javaRoot}/AndroidScreenshotService.java`);
+const accessibilityConfig = read("android-manager/app/src/main/res/xml/accessibility_service_config.xml");
 const tunnelClient = read(`${javaRoot}/TunnelClient.java`);
 const tunnelService = read(`${javaRoot}/TunnelService.java`);
 const connectProxy = read(`${javaRoot}/AndroidConnectProxy.java`);
@@ -46,6 +48,15 @@ test("Android manager owns an isolated embedded foreground service", () => {
   assert.match(mainActivity, /refreshStatus\(true, 30\)/);
 });
 
+
+test("Android screenshot capture is localhost-only and accessibility-gated", () => {
+  assert.match(manifest, /android:name="\.AndroidScreenshotService"/);
+  assert.match(manifest, /BIND_ACCESSIBILITY_SERVICE/);
+  assert.match(accessibilityConfig, /android:canTakeScreenshot="true"/);
+  assert.match(screenshotService, /127\.0\.0\.1/);
+  assert.match(screenshotService, /takeScreenshot\(Display\.DEFAULT_DISPLAY/);
+  assert.match(screenshotService, /Base64\.NO_WRAP/);
+});
 test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(gradle, /abiFilters "arm64-v8a"/);
   assert.match(prepare, /nodejs-mobile-v18\.17\.3-android\.zip/);

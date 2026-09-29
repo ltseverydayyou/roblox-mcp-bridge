@@ -35,6 +35,18 @@
                 android:value="User-started persistent local MCP and WebSocket bridge for a connected Roblox client" />
         </service>
         <service
+            android:name=".AndroidScreenshotService"
+            android:exported="true"
+            android:label="Roblox MCP screenshot capture"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+        <service
             android:name=".TunnelService"
             android:exported="false"
             android:foregroundServiceType="specialUse"

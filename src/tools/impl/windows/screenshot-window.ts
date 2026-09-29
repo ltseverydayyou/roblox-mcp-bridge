@@ -6,7 +6,7 @@ import {
   isSupported,
   performScreenshot,
   type ScreenshotResult,
-} from "../../../platform/windows-screenshot.js";
+} from "../../../platform/screenshot.js";
 
 export default function register(server: McpServer): void {
   server.registerTool(
@@ -14,12 +14,12 @@ export default function register(server: McpServer): void {
     {
       title: "Take a screenshot of a Roblox window",
       description:
-        "Capture an actual OS screenshot of a Roblox window via Windows APIs. Returns a downscaled JPEG to limit vision-token cost. Provide pid when multiple windows are open; secondary servers relay capture to the primary host.",
+        "Capture the Roblox client display. Windows captures the selected Roblox window; Android captures the current device display through the Roblox MCP Manager accessibility service. Returns a downscaled JPEG to limit vision-token cost. Provide pid only on Windows when multiple Roblox windows are open; secondary servers relay capture to the primary host.",
       inputSchema: z.object({
         pid: z
           .number()
           .describe(
-            "The PID (process ID) of the Roblox window to capture. If omitted and only one Roblox window exists, it is captured automatically. If multiple windows exist and no pid is provided, the tool returns a list of windows for disambiguation."
+            "Windows only: the PID (process ID) of the Roblox window to capture. If omitted and only one Roblox window exists, it is captured automatically. Android ignores this value and captures the current display."
           )
           .optional(),
         maxWidth: z
@@ -60,9 +60,7 @@ export default function register(server: McpServer): void {
           content: [
             {
               type: "text" as const,
-              text:
-                "Error: The screenshot-window tool is only available on Windows. The current platform is: " +
-                process.platform,
+              text: "Error: screenshot-window is not supported on this platform: " + process.platform,
             },
           ],
           isError: true,
@@ -70,7 +68,7 @@ export default function register(server: McpServer): void {
       }
 
       try {
-        return renderScreenshotResult(performScreenshot(pid, maxWidth));
+        return renderScreenshotResult(await performScreenshot(pid, maxWidth));
       } catch (err) {
         return {
           content: [

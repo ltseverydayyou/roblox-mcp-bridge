@@ -106,3 +106,8 @@ Public releases should use a private production keystore. The checked-in debug A
 - The app never invokes a shell or grants another app command-execution access.
 - Runtime keys are not written to preferences or logs; Doctor and Start clear the field as soon as they begin.
 - Compiled MCP source can update independently through the verified rolling runtime channel. Native libraries and runtime dependency changes continue to require a verified APK update.
+
+
+## Android screenshot tool
+
+`screenshot-window` works on Android 11+ after enabling **Android Settings → Accessibility → Installed apps → Roblox MCP screenshot capture**. Android captures the current display and ignores `pid`.
