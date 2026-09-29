@@ -5195,6 +5195,14 @@ window.refreshAndroidManagerState = function refreshAndroidManagerState() {
         : 'SETTINGS STORAGE: PERMISSION REQUIRED — settings cannot persist to shared storage yet', storageReady);
     const storageButton = androidField('androidStorageButton');
     if (storageButton) storageButton.textContent = storageReady ? 'Storage settings' : 'Grant storage access';
+    const updateCacheStatus = androidField('androidUpdateCacheStatus');
+    if (updateCacheStatus) {
+        const files = Math.max(0, Number(state.updateCacheFiles) || 0);
+        const bytes = Math.max(0, Number(state.updateCacheBytes) || 0);
+        updateCacheStatus.textContent = files === 0
+            ? 'Update cache: empty'
+            : `Update cache: ${files} file${files === 1 ? '' : 's'} · ${formatAndroidFileBytes(bytes)} · ${state.updateCachePath || '/storage/emulated/0/Android MCP/updates'}`;
+    }
 
     const bridgeState = String(state.bridgeState || 'stopped');
     const bridgeHealthy = Boolean(state.bridgeDesired) && !/^ERROR|^EXITED|^STOPPED/i.test(bridgeState);
@@ -5238,6 +5246,7 @@ function initAndroidManagerUi() {
     });
     androidField('androidStorageButton')?.addEventListener('click', () => window.AndroidManager.requestStorageAccess());
     androidField('androidAppUpdateButton')?.addEventListener('click', () => window.AndroidManager.checkAppUpdate());
+    androidField('androidClearUpdateCacheButton')?.addEventListener('click', () => window.AndroidManager.clearUpdateCache());
     androidField('androidPrepareRuntimeButton')?.addEventListener('click', () => window.AndroidManager.prepareRuntime());
     androidField('androidRuntimeUpdateButton')?.addEventListener('click', () => window.AndroidManager.checkRuntimeUpdate());
     androidField('androidSnapshotButton')?.addEventListener('click', () => window.AndroidManager.openSnapshotSupport());

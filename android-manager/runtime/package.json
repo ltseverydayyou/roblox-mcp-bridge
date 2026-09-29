@@ -5,6 +5,15 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.25.1",
     "ws": "8.18.3",
-    "zod": "4.3.4"
+    "zod": "4.3.4",
+    "fast-uri": "3.1.8"
+  },
+  "overrides": {
+    "fast-uri": "3.1.8"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": "3.1.8"
+    }
   }
 }

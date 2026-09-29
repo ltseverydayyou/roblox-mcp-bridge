@@ -30,6 +30,7 @@ const secondaryServer = read("src/bridge/handlers/server/secondary.ts");
 const androidMcp = read("src/http/android-mcp.ts");
 const buildAndroid = read("scripts/build-android-manager.ps1");
 const runtimeReleaseBuilder = read("scripts/prepare-android-runtime-release.mjs");
+const patchAndroidRuntimeDeps = read("scripts/patch-android-runtime-deps.mjs");
 const runtimeWorkflow = read(".github/workflows/publish-android-runtime.yml");
 const androidApkWorkflow = read(".github/workflows/publish-android-apk.yml");
 const activityLayout = read("android-manager/app/src/main/res/layout/activity_main.xml");
@@ -201,7 +202,7 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 26/);
+  assert.match(gradle, /versionCode 27/);
   assert.match(gradle, /versionName "0\.5\.3"/);
 });
 
@@ -348,12 +349,14 @@ test("app updates verify signatures and support external force-reinstall recover
   assert.match(updateChecker, /sameSigners/);
   assert.match(updateChecker, /VerifiedDownload/);
   assert.match(updateChecker, /stageForcedUpdate/);
-  assert.match(updateChecker, /Android MCP/);
+  assert.match(updateChecker, /Environment\.DIRECTORY_DOWNLOADS/);
+  assert.match(updateChecker, /DownloadManager/);
+  assert.match(updateChecker, /addCompletedDownload/);
   assert.match(updateChecker, /ACTION_DELETE/);
-  assert.match(updateChecker, /FORCE-UPDATE-README\.txt/);
+  assert.doesNotMatch(updateChecker, /FORCE-UPDATE-README\.txt/);
   assert.match(mainActivity, /Signing certificate changed/);
-  assert.match(mainActivity, /Force update/);
-  assert.match(mainActivity, /Uninstall old app/);
+  assert.match(mainActivity, /Download & uninstall/);
+  assert.match(mainActivity, /system download notification or Downloads screen/);
   assert.match(updateChecker, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
   assert.match(updateChecker, /application\/vnd\.android\.package-archive/);
   assert.match(updateChecker, /FLAG_GRANT_READ_URI_PERMISSION/);
@@ -367,6 +370,29 @@ test("app updates verify signatures and support external force-reinstall recover
   assert.match(mainActivity, /resumePendingInstall/);
 });
 
+
+
+test("Android runtime patches current fast-uri for embedded Node 18 compatibility", () => {
+  const runtimePackage = JSON.parse(read("android-manager/runtime/package.json"));
+  assert.equal(runtimePackage.dependencies["fast-uri"], "3.1.8");
+  assert.equal(runtimePackage.overrides["fast-uri"], "3.1.8");
+  assert.match(patchAndroidRuntimeDeps, /fast-uri 3\.1\.8/);
+  assert.match(patchAndroidRuntimeDeps, /\\P\{ASCII\}/);
+  assert.match(patchAndroidRuntimeDeps, /\\x00-\\x7F/);
+  assert.match(prepare, /patch-android-runtime-deps\.mjs/);
+  assert.match(runtimeWorkflow, /android-runtime-smoke/);
+  assert.match(runtimeWorkflow, /npm install --prefix "\$runtime_dir"/);
+  assert.match(runtimeWorkflow, /patch-android-runtime-deps\.mjs/);
+});
+
+test("Android dashboard can clear stale manager update caches", () => {
+  assert.match(dashboardHtml, /androidClearUpdateCacheButton/);
+  assert.match(dashboardJs, /clearUpdateCache/);
+  assert.match(mainActivity, /confirmClearUpdateCache/);
+  assert.match(updateChecker, /updateCacheStats/);
+  assert.match(updateChecker, /clearUpdateCache/);
+  assert.match(updateChecker, /ExternalSettings\.directory\(\), "updates"/);
+});
 
 test("GitHub Actions can build and attach the Android APK to v2.4.9 without Windows MCP", () => {
   assert.match(androidApkWorkflow, /workflow_dispatch/);
@@ -383,7 +409,7 @@ test("embedded Android bridge stays alive and preserves JavaScript startup failu
   assert.match(entrypoint, /Bridge module loaded; embedded runtime keepalive active/);
   assert.match(entrypoint, /JavaScript startup failed/);
   assert.match(bridgeService, /preserving JavaScript failure/);
-  assert.match(runtimeWorkflow, /Smoke test Android bridge on Node 18/);
+  assert.match(runtimeWorkflow, /Smoke test packaged Android runtime on Node 18/);
 });
 
 test("shared Android dashboard restores ChatGPT file cache controls", () => {

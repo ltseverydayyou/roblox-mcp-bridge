@@ -276,6 +276,10 @@ public final class MainActivity extends Activity {
                 PowerManager power = getSystemService(PowerManager.class);
                 state.put("storageAccess", storageAccess);
                 state.put("settingsPath", ExternalSettings.file().getAbsolutePath());
+                long[] updateCache = ManagerUpdateChecker.updateCacheStats(MainActivity.this);
+                state.put("updateCachePath", new File(ExternalSettings.directory(), "updates").getAbsolutePath());
+                state.put("updateCacheFiles", updateCache[0]);
+                state.put("updateCacheBytes", updateCache[1]);
                 state.put("version", BuildConfig.VERSION_NAME);
                 state.put("port", preferences.getString("port", "16384"));
                 state.put("profile", preferences.getString("profile", "roblox-executor"));
@@ -322,6 +326,7 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void prepareRuntime() { runOnUiThread(MainActivity.this::prepareRuntime); }
         @JavascriptInterface public void checkRuntimeUpdate() { runOnUiThread(() -> MainActivity.this.checkRuntimeUpdate(true)); }
         @JavascriptInterface public void checkAppUpdate() { runOnUiThread(() -> checkManagerUpdate(true)); }
+        @JavascriptInterface public void clearUpdateCache() { runOnUiThread(MainActivity.this::confirmClearUpdateCache); }
         @JavascriptInterface public void copyLoader() { runOnUiThread(MainActivity.this::copyLoader); }
         @JavascriptInterface public void copyPcRelay() { runOnUiThread(MainActivity.this::copyPcRelayArguments); }
         @JavascriptInterface public void openApiKeys() { runOnUiThread(() -> openUrl(API_KEYS_URL)); }
@@ -1249,45 +1254,54 @@ public final class MainActivity extends Activity {
     }
 
     private void showForceUpdatePrompt(ManagerUpdateChecker.Result result, ManagerUpdateChecker.VerifiedDownload download) {
-        String updatesPath = new File(ExternalSettings.directory(), "updates").getAbsolutePath();
         new AlertDialog.Builder(this)
             .setTitle("Signing certificate changed")
             .setMessage("Android cannot install v" + result.version + " over this copy because the APK signing certificate is different."
-                + "\n\nForce update will first save the verified replacement APK under:\n" + updatesPath
-                + "\n\nThen Android will ask you to uninstall the current manager. Your settings remain in "
-                + ExternalSettings.file().getAbsolutePath()
-                + ". After uninstall, install the staged APK from the Android MCP/updates folder."
+                + "\n\nForce update will copy the already verified APK into your normal Android Downloads, register it with Android's Downloads UI, and then immediately open the system uninstall confirmation for this app."
+                + "\n\nAfter uninstall finishes, tap the downloaded RobloxMcpManager APK from the system download notification or Downloads screen to install it. You do not need to browse to the Android MCP folder."
+                + "\n\nYour settings remain in " + ExternalSettings.file().getAbsolutePath() + "."
                 + "\n\nInstalled certificate:\n" + download.installedSignerSha256
                 + "\n\nNew certificate:\n" + download.downloadedSignerSha256)
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Force update", (dialog, which) -> forceManagerUpdate(result, download))
+            .setPositiveButton("Download & uninstall", (dialog, which) -> forceManagerUpdate(result, download))
             .show();
     }
 
     private void forceManagerUpdate(ManagerUpdateChecker.Result result, ManagerUpdateChecker.VerifiedDownload download) {
         if (!ExternalSettings.hasStorageAccess(this)) {
             showMessage("Storage access required",
-                "Force update needs Android MCP storage access so the replacement APK survives uninstall. Enable storage access, then run App update again.");
+                "Force update needs storage access so the verified replacement APK can remain in Android Downloads after this app is uninstalled. Enable storage access, then run App update again.");
             requestExternalSettingsAccess();
             return;
         }
         try {
             File staged = ManagerUpdateChecker.stageForcedUpdate(this, download, result);
-            appendOutput("\nForce-update APK staged at " + staged.getAbsolutePath());
-            new AlertDialog.Builder(this)
-                .setTitle("Replacement APK staged")
-                .setMessage("The verified APK is saved at:\n" + staged.getAbsolutePath()
-                    + "\n\nAndroid will now ask to uninstall this manager. After uninstall, install that APK from the Android MCP/updates folder. Settings will remain in shared storage.")
-                .setNegativeButton("Not now", null)
-                .setPositiveButton("Uninstall old app", (dialog, which) -> {
-                    appendOutput("\nOpening Android uninstall confirmation for force update...");
-                    ManagerUpdateChecker.beginForcedReinstall(this, staged);
-                })
-                .show();
+            appendOutput("\nVerified replacement APK copied to Android Downloads: " + staged.getName());
+            toast("Replacement ready in Downloads — confirm uninstall, then tap the downloaded APK");
+            ManagerUpdateChecker.beginForcedReinstall(this, staged);
         } catch (Exception error) {
             showMessage("Force update failed", error.getMessage());
             appendOutput("\nForce update failed: " + error.getMessage());
         }
+    }
+
+    private void confirmClearUpdateCache() {
+        long[] stats = ManagerUpdateChecker.updateCacheStats(this);
+        String path = new File(ExternalSettings.directory(), "updates").getAbsolutePath();
+        new AlertDialog.Builder(this)
+            .setTitle("Clear update cache")
+            .setMessage("Remove " + stats[0] + " cached update file" + (stats[0] == 1 ? "" : "s")
+                + " from the old shared update cache and the manager's pending-update cache?"
+                + "\n\nShared cache: " + path
+                + "\n\nThis does not delete settings or APKs you intentionally kept in Android Downloads.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Clear", (dialog, which) -> {
+                int removed = ManagerUpdateChecker.clearUpdateCache(this);
+                appendOutput("\nCleared Android manager update cache: " + removed + " entr" + (removed == 1 ? "y" : "ies") + ".");
+                toast(removed == 0 ? "Update cache is already empty" : "Update cache cleared");
+                refreshManagerWebViewState();
+            })
+            .show();
     }
 
 

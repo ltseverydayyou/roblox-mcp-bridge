@@ -82,6 +82,8 @@ try {
         npm install --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false
     }
     if ($LASTEXITCODE -ne 0) { throw "The Android runtime dependency install failed with exit code $LASTEXITCODE." }
+    node (Join-Path $repoRoot "scripts\patch-android-runtime-deps.mjs") $runtimeRoot
+    if ($LASTEXITCODE -ne 0) { throw "The Android runtime dependency compatibility patch failed with exit code $LASTEXITCODE." }
 } finally { Pop-Location }
 
 $jniTarget = Join-Path $managerRoot "app\src\main\jniLibs\arm64-v8a"

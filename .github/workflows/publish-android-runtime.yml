@@ -12,6 +12,7 @@ on:
       - "scripts/copy-assets.mjs"
       - "scripts/prepare-android-runtime-release.mjs"
       - ".github/workflows/publish-android-runtime.yml"
+      - "scripts/patch-android-runtime-deps.mjs"
   workflow_dispatch:
 
 permissions:
@@ -37,21 +38,28 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
 
-      - name: Smoke test Android bridge on Node 18
+      - name: Smoke test packaged Android runtime on Node 18
         shell: bash
         run: |
           set -euo pipefail
           node18_dir="$RUNNER_TEMP/node18"
-          mkdir -p "$node18_dir"
+          runtime_dir="$RUNNER_TEMP/android-runtime-smoke"
+          mkdir -p "$node18_dir" "$runtime_dir"
           curl -fsSL "https://nodejs.org/dist/v18.17.1/node-v18.17.1-linux-x64.tar.xz" -o "$RUNNER_TEMP/node18.tar.xz"
           tar -xJf "$RUNNER_TEMP/node18.tar.xz" --strip-components=1 -C "$node18_dir"
+          cp android-manager/runtime/package.json "$runtime_dir/package.json"
+          cp android-manager/runtime/main.mjs "$runtime_dir/main.mjs"
+          cp -R dist "$runtime_dir/dist"
+          npm install --prefix "$runtime_dir" --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false
+          node scripts/patch-android-runtime-deps.mjs "$runtime_dir"
+          "$node18_dir/bin/node" -e "require(process.argv[1])" "$runtime_dir/node_modules/fast-uri"
           set +e
-          timeout 6s env ROBLOX_MCP_HOST=127.0.0.1 ROBLOX_MCP_PORT=17683 ROBLOX_MCP_UPDATE_CHECK=false ROBLOX_MCP_HTTP=true "$node18_dir/bin/node" dist/android.js >"$RUNNER_TEMP/android-node18-smoke.log" 2>&1
+          timeout 6s "$node18_dir/bin/node" "$runtime_dir/main.mjs" 17683 "$runtime_dir/bridge.log" "$runtime_dir/status.txt" 127.0.0.1 "" "$runtime_dir/chatgpt-files" >"$RUNNER_TEMP/android-node18-smoke.log" 2>&1
           code=$?
           set -e
           cat "$RUNNER_TEMP/android-node18-smoke.log"
           if [ "$code" -ne 124 ]; then
-            echo "Android bridge exited unexpectedly under Node 18.17.1 with code $code" >&2
+            echo "Packaged Android bridge exited unexpectedly under Node 18.17.1 with code $code" >&2
             exit 1
           fi
 

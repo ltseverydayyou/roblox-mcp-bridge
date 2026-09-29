@@ -1,6 +1,7 @@
 package com.ltseverydayyou.robloxmcpmanager;
 
 import android.app.Activity;
+import android.app.DownloadManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -12,6 +13,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.provider.Settings;
 
 import org.json.JSONArray;
@@ -305,6 +307,7 @@ final class ManagerUpdateChecker {
         activity.startActivity(install);
     }
 
+    @SuppressWarnings("deprecation")
     static File stageForcedUpdate(Context context, VerifiedDownload download, Result result) throws Exception {
         if (download == null || download.apk == null || !download.apk.isFile()) {
             throw new IllegalStateException("The verified update APK is unavailable.");
@@ -313,15 +316,16 @@ final class ManagerUpdateChecker {
             throw new IllegalStateException("Force update is only needed when the signing certificate differs.");
         }
         if (!ExternalSettings.hasStorageAccess(context)) {
-            throw new SecurityException("Storage access is required so the replacement APK survives uninstall. Enable Android MCP storage access, then retry Force update.");
+            throw new SecurityException("Storage access is required so Android can keep the replacement APK after uninstall.");
         }
-        File updates = new File(ExternalSettings.directory(), "updates");
-        if (!updates.isDirectory() && !updates.mkdirs()) {
-            throw new IllegalStateException("Could not create " + updates.getAbsolutePath());
+
+        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        if (!downloads.isDirectory() && !downloads.mkdirs()) {
+            throw new IllegalStateException("Could not create the Android Downloads directory.");
         }
-        File target = new File(updates, "RobloxMcpManager-Android-v" + result.version + ".apk");
-        File temporary = new File(updates, target.getName() + ".partial");
-        if (temporary.exists() && !temporary.delete()) throw new IllegalStateException("Could not replace the staged force-update file.");
+        File target = new File(downloads, "RobloxMcpManager-Android-v" + result.version + ".apk");
+        File temporary = new File(downloads, target.getName() + ".partial");
+        if (temporary.exists() && !temporary.delete()) throw new IllegalStateException("Could not replace the temporary force-update file.");
         try (FileInputStream input = new FileInputStream(download.apk); FileOutputStream output = new FileOutputStream(temporary, false)) {
             byte[] buffer = new byte[64 * 1024];
             int read;
@@ -329,32 +333,98 @@ final class ManagerUpdateChecker {
             output.getFD().sync();
         }
         if (target.exists() && !target.delete()) throw new IllegalStateException("Could not replace " + target.getAbsolutePath());
-        if (!temporary.renameTo(target)) throw new IllegalStateException("Could not activate the staged replacement APK.");
-        File note = new File(updates, "FORCE-UPDATE-README.txt");
-        try (FileOutputStream output = new FileOutputStream(note, false)) {
-            String message = "Roblox MCP Manager replacement APK staged here because the new build uses a different Android signing certificate.\n"
-                + "After Android uninstalls the old manager, install: " + target.getName() + "\n"
-                + "Your manager settings remain in " + ExternalSettings.file().getAbsolutePath() + "\n";
-            output.write(message.getBytes(StandardCharsets.UTF_8));
-            output.getFD().sync();
+        if (!temporary.renameTo(target)) throw new IllegalStateException("Could not activate the verified replacement APK in Downloads.");
+
+        Matcher digestMatch = SHA256_DIGEST.matcher(result.digest);
+        if (!digestMatch.matches() || !sha256(target).equalsIgnoreCase(digestMatch.group(1))) {
+            target.delete();
+            throw new SecurityException("The copied force-update APK failed SHA-256 verification.");
+        }
+        PackageVerification copied = verifyPackage(context, target, result.version);
+        if (copied.signerMatches) {
+            target.delete();
+            throw new IllegalStateException("The replacement APK no longer requires a force update.");
+        }
+
+        DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+        if (manager != null) {
+            try {
+                manager.addCompletedDownload(
+                    target.getName(),
+                    "Verified Roblox MCP Manager replacement",
+                    false,
+                    "application/vnd.android.package-archive",
+                    target.getAbsolutePath(),
+                    target.length(),
+                    true
+                );
+            } catch (Exception ignored) {
+                // The verified APK remains in the normal Downloads collection even if
+                // this deprecated registration API is blocked by an OEM build.
+            }
         }
         return target;
     }
 
-    static void beginForcedReinstall(Activity activity, File stagedApk) {
-        File updates = new File(ExternalSettings.directory(), "updates");
+    static void beginForcedReinstall(Activity activity, File downloadedApk) {
+        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         try {
-            String staged = stagedApk.getCanonicalPath();
-            String root = updates.getCanonicalPath() + File.separator;
-            if (!staged.startsWith(root) || !stagedApk.isFile()) {
-                throw new SecurityException("Force update APK must be staged under the Android MCP updates folder.");
+            String staged = downloadedApk.getCanonicalPath();
+            String root = downloads.getCanonicalPath() + File.separator;
+            if (!staged.startsWith(root) || !downloadedApk.isFile()) {
+                throw new SecurityException("Force update APK must be the verified copy in Android Downloads.");
             }
         } catch (java.io.IOException error) {
-            throw new IllegalStateException("Could not validate the staged force-update path.", error);
+            throw new IllegalStateException("Could not validate the force-update download path.", error);
         }
         Intent uninstall = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + activity.getPackageName()))
             .putExtra(Intent.EXTRA_RETURN_RESULT, false);
         activity.startActivity(uninstall);
+    }
+
+    static long[] updateCacheStats(Context context) {
+        long[] totals = new long[]{0L, 0L};
+        collectCacheStats(new File(ExternalSettings.directory(), "updates"), totals);
+        collectCacheStats(UpdateFileProvider.updateDirectory(context), totals);
+        return totals;
+    }
+
+    static int clearUpdateCache(Context context) {
+        int removed = clearCacheContents(new File(ExternalSettings.directory(), "updates"));
+        removed += clearCacheContents(UpdateFileProvider.updateDirectory(context));
+        return removed;
+    }
+
+    private static void collectCacheStats(File target, long[] totals) {
+        if (target == null || !target.exists()) return;
+        if (target.isFile()) {
+            totals[0]++;
+            totals[1] += Math.max(0L, target.length());
+            return;
+        }
+        File[] children = target.listFiles();
+        if (children != null) for (File child : children) collectCacheStats(child, totals);
+    }
+
+    private static int clearCacheContents(File directory) {
+        if (directory == null || !directory.exists()) return 0;
+        int removed = 0;
+        File[] children = directory.listFiles();
+        if (children == null) return 0;
+        for (File child : children) {
+            removed += deleteCacheEntry(child);
+        }
+        return removed;
+    }
+
+    private static int deleteCacheEntry(File target) {
+        int removed = 0;
+        if (target.isDirectory()) {
+            File[] children = target.listFiles();
+            if (children != null) for (File child : children) removed += deleteCacheEntry(child);
+        }
+        if (target.delete()) removed++;
+        return removed;
     }
 
     @SuppressWarnings("deprecation")
