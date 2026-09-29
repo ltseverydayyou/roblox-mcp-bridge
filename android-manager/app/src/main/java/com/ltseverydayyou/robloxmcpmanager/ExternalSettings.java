@@ -9,6 +9,7 @@ import android.os.Environment;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -52,8 +53,11 @@ final class ExternalSettings {
             migrateLegacySettings();
             return;
         }
-        try (FileInputStream input = new FileInputStream(target)) {
-            byte[] bytes = input.readAllBytes();
+        try (FileInputStream input = new FileInputStream(target); ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+            byte[] chunk = new byte[8192];
+            int read;
+            while ((read = input.read(chunk)) >= 0) buffer.write(chunk, 0, read);
+            byte[] bytes = buffer.toByteArray();
             if (bytes.length > 0) data = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         } catch (Exception ignored) {
             data = new JSONObject();
