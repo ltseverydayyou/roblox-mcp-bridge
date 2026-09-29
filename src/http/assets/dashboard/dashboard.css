@@ -2842,3 +2842,22 @@ body.decompiler-drag-active * {
 .android-file-meta { margin-top:3px; color:var(--text-muted); font-size:11px; }
 .android-file-actions { flex:0 0 auto; }
 @media (max-width: 620px) { .android-file-row { align-items:stretch; flex-direction:column; } .android-file-actions { width:100%; } .android-file-actions > button { flex:1; } }
+
+
+/* Android manager action rows must wrap within the phone viewport. */
+.android-manager-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    width: 100%;
+    max-width: 100%;
+    gap: 8px;
+}
+.android-manager-actions > button {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+@media (max-width: 430px) {
+    .android-manager-actions { grid-template-columns: 1fr 1fr; }
+}

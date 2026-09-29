@@ -53,6 +53,9 @@ test("Android manager renders the shared localhost dashboard UI in a WebView", (
   assert.match(mainActivity, /addJavascriptInterface\(new AndroidManagerBridge\(\), "AndroidManager"\)/);
   assert.match(mainActivity, /loadDataWithBaseURL\("http:\/\/127\.0\.0\.1:"/);
   assert.match(dashboardHtml, /id="androidManagerSettings"/);
+  assert.match(dashboardHtml, /id="androidStopBridgeButton">Stop bridge<\/button>/);
+  assert.match(dashboardHtml, /android-manager-actions/);
+  assert.match(dashboardJs, /AndroidManager\.stopBridge/);
   assert.match(dashboardJs, /ANDROID_MANAGER/);
   assert.match(dashboardJs, /showView\(ANDROID_MANAGER \? 'settings' : 'clients'\)/);
 });
@@ -202,7 +205,7 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 27/);
+  assert.match(gradle, /versionCode 29/);
   assert.match(gradle, /versionName "0\.5\.3"/);
 });
 
@@ -355,8 +358,10 @@ test("app updates verify signatures and support external force-reinstall recover
   assert.match(updateChecker, /ACTION_DELETE/);
   assert.doesNotMatch(updateChecker, /FORCE-UPDATE-README\.txt/);
   assert.match(mainActivity, /Signing certificate changed/);
-  assert.match(mainActivity, /Download & uninstall/);
-  assert.match(mainActivity, /system download notification or Downloads screen/);
+  assert.match(mainActivity, /Prepare force update/);
+  assert.match(mainActivity, /Open Downloads/);
+  assert.match(mainActivity, /Uninstall old app/);
+  assert.match(updateChecker, /ACTION_VIEW_DOWNLOADS/);
   assert.match(updateChecker, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
   assert.match(updateChecker, /application\/vnd\.android\.package-archive/);
   assert.match(updateChecker, /FLAG_GRANT_READ_URI_PERMISSION/);

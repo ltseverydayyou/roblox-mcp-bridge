@@ -366,6 +366,18 @@ final class ManagerUpdateChecker {
         return target;
     }
 
+
+    static void openDownloads(Activity activity) {
+        Intent downloads = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+        try {
+            activity.startActivity(downloads);
+        } catch (Exception error) {
+            Intent fallback = new Intent(Intent.ACTION_VIEW);
+            fallback.setType("application/vnd.android.package-archive");
+            activity.startActivity(fallback);
+        }
+    }
+
     static void beginForcedReinstall(Activity activity, File downloadedApk) {
         File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         try {

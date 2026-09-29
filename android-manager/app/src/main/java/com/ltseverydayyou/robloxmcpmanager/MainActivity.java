@@ -1265,32 +1265,42 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("Signing certificate changed")
             .setMessage("Android cannot install v" + result.version + " over this copy because the APK signing certificate is different."
-                + "\n\nForce update will copy the already verified APK into your normal Android Downloads, register it with Android's Downloads UI, and then immediately open the system uninstall confirmation for this app."
-                + "\n\nAfter uninstall finishes, tap the downloaded RobloxMcpManager APK from the system download notification or Downloads screen to install it. You do not need to browse to the Android MCP folder."
+                + "\n\nForce update will first copy and verify the replacement APK in normal Android Downloads. It will NOT uninstall this app automatically."
+                + "\n\nOnce the replacement is visible in Downloads, you can uninstall the old app and immediately tap that APK to install the replacement. This avoids leaving the phone with no manager APK to launch."
                 + "\n\nYour settings remain in " + ExternalSettings.file().getAbsolutePath() + "."
                 + "\n\nInstalled certificate:\n" + download.installedSignerSha256
                 + "\n\nNew certificate:\n" + download.downloadedSignerSha256)
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Download & uninstall", (dialog, which) -> forceManagerUpdate(result, download))
+            .setPositiveButton("Prepare force update", (dialog, which) -> forceManagerUpdate(result, download))
             .show();
     }
 
     private void forceManagerUpdate(ManagerUpdateChecker.Result result, ManagerUpdateChecker.VerifiedDownload download) {
         if (!ExternalSettings.hasStorageAccess(this)) {
             showMessage("Storage access required",
-                "Force update needs storage access so the verified replacement APK can remain in Android Downloads after this app is uninstalled. Enable storage access, then run App update again.");
+                "Force update needs storage access so the verified replacement APK can be kept in Android Downloads before the old app is removed. Enable storage access, then run App update again.");
             requestExternalSettingsAccess();
             return;
         }
         try {
             File staged = ManagerUpdateChecker.stageForcedUpdate(this, download, result);
             appendOutput("\nVerified replacement APK copied to Android Downloads: " + staged.getName());
-            toast("Replacement ready in Downloads — confirm uninstall, then tap the downloaded APK");
-            ManagerUpdateChecker.beginForcedReinstall(this, staged);
+            showPreparedForceUpdate(staged, result);
         } catch (Exception error) {
             showMessage("Force update failed", error.getMessage());
             appendOutput("\nForce update failed: " + error.getMessage());
         }
+    }
+
+    private void showPreparedForceUpdate(File staged, ManagerUpdateChecker.Result result) {
+        new AlertDialog.Builder(this)
+            .setTitle("Replacement APK is ready")
+            .setMessage("The verified v" + result.version + " APK is now in Android Downloads as:\n\n" + staged.getName()
+                + "\n\nOpen Downloads first and confirm the APK is visible. Android cannot automatically reinstall this package after uninstall because uninstalling removes this app process. When you are ready, return here and choose Uninstall old app; then tap the downloaded APK to install the replacement.")
+            .setNegativeButton("Keep current app", null)
+            .setNeutralButton("Uninstall old app", (dialog, which) -> ManagerUpdateChecker.beginForcedReinstall(this, staged))
+            .setPositiveButton("Open Downloads", (dialog, which) -> ManagerUpdateChecker.openDownloads(this))
+            .show();
     }
 
     private void confirmClearUpdateCache() {
