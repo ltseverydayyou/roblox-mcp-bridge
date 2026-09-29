@@ -141,6 +141,12 @@ test("runtime asset activation preserves the previous working bundle", () => {
   assert.match(installer, /RuntimeUpdateChecker\.UPDATE_ID_MARKER/);
 });
 
+test("APK upgrades refresh stale embedded runtime dependencies", () => {
+  assert.match(installer, /sha256Asset\(context\.getAssets\(\), ASSET_ROOT \+ "\/package\.json"\)/);
+  assert.match(installer, /sha256File\(runtimePackage\)/);
+  assert.match(installer, /runtimeMatchesBundledDependencies/);
+});
+
 test("Android MCP source updates are prompted, verified, and atomically activated", () => {
   assert.match(mainActivity, /checkRuntimeUpdate\(false\)/);
   assert.match(mainActivity, /runtimeUpdateButton/);

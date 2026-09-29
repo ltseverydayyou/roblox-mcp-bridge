@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 final class AssetInstaller {
     private static final String ASSET_ROOT = "nodejs-project";
@@ -19,9 +20,14 @@ final class AssetInstaller {
         File runtime = new File(context.getFilesDir(), "embedded-runtime");
         String bundledVersion = readAsset(context.getAssets(), ASSET_ROOT + "/runtime-version.txt").trim();
         String bundledUpdateId = bundledUpdateId(context);
+        String bundledDependencyFingerprint = sha256Asset(context.getAssets(), ASSET_ROOT + "/package.json");
         File marker = new File(runtime, ".installed-version");
+        File runtimePackage = new File(runtime, "package.json");
+        boolean runtimeMatchesBundledDependencies = runtimePackage.isFile()
+            && sha256File(runtimePackage).equalsIgnoreCase(bundledDependencyFingerprint);
         if (new File(runtime, "main.mjs").isFile() && marker.isFile()
-            && readFile(marker).trim().equals(bundledVersion)) {
+            && readFile(marker).trim().equals(bundledVersion)
+            && runtimeMatchesBundledDependencies) {
             File updateMarker = new File(runtime, RuntimeUpdateChecker.UPDATE_ID_MARKER);
             if (!updateMarker.isFile()) writeFile(updateMarker, bundledUpdateId);
             return runtime;
@@ -64,6 +70,32 @@ final class AssetInstaller {
             byte[] buffer = new byte[64 * 1024];
             int read;
             while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
+        }
+    }
+
+    private static String sha256Asset(AssetManager assets, String path) throws IOException {
+        try (InputStream input = assets.open(path)) {
+            return sha256(input);
+        }
+    }
+
+    private static String sha256File(File file) throws IOException {
+        try (InputStream input = new java.io.FileInputStream(file)) {
+            return sha256(input);
+        }
+    }
+
+    private static String sha256(InputStream input) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
+            StringBuilder value = new StringBuilder(64);
+            for (byte item : digest.digest()) value.append(String.format(java.util.Locale.ROOT, "%02x", item & 0xff));
+            return value.toString();
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IOException("SHA-256 is unavailable", error);
         }
     }
 

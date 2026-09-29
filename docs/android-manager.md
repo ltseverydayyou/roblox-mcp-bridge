@@ -10,6 +10,7 @@ The Android manager runs the Roblox MCP bridge inside its own app process. It bu
 - Node binds to Android localhost by default. It binds to all interfaces only when the user explicitly enables the authenticated trusted-LAN relay. The WebView uses the exact shared dashboard assets from `src/http/assets/dashboard`; there is no separately recreated Android dashboard skin.
 - The embedded Node process does not run Git or overwrite itself. Instead, the manager checks a separate `runtime-latest` GitHub prerelease when the app opens and when the user taps **Check MCP source update**. A source update is shown before installation, downloaded only with approval, checked against GitHub's SHA-256 digest, extracted with path and size limits, and activated with a previous-runtime rollback directory. If the bridge was running, the manager restarts it after activation and the executor's reconnecting loader reconnects automatically.
 - APK updates remain separate under **App update**. The manager checks for a new APK when its UI opens and every six hours while the bridge service is running, then posts a separate **Roblox MCP Manager update available** notification. Native libraries or runtime-dependency changes still require a newer APK; an incompatible source bundle is rejected with an instruction to install that APK first.
+- APK startup now fingerprints the extracted runtime `package.json` against the bundled APK copy. If an APK upgrade changes runtime dependencies while retaining the same bridge/runtime marker, the manager refreshes the embedded runtime automatically instead of retaining stale dependencies. Source-only runtime updates with the same dependency fingerprint remain preserved.
 
 The current APK targets 64-bit ARM phones. It will not install on 32-bit-only devices or x86 emulators.
 
@@ -38,7 +39,7 @@ When the dashboard detects the injected `AndroidManager` JavaScript interface, i
 
 ## Snapshot support
 
-Android manager v0.5.3 adds a **Snapshot support** card for the `screenshot-window` MCP tool. On Android 11 or newer, tap **Enable snapshot support** to open the manager's accessibility-service settings, then enable **Roblox MCP screenshot capture**. Returning to the manager refreshes the card to **SNAPSHOT SUPPORT: ENABLED**. On Android 13 and newer, sideloaded APKs may first require **App settings → Allow restricted settings** before Android permits the accessibility service to be enabled.
+Android manager v0.5.4 includes the **Snapshot support** card for the `screenshot-window` MCP tool. On Android 11 or newer, tap **Enable snapshot support** to open the manager's accessibility-service settings, then enable **Roblox MCP screenshot capture**. Returning to the manager refreshes the card to **SNAPSHOT SUPPORT: ENABLED**. On Android 13 and newer, sideloaded APKs may first require **App settings → Allow restricted settings** before Android permits the accessibility service to be enabled.
 
 The accessibility service exposes its screenshot endpoint only on `127.0.0.1` and uses Android's `takeScreenshot` API. It does not require Termux or root. Android captures the current device display rather than a desktop-style Roblox window, so the `pid` argument is ignored on Android.
 
