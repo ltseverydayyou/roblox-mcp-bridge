@@ -33,6 +33,15 @@
         </LinearLayout>
 
         <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Snapshot support" />
+            <TextView style="@style/HintText" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Allows screenshot-window to capture the current Android display through the MCP accessibility screenshot service. Android 11 or newer is required. On Android 13+, sideloaded builds may require App settings → Allow restricted settings first." />
+            <TextView android:id="@+id/snapshotStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp" android:text="SNAPSHOT SUPPORT: CHECKING" android:textColor="@color/muted" android:textSize="12sp" android:textStyle="bold" />
+            <Button android:id="@+id/snapshotSupportButton" style="@style/ManagerButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Enable snapshot support" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView style="@style/SectionTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Bridge connection" />
             <TextView style="@style/FieldLabel" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BRIDGE PORT" />
             <EditText android:id="@+id/portField" style="@style/ManagerField" android:hint="16384" android:inputType="number" />

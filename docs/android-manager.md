@@ -22,6 +22,12 @@ The current APK targets 64-bit ARM phones. It will not install on 32-bit-only de
 5. Run the copied auto-reconnect code in the mobile executor. It repeatedly fetches `/script.luau` from `127.0.0.1:16384`, waits two seconds after a disconnect/failure, and reconnects without requiring another paste.
 6. Use **Dashboard** for the local web UI and **Refresh logs** for the built-in console.
 
+## Snapshot support
+
+Android manager v0.5.3 adds a **Snapshot support** card for the `screenshot-window` MCP tool. On Android 11 or newer, tap **Enable snapshot support** to open the manager's accessibility-service settings, then enable **Roblox MCP screenshot capture**. Returning to the manager refreshes the card to **SNAPSHOT SUPPORT: ENABLED**. On Android 13 and newer, sideloaded APKs may first require **App settings → Allow restricted settings** before Android permits the accessibility service to be enabled.
+
+The accessibility service exposes its screenshot endpoint only on `127.0.0.1` and uses Android's `takeScreenshot` API. It does not require Termux or root. Android captures the current device display rather than a desktop-style Roblox window, so the `pid` argument is ignored on Android.
+
 ## Update MCP source without reinstalling the APK
 
 The manager performs source and APK checks whenever its UI process opens. While the bridge foreground service is running, it also checks both channels every six hours. MCP source changes post an **MCP source update available** notification; APK releases post a separate **Roblox MCP Manager update available** notification. Opening the manager shows **Later** and **Update MCP** choices for source changes. Choosing **Later** suppresses that revision's automatic in-app prompt; **Check MCP source update** and **App update** always check their respective channels again. If notification permission is denied, both manual buttons continue to work.
@@ -94,9 +100,9 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-android-manager.ps1
 ```
 
-The preparation step downloads the official Node.js Mobile v18.17.3 Android archive, requires SHA-256 `d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc`, builds the MCP server, and packages only production JavaScript dependencies. Android lint then runs and an installable debug-signed APK is written to `android-manager\app\build\distributions\RobloxMcpManager-Android-vX.Y.Z.apk`. The build directory is ignored by Git; upload the APK as a GitHub Release asset instead of committing it to the repository.
+The preparation step downloads the official Node.js Mobile v18.17.3 Android archive, requires SHA-256 `d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc`, builds the MCP server, and packages only production JavaScript dependencies. Android lint then runs and an installable APK is written to `android-manager\app\build\distributions\RobloxMcpManager-Android-vX.Y.Z.apk`. The build directory is ignored by Git; upload the APK as a GitHub Release asset instead of committing it to the repository.
 
-Public releases should use a private production keystore. The checked-in debug APK is for direct testing and its signature is not suitable as a long-term release identity.
+Published Android updates must keep the existing signing identity so Android can install them over v0.4.8 through v0.5.2. The established signing certificate SHA-256 is `78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3`. `scripts/build-android-manager.ps1` verifies the completed APK with Android SDK `apksigner` and aborts if its certificate fingerprint differs. The fingerprint is only a verification value; signing still requires the original private keystore.
 
 ## Security boundaries
 

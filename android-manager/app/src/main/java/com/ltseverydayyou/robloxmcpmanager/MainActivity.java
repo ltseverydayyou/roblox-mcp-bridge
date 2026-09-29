@@ -6,6 +6,7 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
+import android.content.ComponentName;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -63,6 +64,7 @@ public final class MainActivity extends Activity {
     private CheckBox lanModeCheckbox;
     private TextView lanAddressText;
     private TextView backgroundStatus;
+    private TextView snapshotStatus;
     private TextView tunnelStatus;
     private TextView runtimeSourceStatus;
     private boolean automaticRuntimeCheckStarted;
@@ -97,6 +99,7 @@ public final class MainActivity extends Activity {
         });
         updateRuntimeStatus();
         updateBackgroundStatus();
+        updateSnapshotSupportStatus();
         updateTunnelStatus();
         refreshGptFiles();
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
@@ -107,6 +110,7 @@ public final class MainActivity extends Activity {
         updateRuntimeStatus();
         updateLanAddress();
         updateBackgroundStatus();
+        updateSnapshotSupportStatus();
         updateTunnelStatus();
         refreshStatus(false);
         refreshGptFiles();
@@ -206,6 +210,7 @@ public final class MainActivity extends Activity {
         lanModeCheckbox = findViewById(R.id.lanModeCheckbox);
         lanAddressText = findViewById(R.id.lanAddressText);
         backgroundStatus = findViewById(R.id.backgroundStatus);
+        snapshotStatus = findViewById(R.id.snapshotStatus);
         tunnelStatus = findViewById(R.id.tunnelStatus);
         runtimeSourceStatus = findViewById(R.id.runtimeSourceStatus);
         gptFilesSummary = findViewById(R.id.gptFilesSummary);
@@ -244,6 +249,7 @@ public final class MainActivity extends Activity {
         findViewById(R.id.managerUpdateButton).setOnClickListener(v -> checkManagerUpdate(true));
         findViewById(R.id.batteryOptimizationButton).setOnClickListener(v -> requestUnrestrictedBattery());
         findViewById(R.id.appSettingsButton).setOnClickListener(v -> openAppSettings());
+        findViewById(R.id.snapshotSupportButton).setOnClickListener(v -> openSnapshotSupportSettings());
         findViewById(R.id.openApiKeysButton).setOnClickListener(v -> openUrl(API_KEYS_URL));
         findViewById(R.id.openTunnelsButton).setOnClickListener(v -> openUrl(TUNNELS_URL));
         findViewById(R.id.openChatGptPluginsButton).setOnClickListener(v -> openChatGptPlugins());
@@ -582,6 +588,57 @@ public final class MainActivity extends Activity {
             ? "BATTERY: UNRESTRICTED ✓ — bridge and tunnel can stay active"
             : "BATTERY: OPTIMIZED — Android or the phone vendor may stop the bridge or tunnel");
         backgroundStatus.setTextColor(getColor(unrestricted ? R.color.success : R.color.warning));
+    }
+
+    private boolean isSnapshotSupportEnabled() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false;
+        String enabled = Settings.Secure.getString(
+            getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        if (enabled == null || enabled.isEmpty()) return false;
+        ComponentName component = new ComponentName(this, AndroidScreenshotService.class);
+        String full = component.flattenToString();
+        String shortName = component.flattenToShortString();
+        for (String entry : enabled.split(":")) {
+            if (full.equalsIgnoreCase(entry) || shortName.equalsIgnoreCase(entry)) return true;
+        }
+        return false;
+    }
+
+    private void updateSnapshotSupportStatus() {
+        Button button = findViewById(R.id.snapshotSupportButton);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            snapshotStatus.setText("SNAPSHOT SUPPORT: REQUIRES ANDROID 11+");
+            snapshotStatus.setTextColor(getColor(R.color.warning));
+            button.setText("Snapshot support unavailable");
+            button.setEnabled(false);
+            return;
+        }
+        boolean enabled = isSnapshotSupportEnabled();
+        snapshotStatus.setText(enabled
+            ? "SNAPSHOT SUPPORT: ENABLED ✓ — screenshot-window can capture this display"
+            : "SNAPSHOT SUPPORT: DISABLED — enable the MCP accessibility service");
+        snapshotStatus.setTextColor(getColor(enabled ? R.color.success : R.color.warning));
+        button.setEnabled(true);
+        button.setText(enabled ? "Snapshot support settings" : "Enable snapshot support");
+    }
+
+    private void openSnapshotSupportSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            showMessage("Snapshot support", "Android screenshot capture requires Android 11 or newer.");
+            return;
+        }
+        ComponentName component = new ComponentName(this, AndroidScreenshotService.class);
+        Intent details = new Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS");
+        details.putExtra(Intent.EXTRA_COMPONENT_NAME, component.flattenToString());
+        try {
+            startActivity(details);
+        } catch (Exception ignored) {
+            try {
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            } catch (Exception error) {
+                showMessage("Snapshot support", "Could not open Android accessibility settings: " + error.getMessage());
+            }
+        }
     }
 
     private void requestUnrestrictedBattery() {

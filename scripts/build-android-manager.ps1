@@ -3,7 +3,8 @@
 [CmdletBinding()]
 param(
     [string]$JavaHome = $env:JAVA_HOME,
-    [string]$AndroidSdk = $env:ANDROID_HOME
+    [string]$AndroidSdk = $env:ANDROID_HOME,
+    [string]$ExpectedSigningCertificateSha256 = "78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3"
 )
 
 Set-StrictMode -Version Latest
@@ -75,9 +76,24 @@ try {
 finally {
     $archive.Dispose()
 }
+$buildTools = @(Get-ChildItem (Join-Path $AndroidSdk "build-tools") -Directory -ErrorAction SilentlyContinue | Sort-Object { [version]$_.Name } -Descending)
+if ($buildTools.Count -eq 0) { throw "Android SDK build-tools were not found under $AndroidSdk." }
+$apkSigner = Join-Path $buildTools[0].FullName "apksigner.bat"
+if (-not (Test-Path -LiteralPath $apkSigner -PathType Leaf)) { throw "apksigner was not found: $apkSigner" }
+$certOutput = (& $apkSigner verify --print-certs $apk 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed:`n$certOutput" }
+$certMatch = [regex]::Match($certOutput, 'certificate SHA-256 digest:\s*([0-9a-fA-F]{64})')
+if (-not $certMatch.Success) { throw "Could not read the APK signing certificate SHA-256 digest.`n$certOutput" }
+$certSha256 = $certMatch.Groups[1].Value.ToLowerInvariant()
+$expectedCertSha256 = $ExpectedSigningCertificateSha256.Trim().ToLowerInvariant()
+if ($expectedCertSha256 -and $certSha256 -ne $expectedCertSha256) {
+    throw "APK signing certificate mismatch. Expected $expectedCertSha256 but built $certSha256. Do not publish this APK because existing installs cannot update in place."
+}
+
 $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Android manager APK built:" -ForegroundColor Green
 Write-Host "  $apk"
 Write-Host "SHA-256: $hash"
+Write-Host "Signing certificate SHA-256: $certSha256"
 Write-Host "Upload this file as an asset on the repository's GitHub Release; do not commit the APK to the repository." -ForegroundColor Cyan
-Write-Host "This debug-signed APK is installable for testing. Use a private release keystore before public distribution." -ForegroundColor Yellow
+Write-Host "The APK signing certificate was verified against the established Android release identity." -ForegroundColor Green

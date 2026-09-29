@@ -33,6 +33,24 @@ const runtimeWorkflow = read(".github/workflows/publish-android-runtime.yml");
 const activityLayout = read("android-manager/app/src/main/res/layout/activity_main.xml");
 const packageVersion = JSON.parse(read("package.json")).version;
 
+
+test("Android manager exposes snapshot support controls", () => {
+  assert.match(activityLayout, /snapshotSupportButton/);
+  assert.match(activityLayout, /snapshotStatus/);
+  assert.match(mainActivity, /updateSnapshotSupportStatus/);
+  assert.match(mainActivity, /ACCESSIBILITY_DETAILS_SETTINGS/);
+  assert.match(mainActivity, /Settings\.ACTION_ACCESSIBILITY_SETTINGS/);
+  assert.match(mainActivity, /ENABLED_ACCESSIBILITY_SERVICES/);
+  assert.match(mainActivity, /AndroidScreenshotService\.class/);
+});
+
+test("Android APK builds reject a changed signing certificate", () => {
+  assert.match(buildAndroid, /78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3/);
+  assert.match(buildAndroid, /apksigner\.bat/);
+  assert.match(buildAndroid, /certificate SHA-256 digest/);
+  assert.match(buildAndroid, /signing certificate mismatch/i);
+});
+
 test("Android manager owns an isolated embedded foreground service", () => {
   assert.match(manifest, /android:name="\.BridgeService"/);
   assert.match(manifest, /android:process=":bridge"/);
@@ -56,6 +74,10 @@ test("Android screenshot capture is localhost-only and accessibility-gated", () 
   assert.match(screenshotService, /127\.0\.0\.1/);
   assert.match(screenshotService, /takeScreenshot\(Display\.DEFAULT_DISPLAY/);
   assert.match(screenshotService, /Base64\.NO_WRAP/);
+  const accessibilityConfig = read("android-manager/app/src/main/res/xml/accessibility_service_config.xml");
+  assert.match(accessibilityConfig, /android:canTakeScreenshot="true"/);
+  assert.match(accessibilityConfig, /android:canRetrieveWindowContent="false"/);
+  assert.doesNotMatch(accessibilityConfig, /typeAllMask/);
 });
 test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(gradle, /abiFilters "arm64-v8a"/);
