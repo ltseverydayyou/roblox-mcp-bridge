@@ -27,7 +27,7 @@ The current APK targets 64-bit ARM phones. It will not install on 32-bit-only de
 
 ## Shared settings storage
 
-User-facing Android manager settings are stored in `/storage/emulated/0/Android MCP/settings.json` instead of `SharedPreferences` in the APK sandbox. This includes bridge port/LAN settings, tunnel profile metadata, update-dismissal state, and dashboard appearance/default preferences. The runtime API key remains memory-only and is never written to this file.
+User-facing Android manager settings are stored in `/storage/emulated/0/Android MCP/settings.json` instead of `SharedPreferences` in the APK sandbox. This includes bridge port/LAN settings, tunnel profile metadata, update-dismissal state, and Android-manager preferences. The tunnel runtime API key can be **temporary** (default) or explicitly persisted by enabling **Save runtime API key**. A persisted key is stored in this shared settings file until the user disables that option.
 
 On Android, backend MCP configuration files such as `semantic-search.json`, `semantic-embeddings.json`, and `decompiler-settings.json` also resolve under `/storage/emulated/0/Android MCP`. Android 11+ therefore requires the user-granted **All files access** permission. Legacy `manager_settings` preferences are migrated once when shared-storage access is available, then the legacy copy is cleared.
 
@@ -37,7 +37,7 @@ The bridge service keeps update/install transaction files and logs in app-privat
 
 The APK no longer maintains a second native card-based manager UI. `MainActivity` renders the repository's existing `src/http/assets/dashboard/index.html`, `dashboard.css`, and `dashboard.js` in a WebView. Gradle packages that source directory directly as APK assets, so Android and the localhost website use the same frontend implementation rather than visually similar copies.
 
-When the dashboard detects the injected `AndroidManager` JavaScript interface, its Settings view adds Android-only controls for embedded runtime management, bridge start/stop, shared-storage permission, snapshot accessibility, background battery access, APK/source updates, tunnel-client controls, and Android logs. Ordinary desktop/browser dashboard behavior is unchanged.
+When the dashboard detects the injected `AndroidManager` JavaScript interface, the APK switches into a **settings-only Android manager shell**. The normal Clients/Server/Logs/Scripts navigation and desktop-only dashboard settings are hidden. Only Android bridge/runtime management, shared-storage permission, snapshot accessibility, background battery access, APK/source updates, tunnel-client controls, ChatGPT files, and the embedded Android logs remain visible. The normal localhost dashboard opened in a browser is unchanged.
 
 ## Snapshot support
 
@@ -79,14 +79,14 @@ The service is restartable after ordinary memory-pressure eviction and reloads i
 
 ChatGPT cannot fetch a service from the phone's `127.0.0.1`. A ChatGPT plugin connection therefore needs an OpenAI tunnel whose runtime is active beside this localhost bridge:
 
-1. Create an [OpenAI Platform API key](https://platform.openai.com/settings/organization/api-keys). Treat it as a secret; the manager's runtime-key field is memory-only and is never saved.
+1. Create an [OpenAI Platform API key](https://platform.openai.com/settings/organization/api-keys). Treat it as a secret. Leave **Save runtime API key** off for temporary use, or enable it to persist the key in `/storage/emulated/0/Android MCP/settings.json`.
 2. Create a tunnel in [OpenAI Platform tunnels](https://platform.openai.com/settings/organization/tunnels) and copy its `tunnel_...` ID.
-3. Start the local Roblox bridge, configure the tunnel runtime with that same tunnel ID, paste a runtime API key, and tap **Start tunnel**. The manager runs Tunnel Doctor automatically and the status must reach `TUNNEL-CLIENT: READY` before creating or testing the plugin.
+3. Start the local Roblox bridge, enter that same tunnel ID and a runtime API key, then tap **Start tunnel**. Start always regenerates the tunnel profile from the currently displayed tunnel ID and bridge port before running Tunnel Doctor, so a stale profile cannot silently use an older tunnel. The status must reach `TUNNEL-CLIENT: READY` before creating or testing the plugin.
 4. Open [ChatGPT Plugins](https://chatgpt.com/plugins), tap **+**, enter a name such as **Roblox MCP**, and select **Connection: Tunnel**.
 5. Select the same tunnel ID, choose **Authentication: No Auth**, review and acknowledge the custom-MCP risk warning, then tap **Create**.
 6. Keep the bridge and tunnel alive whenever the plugin is in use. If Android stops the foreground service, the tunnel exits, or the user presses **Stop**, ChatGPT loses the MCP connection. **Open tunnel diagnostics** displays the tunnel client's local `/ui`; **Refresh logs** includes the tunnel process and readiness history.
 
-While the tunnel service is running, **Restart tunnel** stops and relaunches the official client with the profile and runtime key already held in that service's memory. It does not save the key and does not require another Configure or paste. If Android has already killed the service or the user pressed **Stop**, the key no longer exists and Start requires it again.
+While the tunnel service is running, **Restart tunnel** stops and relaunches the official client with the active profile and runtime key. If **Save runtime API key** is disabled, the key is temporary and a later fresh Start requires another paste. If saving is enabled, the key is read from `/storage/emulated/0/Android MCP/settings.json` when Start/Doctor is used with an empty key field.
 
 The app includes direct buttons for all three pages and a **Copy setup steps** action. OpenAI may restrict custom plugin creation or tunnels by account, plan, organization, or workspace policy; the manager cannot change that access.
 
@@ -94,7 +94,7 @@ The app includes direct buttons for all three pages and a **Copy setup steps** a
 
 The APK packages the official ARM64 OpenAI `tunnel-client` executable as an app-private native library and runs it in a second Android foreground service. Its generated profile forwards the selected OpenAI tunnel to `http://127.0.0.1:16384/mcp` (or the configured bridge port). No Termux installation or desktop `.exe` is involved.
 
-Launching the process is not treated as a successful connection. The manager monitors the tunnel client's local `/readyz` endpoint: `CONNECTING` and `NOT READY` mean ChatGPT cannot use the tunnel yet, while `READY` confirms that the client completed its first successful OpenAI control-plane poll. The runtime key remains memory-only, is removed from the screen when Doctor or Start begins, and is never written to preferences or logs.
+Launching the process is not treated as a successful connection. The manager monitors the tunnel client's local `/readyz` endpoint: `CONNECTING` and `NOT READY` mean ChatGPT cannot use the tunnel yet, while `READY` confirms that the client completed its first successful OpenAI control-plane poll. The key is removed from the visible field when Doctor or Start begins; it is never written to logs. Persistence is user-selectable through **Save runtime API key**.
 
 The phone-local `/mcp` endpoint uses stateless Streamable HTTP. Each tunneled JSON-RPC POST receives a fresh server transport, so restarting the bridge does not leave ChatGPT stuck with a stale `Mcp-Session-Id`. GET and DELETE are intentionally rejected with `405 Method Not Allowed` because the tunnel workflow does not require a persistent server-side session.
 
@@ -145,3 +145,8 @@ A repository workflow, `.github/workflows/publish-android-apk.yml`, can build th
 ## Android screenshot tool
 
 `screenshot-window` works on Android 11+ after enabling **Android Settings → Accessibility → Installed apps → Roblox MCP screenshot capture**. Android captures the current display and ignores `pid`.
+
+
+## Android system bars
+
+The manager applies Android system-bar insets to its WebView so the Settings UI starts below the status bar and stays clear of navigation/gesture areas on edge-to-edge Android releases.

@@ -2861,3 +2861,62 @@ body.decompiler-drag-active * {
 @media (max-width: 430px) {
     .android-manager-actions { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── Android manager shell ──────────────────────────────── */
+body.android-manager-mode .topbar,
+body.android-manager-mode .sidebar,
+body.android-manager-mode .client-dropdown,
+body.android-manager-mode .mobile-nav-toggle,
+body.android-manager-mode .mobile-nav-scrim,
+body.android-manager-mode .update-banner,
+body.android-manager-mode #viewClients,
+body.android-manager-mode #viewOverview,
+body.android-manager-mode #viewTools,
+body.android-manager-mode #viewServer,
+body.android-manager-mode #viewServerLogs,
+body.android-manager-mode #viewScripts,
+body.android-manager-mode #viewNilInstances {
+    display: none !important;
+}
+body.android-manager-mode .layout {
+    display: block;
+    min-height: 100vh;
+    padding-top: 0;
+}
+body.android-manager-mode .main-content {
+    width: 100%;
+    max-width: none;
+    min-height: 100vh;
+    margin-left: 0;
+    overflow: visible;
+    flex: none;
+}
+body.android-manager-mode #viewSettings {
+    display: block !important;
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 24px clamp(16px, 4vw, 32px) 48px;
+}
+body.android-manager-mode #viewSettings > .settings-card {
+    display: none !important;
+}
+body.android-manager-mode #androidManagerSettings {
+    display: block !important;
+}
+body.android-manager-mode .settings-header {
+    margin-bottom: 20px;
+}
+@media (max-width: 640px) {
+    body.android-manager-mode #viewSettings {
+        padding: 18px 12px 36px;
+    }
+    body.android-manager-mode .settings-card-footer {
+        align-items: stretch;
+    }
+    body.android-manager-mode .settings-card-actions,
+    body.android-manager-mode .android-manager-actions {
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

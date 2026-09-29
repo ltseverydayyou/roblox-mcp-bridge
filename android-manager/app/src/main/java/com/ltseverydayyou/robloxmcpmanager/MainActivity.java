@@ -89,6 +89,7 @@ public final class MainActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        applySystemBarInsets();
         preferences = new ExternalSettings(this);
         bindViews();
         loadSettings();
@@ -157,6 +158,32 @@ public final class MainActivity extends Activity {
     }
 
 
+    private void applySystemBarInsets() {
+        View web = findViewById(R.id.managerWebView);
+        if (web == null) return;
+        web.setOnApplyWindowInsetsListener((view, insets) -> {
+            int left;
+            int top;
+            int right;
+            int bottom;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets bars = insets.getInsets(android.view.WindowInsets.Type.systemBars());
+                left = bars.left;
+                top = bars.top;
+                right = bars.right;
+                bottom = bars.bottom;
+            } else {
+                left = insets.getSystemWindowInsetLeft();
+                top = insets.getSystemWindowInsetTop();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            view.setPadding(left, top, right, bottom);
+            return insets;
+        });
+        web.requestApplyInsets();
+    }
+
     private void setupManagerWebView() {
         managerWebView = findViewById(R.id.managerWebView);
         WebSettings settings = managerWebView.getSettings();
@@ -192,6 +219,7 @@ public final class MainActivity extends Activity {
     private void loadDashboardWebView() {
         try {
             String html = readAssetText("dashboard/index.html");
+            html = html.replace("<body>", "<body class=\"android-manager-mode\">");
             String css = readAssetText("dashboard/dashboard.css");
             String javascript = readAssetText("dashboard/dashboard.js");
             html = html.replace("<link rel=\"stylesheet\" href=\"/dashboard.css\">", "<style>" + css + "</style>");
@@ -264,6 +292,43 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private String resolveTunnelRuntimeKey(String supplied, boolean persist) {
+        String key = supplied == null ? "" : supplied.trim();
+        if (persist) {
+            if (!key.isEmpty()) {
+                preferences.edit()
+                    .putBoolean("saveTunnelRuntimeApiKey", true)
+                    .putString("tunnelRuntimeApiKey", key)
+                    .apply();
+            } else {
+                key = preferences.getString("tunnelRuntimeApiKey", "");
+            }
+        } else {
+            preferences.edit()
+                .putBoolean("saveTunnelRuntimeApiKey", false)
+                .remove("tunnelRuntimeApiKey")
+                .apply();
+        }
+        return key;
+    }
+
+    private void updateTunnelRuntimeKeyPreference(boolean persist, String supplied) {
+        String key = supplied == null ? "" : supplied.trim();
+        if (!persist) {
+            preferences.edit()
+                .putBoolean("saveTunnelRuntimeApiKey", false)
+                .remove("tunnelRuntimeApiKey")
+                .apply();
+            return;
+        }
+        if (!key.isEmpty()) {
+            preferences.edit().putBoolean("saveTunnelRuntimeApiKey", true)
+                .putString("tunnelRuntimeApiKey", key).apply();
+        } else {
+            preferences.edit().putBoolean("saveTunnelRuntimeApiKey", true).apply();
+        }
+    }
+
     private final class AndroidManagerBridge {
         @JavascriptInterface public String getBaseUrl() {
             return "http://127.0.0.1:" + preferences.getString("port", "16384");
@@ -297,6 +362,10 @@ public final class MainActivity extends Activity {
                 state.put("tunnelState", readTunnelState());
                 state.put("tunnelVersion", TunnelClient.VERSION);
                 state.put("tunnelBundled", TunnelClient.binary(MainActivity.this).isFile());
+                state.put("saveRuntimeKeyPreference", preferences.getBoolean("saveTunnelRuntimeApiKey", false));
+                state.put("runtimeKeySaved", preferences.getBoolean("saveTunnelRuntimeApiKey", false)
+                    && !preferences.getString("tunnelRuntimeApiKey", "").isEmpty());
+                state.put("configuredTunnelId", preferences.getString("configuredTunnelId", ""));
             } catch (Exception error) {
                 try { state.put("error", error.getMessage()); } catch (Exception ignored) {}
             }
@@ -359,6 +428,11 @@ public final class MainActivity extends Activity {
             });
         }
 
+        @JavascriptInterface public void updateRuntimeKeyPreference(boolean persist, String runtimeKey) {
+            updateTunnelRuntimeKeyPreference(persist, runtimeKey);
+            refreshManagerWebViewState();
+        }
+
         @JavascriptInterface public void configureTunnel(String portValue, String profile, String tunnelId) {
             saveManagerSettingsFromWeb(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false));
             runOnUiThread(() -> {
@@ -367,16 +441,20 @@ public final class MainActivity extends Activity {
             });
         }
 
-        @JavascriptInterface public void doctorTunnel(String portValue, String profile, String tunnelId, String runtimeKey) {
+        @JavascriptInterface public void doctorTunnel(String portValue, String profile, String tunnelId, String runtimeKey, boolean persistRuntimeKey) {
+            String resolvedKey = resolveTunnelRuntimeKey(runtimeKey, persistRuntimeKey);
+            saveManagerSettingsFromWeb(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false));
             runOnUiThread(() -> {
-                syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), runtimeKey);
+                syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), resolvedKey);
                 MainActivity.this.doctorTunnel();
             });
         }
 
-        @JavascriptInterface public void startTunnel(String portValue, String profile, String tunnelId, String runtimeKey) {
+        @JavascriptInterface public void startTunnel(String portValue, String profile, String tunnelId, String runtimeKey, boolean persistRuntimeKey) {
+            String resolvedKey = resolveTunnelRuntimeKey(runtimeKey, persistRuntimeKey);
+            saveManagerSettingsFromWeb(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false));
             runOnUiThread(() -> {
-                syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), runtimeKey);
+                syncHiddenManagerInputs(portValue, profile, tunnelId, preferences.getBoolean("lanMode", false), resolvedKey);
                 MainActivity.this.startTunnel();
             });
         }
@@ -721,7 +799,7 @@ public final class MainActivity extends Activity {
         String validation = TunnelClient.validate(value(profileField), value(tunnelIdField));
         if (validation != null) return validation;
         if (!TunnelClient.binary(this).isFile()) return "The official ARM64 tunnel-client is missing from this APK.";
-        if (requireKey && value(runtimeKeyField).isEmpty()) return "Paste the OpenAI Platform runtime API key. It is used from memory and is not saved.";
+        if (requireKey && value(runtimeKeyField).isEmpty()) return "Enter an OpenAI Platform runtime API key, or enable Save runtime API key and store one first.";
         return null;
     }
 
@@ -742,8 +820,13 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     appendOutput("\n" + result.output);
                     updateTunnelStatus();
-                    if (result.exitCode == 0) toast("Tunnel profile configured");
-                    else showMessage("Tunnel configuration failed", result.output);
+                    if (result.exitCode == 0) {
+                        preferences.edit().putString("configuredTunnelId", tunnelId)
+                            .putString("configuredTunnelProfile", profile)
+                            .putString("configuredTunnelPort", String.valueOf(bridgePort)).apply();
+                        toast("Tunnel profile configured");
+                        refreshManagerWebViewState();
+                    } else showMessage("Tunnel configuration failed", result.output);
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> { updateTunnelStatus(); showMessage("Tunnel configuration failed", error.getMessage()); });
@@ -754,21 +837,24 @@ public final class MainActivity extends Activity {
     private void doctorTunnel() {
         String validation = validateTunnelInput(true);
         if (validation != null) { showMessage("Tunnel doctor", validation); return; }
-        if (!TunnelClient.profileFile(this, value(profileField)).isFile()) {
-            showMessage("Tunnel doctor", "Tap Configure first to create this profile.");
-            return;
-        }
         String profile = value(profileField);
+        String tunnelId = value(tunnelIdField);
         String runtimeKey = value(runtimeKeyField);
         int bridgePort = port();
         runtimeKeyField.setText("");
-        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": RUNNING DOCTOR…");
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": CONFIGURING + DOCTOR…");
         tunnelStatus.setTextColor(getColor(R.color.warning));
         setStatusBusy(tunnelStatus, true);
-        appendOutput("\nRunning tunnel doctor (runtime key cleared from the screen)...");
+        appendOutput("\nRegenerating the tunnel profile from the current Tunnel ID, then running Doctor...");
         new Thread(() -> {
             try {
                 if (!isLocalBridgeReady(bridgePort)) throw new IllegalStateException("Start the localhost bridge before running Doctor.");
+                TunnelClient.Result configured = TunnelClient.configure(this, profile, tunnelId, bridgePort);
+                runOnUiThread(() -> appendOutput("\n--- tunnel configure ---\n" + configured.output));
+                if (configured.exitCode != 0) throw new IllegalStateException("Tunnel profile configuration failed.\n\n" + configured.output);
+                preferences.edit().putString("configuredTunnelId", tunnelId)
+                    .putString("configuredTunnelProfile", profile)
+                    .putString("configuredTunnelPort", String.valueOf(bridgePort)).apply();
                 TunnelClient.Result result = TunnelClient.doctor(this, profile, runtimeKey);
                 runOnUiThread(() -> {
                     appendOutput("\n--- tunnel doctor ---\n" + result.output);
@@ -786,21 +872,28 @@ public final class MainActivity extends Activity {
         String validation = validateTunnelInput(true);
         if (validation != null) { showMessage("Start tunnel", validation); return; }
         String profile = value(profileField);
-        if (!TunnelClient.profileFile(this, profile).isFile()) {
-            showMessage("Start tunnel", "Tap Configure first to create this profile.");
-            return;
-        }
+        String tunnelId = value(tunnelIdField);
         String runtimeKey = value(runtimeKeyField);
         int bridgePort = port();
         runtimeKeyField.setText("");
+        TunnelService.stop(this);
         new File(getFilesDir(), TunnelService.STATUS_FILE).delete();
-        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": CHECKING…");
+        tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": CONFIGURING…");
         tunnelStatus.setTextColor(getColor(R.color.warning));
         setStatusBusy(tunnelStatus, true);
-        appendOutput("\nChecking the localhost MCP endpoint and running Tunnel Doctor before startup...");
+        appendOutput("\nApplying Tunnel ID " + tunnelId + " to the profile, checking localhost MCP, then running Tunnel Doctor...");
         new Thread(() -> {
             try {
+                Thread.sleep(650);
                 if (!isLocalBridgeReady(bridgePort)) throw new IllegalStateException("Start the localhost bridge first and wait for its health check to pass.");
+                TunnelClient.Result configured = TunnelClient.configure(this, profile, tunnelId, bridgePort);
+                runOnUiThread(() -> appendOutput("\n--- automatic tunnel configure ---\n" + configured.output));
+                if (configured.exitCode != 0) {
+                    throw new IllegalStateException("Tunnel profile configuration failed.\n\n" + configured.output);
+                }
+                preferences.edit().putString("configuredTunnelId", tunnelId)
+                    .putString("configuredTunnelProfile", profile)
+                    .putString("configuredTunnelPort", String.valueOf(bridgePort)).apply();
                 TunnelClient.Result doctor = TunnelClient.doctor(this, profile, runtimeKey);
                 runOnUiThread(() -> appendOutput("\n--- automatic tunnel doctor ---\n" + doctor.output));
                 if (doctor.exitCode != 0) {
@@ -808,7 +901,7 @@ public final class MainActivity extends Activity {
                 }
                 runOnUiThread(() -> {
                     TunnelService.start(this, profile, runtimeKey, TunnelClient.healthPort(bridgePort));
-                    appendOutput("\nStarting official OpenAI tunnel-client " + TunnelClient.VERSION + ". Wait for TUNNEL-CLIENT: READY before testing the ChatGPT plugin. The runtime key was cleared and was not saved.");
+                    appendOutput("\nStarting official OpenAI tunnel-client " + TunnelClient.VERSION + ". Wait for TUNNEL-CLIENT: READY before testing the ChatGPT plugin. The runtime key was cleared from the screen; saved-key preference is controlled in Settings.");
                     tunnelStatus.postDelayed(() -> refreshTunnelStatus(45), 800);
                 });
             } catch (Exception error) {
@@ -841,7 +934,7 @@ public final class MainActivity extends Activity {
         tunnelStatus.setText("TUNNEL-CLIENT " + TunnelClient.VERSION + ": RESTARTING…");
         tunnelStatus.setTextColor(getColor(R.color.warning));
         setStatusBusy(tunnelStatus, true);
-        appendOutput("\nRestarting OpenAI tunnel-client with its memory-only key. No reconfiguration is needed...");
+        appendOutput("\nRestarting OpenAI tunnel-client with its active runtime key. No reconfiguration is needed...");
         tunnelStatus.postDelayed(() -> refreshTunnelStatus(45), 500);
     }
 

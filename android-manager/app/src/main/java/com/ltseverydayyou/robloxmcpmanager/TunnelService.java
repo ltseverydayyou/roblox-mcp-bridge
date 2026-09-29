@@ -81,7 +81,7 @@ public final class TunnelService extends Service {
                 return START_NOT_STICKY;
             }
             restartRequested = true;
-            writeState("RESTARTING tunnel-client v" + TunnelClient.VERSION + " — reusing memory-only key");
+            writeState("RESTARTING tunnel-client v" + TunnelClient.VERSION + " — reusing active runtime key");
             appendTunnelLog("[APK control] One-tap tunnel restart requested.");
             process.destroy();
             return START_NOT_STICKY;
@@ -97,7 +97,7 @@ public final class TunnelService extends Service {
         int healthPort = intent.getIntExtra(EXTRA_HEALTH_PORT, -1);
         intent.removeExtra(EXTRA_RUNTIME_KEY);
         if (profile == null || runtimeKey == null || runtimeKey.isEmpty() || healthPort < 1 || healthPort > 65535) {
-            writeState("ERROR Profile, health port, or memory-only runtime API key was missing.");
+            writeState("ERROR Profile, health port, or runtime API key was missing.");
             stopSelf();
             return START_NOT_STICKY;
         }

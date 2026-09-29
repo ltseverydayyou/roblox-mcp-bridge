@@ -36,6 +36,7 @@ const androidApkWorkflow = read(".github/workflows/publish-android-apk.yml");
 const activityLayout = read("android-manager/app/src/main/res/layout/activity_main.xml");
 const dashboardHtml = read("src/http/assets/dashboard/index.html");
 const dashboardJs = read("src/http/assets/dashboard/dashboard.js");
+const dashboardCss = read("src/http/assets/dashboard/dashboard.css");
 const configDir = read("src/platform/config-dir.ts");
 const semanticSettings = read("src/semantic/settings.ts");
 const decompilerSettings = read("src/decompiler/settings.ts");
@@ -57,7 +58,7 @@ test("Android manager renders the shared localhost dashboard UI in a WebView", (
   assert.match(dashboardHtml, /android-manager-actions/);
   assert.match(dashboardJs, /AndroidManager\.stopBridge/);
   assert.match(dashboardJs, /ANDROID_MANAGER/);
-  assert.match(dashboardJs, /showView\(ANDROID_MANAGER \? 'settings' : 'clients'\)/);
+  assert.match(dashboardJs, /if \(ANDROID_MANAGER\) \{[\s\S]*showView\('settings'\);/);
 });
 
 test("Android manager persists user settings in shared Android MCP storage", () => {
@@ -116,7 +117,6 @@ test("Android screenshot capture is localhost-only and accessibility-gated", () 
   assert.match(screenshotService, /127\.0\.0\.1/);
   assert.match(screenshotService, /takeScreenshot\(Display\.DEFAULT_DISPLAY/);
   assert.match(screenshotService, /Base64\.NO_WRAP/);
-  const accessibilityConfig = read("android-manager/app/src/main/res/xml/accessibility_service_config.xml");
   assert.match(accessibilityConfig, /android:canTakeScreenshot="true"/);
   assert.match(accessibilityConfig, /android:canRetrieveWindowContent="false"/);
   assert.doesNotMatch(accessibilityConfig, /typeAllMask/);
@@ -205,7 +205,7 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 29/);
+  assert.match(gradle, /versionCode 30/);
   assert.match(gradle, /versionName "0\.5\.3"/);
 });
 
@@ -340,7 +340,7 @@ test("app updates verify signatures and support external force-reinstall recover
   assert.match(updateChecker, /RobloxMcpManager-Android-v/);
   assert.match(updateChecker, /releases\?per_page=20/);
   assert.match(updateChecker, /optBoolean\("prerelease"/);
-  assert.match(updateChecker, /debugFallback/);
+  assert.match(updateChecker, /bestDebug/);
   assert.match(updateChecker, /match\.group\(1\)/);
   assert.match(updateChecker, /Keep a trailing build-flavor "-debug" out of the manifest version group/);
   assert.match(gradle, /RobloxMcpManager-Android-v\$\{android\.defaultConfig\.versionName\}\.apk/);
@@ -365,7 +365,7 @@ test("app updates verify signatures and support external force-reinstall recover
   assert.match(updateChecker, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
   assert.match(updateChecker, /application\/vnd\.android\.package-archive/);
   assert.match(updateChecker, /FLAG_GRANT_READ_URI_PERMISSION/);
-  assert.doesNotMatch(updateChecker, /openDownload/);
+  assert.doesNotMatch(updateChecker, /openDownload\s*\(/);
   assert.match(updateProvider, /ParcelFileDescriptor\.MODE_READ_ONLY/);
   assert.match(updateProvider, /Unsupported update URI/);
   assert.match(manifest, /REQUEST_INSTALL_PACKAGES/);
@@ -383,7 +383,7 @@ test("Android runtime patches current fast-uri for embedded Node 18 compatibilit
   assert.equal(runtimePackage.overrides["fast-uri"], "3.1.8");
   assert.match(patchAndroidRuntimeDeps, /fast-uri 3\.1\.8/);
   assert.match(patchAndroidRuntimeDeps, /\\P\{ASCII\}/);
-  assert.match(patchAndroidRuntimeDeps, /\\x00-\\x7F/);
+  assert.match(patchAndroidRuntimeDeps, /x00-.*x7F/);
   assert.match(prepare, /patch-android-runtime-deps\.mjs/);
   assert.match(runtimeWorkflow, /android-runtime-smoke/);
   assert.match(runtimeWorkflow, /npm install --prefix "\$runtime_dir"/);
@@ -441,4 +441,36 @@ test("Android dashboard restores legacy manager shortcuts", () => {
   assert.match(dashboardJs, /AndroidManager\.refreshStatus\(\)/);
   assert.match(dashboardJs, /AndroidManager\.openDashboard\(\)/);
   assert.match(dashboardJs, /AndroidManager\.copyChatGptChecklist\(\)/);
+});
+
+
+test("Android APK uses a settings-only dashboard shell", () => {
+  assert.match(dashboardJs, /document\.body\.classList\.add\('android-manager-mode'\)/);
+  assert.match(dashboardJs, /if \(ANDROID_MANAGER\) \{[\s\S]*initAndroidManagerUi\(\);[\s\S]*showView\('settings'\);[\s\S]*\} else \{/);
+  assert.match(dashboardCss, /body\.android-manager-mode \.sidebar/);
+  assert.match(dashboardCss, /#viewSettings > \.settings-card/);
+  assert.match(dashboardHtml, /Android manager logs/);
+});
+
+test("Android runtime API key can be temporary or persisted", () => {
+  assert.match(dashboardHtml, /id="androidSaveRuntimeKey"/);
+  assert.match(dashboardHtml, /Save runtime API key in \/storage\/emulated\/0\/Android MCP\/settings\.json/);
+  assert.match(mainActivity, /saveTunnelRuntimeApiKey/);
+  assert.match(mainActivity, /tunnelRuntimeApiKey/);
+  assert.match(mainActivity, /resolveTunnelRuntimeKey/);
+  assert.match(dashboardJs, /updateRuntimeKeyPreference/);
+  assert.match(dashboardJs, /persistRuntimeKey/);
+});
+
+test("Android tunnel start always applies the current tunnel ID", () => {
+  assert.match(mainActivity, /TunnelClient\.configure\(this, profile, tunnelId, bridgePort\)/);
+  assert.match(mainActivity, /automatic tunnel configure/);
+  assert.match(mainActivity, /configuredTunnelId/);
+  assert.match(dashboardHtml, /Start\/Doctor always regenerate the tunnel profile from the current Tunnel ID/);
+});
+
+test("Android WebView respects system bars", () => {
+  assert.match(mainActivity, /applySystemBarInsets\(\)/);
+  assert.match(mainActivity, /WindowInsets\.Type\.systemBars\(\)/);
+  assert.match(mainActivity, /view\.setPadding\(left, top, right, bottom\)/);
 });

@@ -5106,7 +5106,8 @@ function androidManagerInputs() {
         profile: String(androidField('androidTunnelProfile')?.value || 'roblox-executor').trim() || 'roblox-executor',
         tunnelId: String(androidField('androidTunnelId')?.value || '').trim(),
         lanMode: Boolean(androidField('androidLanMode')?.checked),
-        runtimeKey: String(androidField('androidRuntimeKey')?.value || '')
+        runtimeKey: String(androidField('androidRuntimeKey')?.value || ''),
+        persistRuntimeKey: Boolean(androidField('androidSaveRuntimeKey')?.checked)
     };
 }
 
@@ -5189,6 +5190,17 @@ window.refreshAndroidManagerState = function refreshAndroidManagerState() {
     if (androidField('androidTunnelId') && document.activeElement !== androidField('androidTunnelId')) androidField('androidTunnelId').value = state.tunnelId || '';
     if (androidField('androidLanMode')) androidField('androidLanMode').checked = Boolean(state.lanMode);
     if (androidField('androidRuntimeSource')) androidField('androidRuntimeSource').value = state.runtimeSource || '';
+    const saveRuntimeKey = androidField('androidSaveRuntimeKey');
+    const runtimeKeyInput = androidField('androidRuntimeKey');
+    const runtimeKeySaved = Boolean(state.runtimeKeySaved);
+    if (saveRuntimeKey && document.activeElement !== saveRuntimeKey) saveRuntimeKey.checked = Boolean(state.saveRuntimeKeyPreference);
+    if (runtimeKeyInput && document.activeElement !== runtimeKeyInput) {
+        runtimeKeyInput.placeholder = runtimeKeySaved ? 'Saved key available — enter to replace' : 'Temporary for this run';
+    }
+    const runtimeKeyHint = androidField('androidRuntimeKeyHint');
+    if (runtimeKeyHint) runtimeKeyHint.textContent = runtimeKeySaved
+        ? 'Saved: the runtime key is stored in Android MCP/settings.json and reused for Tunnel Doctor/Start.'
+        : 'Temporary: the key is used only for the current tunnel action and is not persisted.';
 
     setAndroidResult('androidStorageStatus', storageReady
         ? 'SETTINGS STORAGE: READY — ' + (state.settingsPath || '')
@@ -5238,11 +5250,30 @@ window.refreshAndroidManagerState = function refreshAndroidManagerState() {
 
 function initAndroidManagerUi() {
     if (!ANDROID_MANAGER) return;
+    document.body.classList.add('android-manager-mode');
+    const settingsHeaderTitle = document.querySelector('#viewSettings .settings-title');
+    const settingsHeaderSub = document.querySelector('#viewSettings .settings-sub');
+    if (settingsHeaderTitle) settingsHeaderTitle.textContent = 'Roblox MCP Manager';
+    if (settingsHeaderSub) settingsHeaderSub.textContent = 'Android bridge, tunnel, updates, files, and diagnostics';
     const panel = androidField('androidManagerSettings');
     if (panel) panel.style.display = 'block';
 
     ['androidBridgePort', 'androidTunnelProfile', 'androidTunnelId', 'androidLanMode'].forEach(id => {
         androidField(id)?.addEventListener('change', saveAndroidManagerInputs);
+    });
+    androidField('androidSaveRuntimeKey')?.addEventListener('change', () => {
+        const v = androidManagerInputs();
+        window.AndroidManager.updateRuntimeKeyPreference(v.persistRuntimeKey, v.runtimeKey);
+        if (v.persistRuntimeKey && v.runtimeKey) androidField('androidRuntimeKey').value = '';
+        window.refreshAndroidManagerState();
+    });
+    androidField('androidRuntimeKey')?.addEventListener('change', () => {
+        const v = androidManagerInputs();
+        if (v.persistRuntimeKey && v.runtimeKey) {
+            window.AndroidManager.updateRuntimeKeyPreference(true, v.runtimeKey);
+            androidField('androidRuntimeKey').value = '';
+            window.refreshAndroidManagerState();
+        }
     });
     androidField('androidStorageButton')?.addEventListener('click', () => window.AndroidManager.requestStorageAccess());
     androidField('androidAppUpdateButton')?.addEventListener('click', () => window.AndroidManager.checkAppUpdate());
@@ -5267,10 +5298,10 @@ function initAndroidManagerUi() {
         const v = androidManagerInputs(); saveAndroidManagerInputs(); window.AndroidManager.configureTunnel(v.port, v.profile, v.tunnelId);
     });
     androidField('androidDoctorTunnelButton')?.addEventListener('click', () => {
-        const v = androidManagerInputs(); window.AndroidManager.doctorTunnel(v.port, v.profile, v.tunnelId, v.runtimeKey); androidField('androidRuntimeKey').value = '';
+        const v = androidManagerInputs(); window.AndroidManager.doctorTunnel(v.port, v.profile, v.tunnelId, v.runtimeKey, v.persistRuntimeKey); androidField('androidRuntimeKey').value = '';
     });
     androidField('androidStartTunnelButton')?.addEventListener('click', () => {
-        const v = androidManagerInputs(); window.AndroidManager.startTunnel(v.port, v.profile, v.tunnelId, v.runtimeKey); androidField('androidRuntimeKey').value = '';
+        const v = androidManagerInputs(); window.AndroidManager.startTunnel(v.port, v.profile, v.tunnelId, v.runtimeKey, v.persistRuntimeKey); androidField('androidRuntimeKey').value = '';
     });
     androidField('androidStopTunnelButton')?.addEventListener('click', () => window.AndroidManager.stopTunnel());
     androidField('androidRestartTunnelButton')?.addEventListener('click', () => window.AndroidManager.restartTunnel());
@@ -5379,12 +5410,15 @@ function restartDashboardRefreshTimers() {
     }, dashboardPreferences.scriptsRefreshMs);
 }
 
-setInterval(refreshDecompilerHealth, 2000);
-
-applyDashboardPreferences();
-restartDashboardRefreshTimers();
-loadSemanticSettings();
-updateStatus();
-setSidebarMode('home');
-initAndroidManagerUi();
-showView(ANDROID_MANAGER ? 'settings' : 'clients');
+if (ANDROID_MANAGER) {
+    initAndroidManagerUi();
+    showView('settings');
+} else {
+    setInterval(refreshDecompilerHealth, 2000);
+    applyDashboardPreferences();
+    restartDashboardRefreshTimers();
+    loadSemanticSettings();
+    updateStatus();
+    setSidebarMode('home');
+    showView('clients');
+}

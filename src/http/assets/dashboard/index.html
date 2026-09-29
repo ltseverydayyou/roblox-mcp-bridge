@@ -420,7 +420,7 @@
 
             <!-- ─── Settings view (home mode) ───────────────────── -->
             <div class="view" id="viewSettings" style="display:none">
-                <div class="settings-header"><h2 class="settings-title">Settings</h2><p class="settings-sub">Customize the dashboard and configure MCP behavior</p></div>
+                <div class="settings-header"><h2 class="settings-title">Settings</h2><p class="settings-sub">Manage the Android MCP bridge, tunnel, updates, files, and diagnostics</p></div>
                 <div id="androidManagerSettings" style="display:none">
                     <div class="settings-card">
                         <div class="settings-card-body">
@@ -472,12 +472,14 @@
                     <div class="settings-card">
                         <div class="settings-card-body">
                             <div class="settings-card-title">ChatGPT tunnel</div>
-                            <div class="settings-card-desc">Configure and run the bundled OpenAI tunnel-client. The runtime API key remains memory-only.</div>
+                            <div class="settings-card-desc">Configure and run the bundled OpenAI tunnel-client. Start/Doctor always regenerate the tunnel profile from the current Tunnel ID before connecting.</div>
                             <div class="settings-control-grid">
                                 <div class="settings-field"><label for="androidTunnelProfile">Profile</label><input id="androidTunnelProfile" type="text" value="roblox-executor"></div>
                                 <div class="settings-field"><label for="androidTunnelId">Tunnel ID</label><input id="androidTunnelId" type="text" placeholder="tunnel_..."></div>
-                                <div class="settings-field"><label for="androidRuntimeKey">Platform runtime API key</label><input id="androidRuntimeKey" type="password" placeholder="Memory only"></div>
+                                <div class="settings-field"><label for="androidRuntimeKey">Platform runtime API key</label><input id="androidRuntimeKey" type="password" placeholder="Temporary for this run"></div>
                             </div>
+                            <label class="settings-toggle-row"><div class="toggle-switch"><input type="checkbox" id="androidSaveRuntimeKey"><span class="toggle-track"><span class="toggle-thumb"></span></span></div><span>Save runtime API key in /storage/emulated/0/Android MCP/settings.json</span></label>
+                            <div class="settings-card-desc" id="androidRuntimeKeyHint" style="margin-top:8px">Off: the key is temporary and cleared from the screen after use.</div>
                             <div id="androidTunnelStatus" class="settings-test-result"></div>
                         </div>
                         <div class="settings-card-footer"><div class="settings-card-actions"><button class="settings-test-btn" id="androidConfigureTunnelButton">Configure</button><button class="settings-test-btn" id="androidDoctorTunnelButton">Doctor</button><button class="settings-save-btn" id="androidStartTunnelButton">Start tunnel</button><button class="settings-delete-btn" id="androidStopTunnelButton">Stop</button><button class="settings-test-btn" id="androidRestartTunnelButton">Restart</button><button class="settings-test-btn" id="androidTunnelDiagnosticsButton">Open tunnel diagnostics</button></div></div>
