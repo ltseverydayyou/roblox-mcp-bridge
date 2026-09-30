@@ -184,6 +184,11 @@ function applyDashboardPreferences() {
     }[dashboardPreferences.corners];
     root.style.setProperty('--blue', dashboardPreferences.accent);
     root.style.setProperty('--blue-dim', accentRgba(dashboardPreferences.accent, 0.12));
+    const accentValue = parseInt(dashboardPreferences.accent.slice(1), 16);
+    const accentR = (accentValue >> 16) & 255;
+    const accentG = (accentValue >> 8) & 255;
+    const accentB = accentValue & 255;
+    root.style.setProperty('--accent-contrast', ((accentR * 299 + accentG * 587 + accentB * 114) / 1000) > 160 ? '#0a0a0a' : '#ffffff');
     root.style.setProperty('--radius', radii[0]);
     root.style.setProperty('--radius-lg', radii[1]);
     root.style.setProperty('--code-font-size', `${dashboardPreferences.codeFontSize}px`);
@@ -4927,7 +4932,11 @@ $('settingsAccentColor').addEventListener('input', () => {
 $('settingsCodeFontSize').addEventListener('input', () => {
     $('settingsCodeFontSizeValue').textContent = `${$('settingsCodeFontSize').value}px`;
 });
-$('saveDashboardAppearanceBtn').addEventListener('click', () => saveDashboardPreferences('Dashboard appearance saved'));
+if (document.body.classList.contains('android-manager-mode')) {
+    if ($('settingsAppearanceTitle')) $('settingsAppearanceTitle').textContent = 'Manager appearance';
+    if ($('settingsAppearanceDesc')) $('settingsAppearanceDesc').textContent = 'Personalize the Android manager interface.';
+}
+$('saveDashboardAppearanceBtn').addEventListener('click', () => saveDashboardPreferences(document.body.classList.contains('android-manager-mode') ? 'Manager appearance saved' : 'Dashboard appearance saved'));
 $('saveMcpPreferencesBtn').addEventListener('click', () => saveDashboardPreferences('MCP defaults saved'));
 $('resetDashboardPreferencesBtn').addEventListener('click', () => {
     dashboardPreferences = { ...DEFAULT_DASHBOARD_PREFERENCES };

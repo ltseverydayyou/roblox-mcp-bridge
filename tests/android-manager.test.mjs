@@ -88,7 +88,7 @@ test("Android manager exposes snapshot support controls", () => {
 });
 
 test("Android APK builds reject a changed signing certificate", () => {
-  assert.match(buildAndroid, /78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3/);
+  assert.match(buildAndroid, /SigningKeystore/);
   assert.match(buildAndroid, /apksigner\.bat/);
   assert.match(buildAndroid, /certificate SHA-256 digest/);
   assert.match(buildAndroid, /signing certificate mismatch/i);
@@ -126,6 +126,7 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(prepare, /nodejs-mobile-v18\.17\.3-android\.zip/);
   assert.match(prepare, /d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc/);
   assert.match(prepare, /Get-FileHash.*SHA256/);
+  assert.match(prepare, /node_modules\\npm\\bin\\npm-cli\.js/);
   assert.match(prepare, /libc\+\+_shared\.so/);
   assert.match(prepare, /repoRoot "connector\.luau"/);
   assert.match(prepare, /arm64-r9/);
@@ -402,14 +403,16 @@ test("Android dashboard can clear stale manager update caches", () => {
   assert.match(updateChecker, /ExternalSettings\.directory\(\), "updates"/);
 });
 
-test("GitHub Actions can build and attach the Android APK to v2.4.9 without Windows MCP", () => {
+test("GitHub Actions requires the established Android signing identity before publishing", () => {
   assert.match(androidApkWorkflow, /workflow_dispatch/);
   assert.match(androidApkWorkflow, /windows-latest/);
+  assert.match(androidApkWorkflow, /ANDROID_SIGNING_KEYSTORE_B64/);
+  assert.match(androidApkWorkflow, /debug\.keystore/);
   assert.match(androidApkWorkflow, /build-android-manager\.ps1/);
-  assert.match(androidApkWorkflow, /AllowSigningCertificateMismatch/);
+  assert.doesNotMatch(androidApkWorkflow, /-AllowSigningCertificateMismatch/);
   assert.match(androidApkWorkflow, /gh release upload v2\.4\.9/);
   assert.match(androidApkWorkflow, /contents: write/);
-  assert.match(buildAndroid, /AllowSigningCertificateMismatch/);
+  assert.match(buildAndroid, /SigningKeystore/);
 });
 
 test("embedded Android bridge stays alive and preserves JavaScript startup failures", () => {

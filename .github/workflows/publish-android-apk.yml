@@ -40,10 +40,23 @@ jobs:
           & $sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
           if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed with exit code $LASTEXITCODE" }
 
+      - name: Restore established Android signing keystore
+        shell: pwsh
+        env:
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_SIGNING_KEYSTORE_B64)) {
+            throw "ANDROID_SIGNING_KEYSTORE_B64 is required so releases keep the established Android signing identity."
+          }
+          $androidHome = Join-Path $env:USERPROFILE '.android'
+          New-Item -ItemType Directory -Path $androidHome -Force | Out-Null
+          $keystore = Join-Path $androidHome 'debug.keystore'
+          [IO.File]::WriteAllBytes($keystore, [Convert]::FromBase64String($env:ANDROID_SIGNING_KEYSTORE_B64))
+
       - name: Build Android manager APK
         shell: pwsh
         run: |
-          ./scripts/build-android-manager.ps1 -JavaHome $env:JAVA_HOME -AndroidSdk $env:ANDROID_HOME -AllowSigningCertificateMismatch
+          ./scripts/build-android-manager.ps1 -JavaHome $env:JAVA_HOME -AndroidSdk $env:ANDROID_HOME
 
       - name: Locate APK
         id: apk

@@ -219,6 +219,7 @@ namespace RobloxMcpWebManager
                         SendConfig();
                         SendStatus();
                         _ = CheckManagerUpdateAsync();
+                        _ = CheckSourceAsync(true);
                         EnsureUpdatePolling();
                         break;
                     case "status": SendStatus(); break;
@@ -763,7 +764,7 @@ namespace RobloxMcpWebManager
         private void SaveConfigFromMessage(Dictionary<string, object> msg)
         {
             foreach (string k in new[] {"repository","address","tunnelClient","profile","tunnelId"}) if (msg.ContainsKey(k)) config[k] = Convert.ToString(msg[k]);
-            SaveConfig(); SendConfig(); SendStatus(); Toast("Manager configuration saved", "success", "ok");
+            SaveConfig(); SendConfig(); SendStatus(); _ = CheckSourceAsync(true); Toast("Manager configuration saved", "success", "ok");
         }
 
         private async Task InstallRepairAsync()
@@ -800,15 +801,14 @@ namespace RobloxMcpWebManager
                         var clone = Run("git.exe", "clone https://github.com/ltseverydayyou/roblox-mcp-bridge.git " + Quote(repo), parent, 180000);
                         if (clone.Code != 0) { Toast("Repository clone failed: " + CleanError(clone), "error", "error"); return; }
                     }
-
-                    Toast("Installing dependencies...", "info", "info");
-                    var install = Run("npm.cmd", "install --ignore-scripts", repo, 180000);
-                    if (install.Code != 0) { Toast("npm install failed: " + CleanError(install), "error", "error"); return; }
-                    Toast("Building the MCP...", "info", "info");
-                    var build = Run("npm.cmd", "run build", repo, 180000);
-                    if (build.Code != 0) { Toast("MCP build failed: " + CleanError(build), "error", "error"); return; }
+                    string installer = Path.Combine(repo, "scripts", "install-harnesses.mjs");
+                    if (!File.Exists(installer)) { Toast("MCP installer script is missing. Re-clone or repair the repository first.", "error", "error"); return; }
+                    Toast("Installing dependencies and rebuilding the MCP...", "info", "info");
+                    var install = Run("node.exe", Quote(installer) + " --yes --plain --no-manager --server-root " + Quote(repo), repo, 180000);
+                    if (install.Code != 0) { Toast("MCP install / repair failed: " + CleanError(install), "error", "error"); return; }
                     Toast("MCP dependencies and build are ready", "success", "ok");
                     SendStatus();
+                    _ = CheckSourceAsync(false);
                 }
                 catch (Exception ex) { Toast(ex.Message, "error", "error"); }
             });

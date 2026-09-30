@@ -4,7 +4,7 @@
 param(
     [string]$JavaHome = $env:JAVA_HOME,
     [string]$AndroidSdk = $env:ANDROID_HOME,
-    [string]$ExpectedSigningCertificateSha256 = "78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3",
+    [string]$SigningKeystore = (Join-Path $env:USERPROFILE ".android\debug.keystore"),
     [switch]$AllowSigningCertificateMismatch
 )
 
@@ -86,21 +86,35 @@ if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed:`n$certOutpu
 $certMatch = [regex]::Match($certOutput, 'certificate SHA-256 digest:\s*([0-9a-fA-F]{64})')
 if (-not $certMatch.Success) { throw "Could not read the APK signing certificate SHA-256 digest.`n$certOutput" }
 $certSha256 = $certMatch.Groups[1].Value.ToLowerInvariant()
-$expectedCertSha256 = $ExpectedSigningCertificateSha256.Trim().ToLowerInvariant()
-if ($expectedCertSha256 -and $certSha256 -ne $expectedCertSha256) {
-    if (-not $AllowSigningCertificateMismatch) {
-        throw "APK signing certificate mismatch. Expected $expectedCertSha256 but built $certSha256. Do not publish this APK because existing installs cannot update in place."
+if (-not (Test-Path -LiteralPath $SigningKeystore -PathType Leaf)) {
+    throw "Android signing keystore was not found. Refusing to build a publishable APK."
+}
+$keytool = Join-Path $env:JAVA_HOME "bin\keytool.exe"
+if (-not (Test-Path -LiteralPath $keytool -PathType Leaf)) { throw "keytool was not found in JAVA_HOME." }
+$tempCert = Join-Path ([IO.Path]::GetTempPath()) ("roblox-mcp-signing-" + [Guid]::NewGuid().ToString("N") + ".der")
+try {
+    & $keytool -exportcert -keystore $SigningKeystore -storepass android -alias androiddebugkey -file $tempCert 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tempCert -PathType Leaf)) {
+        throw "Could not read the configured Android signing identity."
     }
-    Write-Warning "APK signing certificate mismatch allowed for this build. Expected $expectedCertSha256 but built $certSha256. Existing installs must use the manager's Force update reinstall flow."
+    $expectedCertSha256 = (Get-FileHash -LiteralPath $tempCert -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+finally {
+    Remove-Item -LiteralPath $tempCert -Force -ErrorAction SilentlyContinue
+}
+if ($certSha256 -ne $expectedCertSha256) {
+    if (-not $AllowSigningCertificateMismatch) {
+        throw "APK signing certificate does not match the configured signing keystore. Refusing to publish an incompatible update."
+    }
+    Write-Warning "APK signing certificate mismatch allowed for this build. Existing installs must use the manager's Force update reinstall flow."
 }
 
 $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Android manager APK built:" -ForegroundColor Green
 Write-Host "  $apk"
 Write-Host "SHA-256: $hash"
-Write-Host "Signing certificate SHA-256: $certSha256"
 Write-Host "Upload this file as an asset on the repository's GitHub Release; do not commit the APK to the repository." -ForegroundColor Cyan
-if (-not $expectedCertSha256 -or $certSha256 -eq $expectedCertSha256) {
+if ($certSha256 -eq $expectedCertSha256) {
     Write-Host "The APK signing certificate was verified against the established Android release identity." -ForegroundColor Green
 } else {
     Write-Host "This APK uses a different signing certificate and requires the Force update reinstall flow." -ForegroundColor Yellow

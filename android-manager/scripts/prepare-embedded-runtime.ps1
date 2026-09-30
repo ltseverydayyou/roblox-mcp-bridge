@@ -66,7 +66,13 @@ if (-not (Test-Path -LiteralPath (Join-Path $tunnelExtracted "tunnel-client") -P
 
 Push-Location $repoRoot
 try {
-    npm run build
+    $nodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
+    $bundledNpmCli = Join-Path (Split-Path -Parent $nodeCommand) "node_modules\npm\bin\npm-cli.js"
+    if (Test-Path -LiteralPath $bundledNpmCli -PathType Leaf) {
+        & $nodeCommand $bundledNpmCli run build
+    } else {
+        npm run build
+    }
     if ($LASTEXITCODE -ne 0) { throw "The MCP TypeScript build failed with exit code $LASTEXITCODE." }
 } finally { Pop-Location }
 

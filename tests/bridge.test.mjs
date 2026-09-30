@@ -215,6 +215,11 @@ test("dashboard preferences are persisted and applied to MCP tool defaults", () 
   assert.match(dashboardJs, /showView\(dashboardPreferences\.defaultClientView\)/);
   assert.match(dashboardCss, /body\.dashboard-density-compact/);
   assert.match(dashboardCss, /body\.dashboard-motion-off/);
+  assert.match(dashboardCss, /--accent-contrast/);
+  assert.match(dashboardCss, /\.settings-save-btn[\s\S]*?background: var\(--blue\)/);
+  assert.match(dashboardCss, /\.sidebar-item--active \{ background: var\(--blue-dim\); color: var\(--blue\)/);
+  assert.match(dashboardHtml, /dashboard-appearance-card/);
+  assert.match(dashboardJs, /Manager appearance saved/);
 });
 
 test("the Windows manager uses the dashboard WebView UI and verified native update paths", () => {
@@ -229,6 +234,7 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(host, /StopBridgeAsync/);
   assert.match(host, /Get-NetTCPConnection/);
   assert.match(host, /CheckManagerUpdateAsync/);
+  assert.match(host, /case "ready":[\s\S]*?_ = CheckManagerUpdateAsync\(\);[\s\S]*?_ = CheckSourceAsync\(true\);/);
   assert.match(host, /InstallManagerUpdateAsync/);
   assert.match(host, /latestManagerSha256/);
   assert.match(host, /sameVersionAssetRefresh/);
@@ -243,6 +249,8 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(host, /RedirectStandardOutput=true/);
   assert.match(host, /RedirectStandardError=true/);
   assert.match(host, /InstallTunnelClientAsync/);
+  assert.match(host, /--yes --plain --no-manager --server-root/);
+  assert.doesNotMatch(host, /Run\("npm\.cmd", "install --ignore-scripts"/);
   assert.match(host, /RestartAsAdministrator/);
   assert.match(host, /winget\.exe/);
 
@@ -253,6 +261,9 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(managerHtml, /id="sourceProgress"/);
   assert.match(managerHtml, /id="appearanceDensity"/);
   assert.match(managerHtml, /id="appearanceMotion"/);
+  assert.match(managerHtml, /Manager appearance/);
+  assert.match(managerHtml, /accentContrast/);
+  assert.match(managerHtml, /previewAppearance/);
   assert.match(managerHtml, /id="tunnelOutput"/);
   assert.match(managerHtml, /data-action="installTunnelClient"/);
   assert.match(managerHtml, /data-action="restartAdmin"/);

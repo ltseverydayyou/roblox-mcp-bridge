@@ -119,7 +119,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-android-mana
 
 The preparation step downloads the official Node.js Mobile v18.17.3 Android archive, requires SHA-256 `d0d1a85314272bd13a16aeb08a88be2a456f323ed80bcbe8ca31bfb83e6d26fc`, builds the MCP server, and packages only production JavaScript dependencies. Android lint then runs and an installable APK is written to `android-manager\app\build\distributions\RobloxMcpManager-Android-vX.Y.Z.apk`. The build directory is ignored by Git; upload the APK as a GitHub Release asset instead of committing it to the repository.
 
-Published Android updates must keep the existing signing identity so Android can install them over v0.4.8 through v0.5.2. The established signing certificate SHA-256 is `78958a6bcff17f0426ee976d6d58a92da00776fa6dfb3d37ee8974ec86af89d3`. `scripts/build-android-manager.ps1` verifies the completed APK with Android SDK `apksigner` and aborts if its certificate fingerprint differs. The fingerprint is only a verification value; signing still requires the original private keystore.
+Published Android updates must keep the existing signing identity so Android can install them over earlier releases. scripts/build-android-manager.ps1 verifies the completed APK against the configured local signing keystore and aborts if the signer differs. The private keystore must never be committed or printed.
 
 
 ### Force update when the APK signing certificate changes
