@@ -73,9 +73,9 @@ jobs:
           name: android-manager-apk
           path: ${{ steps.apk.outputs.path }}
 
-      - name: Attach APK to v2.4.9 release
+      - name: Attach APK to v2.5.0 release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload v2.4.9 '${{ steps.apk.outputs.path }}' --clobber --repo '${{ github.repository }}'
+          gh release upload v2.5.0 '${{ steps.apk.outputs.path }}' --clobber --repo '${{ github.repository }}'

@@ -206,8 +206,8 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 33/);
-  assert.match(gradle, /versionName "0\.5\.5"/);
+  assert.match(gradle, /versionCode 34/);
+  assert.match(gradle, /versionName "0\.5\.6"/);
 });
 
 test("Android manager chooses the highest published APK version instead of the first release asset", () => {
@@ -410,7 +410,7 @@ test("GitHub Actions requires the established Android signing identity before pu
   assert.match(androidApkWorkflow, /debug\.keystore/);
   assert.match(androidApkWorkflow, /build-android-manager\.ps1/);
   assert.doesNotMatch(androidApkWorkflow, /-AllowSigningCertificateMismatch/);
-  assert.match(androidApkWorkflow, /gh release upload v2\.4\.9/);
+  assert.match(androidApkWorkflow, /gh release upload v2\.5\.0/);
   assert.match(androidApkWorkflow, /contents: write/);
   assert.match(buildAndroid, /SigningKeystore/);
 });

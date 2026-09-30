@@ -41,7 +41,7 @@ When the dashboard detects the injected `AndroidManager` JavaScript interface, t
 
 ## Snapshot support
 
-Android manager v0.5.5 includes the **Snapshot support** card for the `screenshot-window` MCP tool. On Android 11 or newer, tap **Enable snapshot support** to open the manager's accessibility-service settings, then enable **Roblox MCP screenshot capture**. Returning to the manager refreshes the card to **SNAPSHOT SUPPORT: ENABLED**. On Android 13 and newer, sideloaded APKs may first require **App settings → Allow restricted settings** before Android permits the accessibility service to be enabled.
+Android manager v0.5.6 includes the **Snapshot support** card for the `screenshot-window` MCP tool. On Android 11 or newer, tap **Enable snapshot support** to open the manager's accessibility-service settings, then enable **Roblox MCP screenshot capture**. Returning to the manager refreshes the card to **SNAPSHOT SUPPORT: ENABLED**. On Android 13 and newer, sideloaded APKs may first require **App settings → Allow restricted settings** before Android permits the accessibility service to be enabled.
 
 The accessibility service exposes its screenshot endpoint only on `127.0.0.1` and uses Android's `takeScreenshot` API. It does not require Termux or root. Android captures the current device display rather than a desktop-style Roblox window, so the `pid` argument is ignored on Android.
 
@@ -130,7 +130,7 @@ The force path still verifies the GitHub release SHA-256, package name, version,
 
 The Android runtime embeds Node 18.17.1 through nodejs-mobile. `fast-uri` 3.1.8 is pinned for the Android dependency tree and patched at packaging time to replace its `\P{ASCII}` property escape with an equivalent ASCII-range expression that the mobile V8 parser accepts. The rolling-runtime workflow installs the Android-specific production dependencies, applies the same patch, and smoke-tests that packaged runtime under Node 18.17.1 before publishing `runtime-latest`.
 
-A repository workflow, `.github/workflows/publish-android-apk.yml`, can build the Android manager on GitHub Actions and attach the APK to the existing `v2.4.9` release without a Windows MCP machine. When the build certificate differs from the established Android certificate, the build is explicitly marked as requiring the Force update reinstall path.
+A repository workflow, `.github/workflows/publish-android-apk.yml`, can build the Android manager on GitHub Actions and attach the APK to the existing `v2.5.0` release without a Windows MCP machine. When the build certificate differs from the established Android certificate, the build is explicitly marked as requiring the Force update reinstall path.
 
 ## Security boundaries
 
