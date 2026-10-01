@@ -144,6 +144,13 @@ let OPEN_TUI_DISABLED = false;
 const SHOW_ALL_HARNESSES = process.argv.includes("--show-all-harnesses") || process.argv.includes("--all-harnesses");
 const AUTOEXEC_MODE = process.argv.includes("--autoexec");
 const NO_MANAGER_MODE = process.argv.includes("--no-manager");
+const CONFIGURE_HARNESS_MODE = getArgValue("--configure-harness");
+const REQUESTED_HARNESS_IDS = new Set(
+  String(getArgValue("--harness") || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 installSafeTerminalWrites();
 const HARNESS_AVAILABILITY = detectAvailableHarnesses();
 if (PLAIN_MODE || process.env.NO_COLOR) {
@@ -163,6 +170,11 @@ async function main() {
     return;
   }
 
+  if (CONFIGURE_HARNESS_MODE) {
+    await runConfigureHarnessMode(CONFIGURE_HARNESS_MODE);
+    return;
+  }
+
   if (UPDATE_MODE) {
     await runUpdateMode();
     return;
@@ -171,7 +183,7 @@ async function main() {
   CURRENT_REPO_DIR = await chooseServerRoot(CURRENT_REPO_DIR);
   PACKAGE_VERSION = readPackageVersion(CURRENT_REPO_DIR);
 
-  const initial = new Set();
+  const initial = new Set(REQUESTED_HARNESS_IDS);
   const selected = NON_INTERACTIVE ? initial : await selectHarnesses(initial);
   if (!NON_INTERACTIVE) {
     console.log(`${colors.green}Selected harnesses:${colors.reset} ${formatSelection(selected)}`);
@@ -840,6 +852,34 @@ async function promptForGetScriptBridgeUrl() {
   return target.bridgeUrl;
 }
 
+async function configureRequestedHarnesses(serverEntry, results) {
+  if (!REQUESTED_HARNESS_IDS.size) return [];
+  const selectedHarnesses = ALL_HARNESSES.filter((h) => REQUESTED_HARNESS_IDS.has(h.id));
+  const missing = [...REQUESTED_HARNESS_IDS].filter((id) => !selectedHarnesses.some((h) => h.id === id));
+  if (missing.length) throw new Error(`Unknown harness id(s): ${missing.join(", ")}`);
+  for (const harness of selectedHarnesses) {
+    await configureHarness(harness, serverEntry, results);
+  }
+  return selectedHarnesses;
+}
+
+async function runConfigureHarnessMode(harnessId) {
+  CURRENT_REPO_DIR = await chooseServerRoot(CURRENT_REPO_DIR);
+  PACKAGE_VERSION = readPackageVersion(CURRENT_REPO_DIR);
+  const serverRoot = path.resolve(CURRENT_REPO_DIR);
+  const serverEntry = path.join(serverRoot, "dist", "index.js");
+  if (!exists(serverEntry)) {
+    throw new Error(`Server entry was not found at ${serverEntry}. Build or repair the MCP first.`);
+  }
+  const harness = ALL_HARNESSES.find((item) => item.id === harnessId);
+  if (!harness) throw new Error(`Unknown harness id: ${harnessId}`);
+  applyBridgeLaunchSettings(DEFAULT_BRIDGE_URL);
+  const results = [];
+  section("Provider Config");
+  await configureHarness(harness, serverEntry, results);
+  for (const item of results) log(item.status, item.message);
+}
+
 async function runUpdateMode() {
   CURRENT_REPO_DIR = await chooseServerRoot(CURRENT_REPO_DIR);
   PACKAGE_VERSION = readPackageVersion(CURRENT_REPO_DIR);
@@ -879,6 +919,8 @@ async function runUpdateMode() {
   }
 
   await installServer(serverRoot, results, { announceRepo: false });
+  const serverEntry = path.join(serverRoot, "dist", "index.js");
+  await configureRequestedHarnesses(serverEntry, results);
 
   section("Summary");
   for (const item of results) {

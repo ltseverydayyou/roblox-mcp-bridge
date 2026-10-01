@@ -622,7 +622,7 @@ namespace RobloxMcpWebManager
                 string updateArgs = Quote(updater) + " --update --yes --plain --server-root " + Quote(repo);
                 string antigravityConfig = GetConfig("antigravityConfig");
                 if (!String.IsNullOrWhiteSpace(antigravityConfig))
-                    updateArgs += " --antigravity-config " + Quote(antigravityConfig);
+                    updateArgs += " --harness antigravity --antigravity-config " + Quote(antigravityConfig);
                 var build = Run("node.exe", updateArgs, repo, 180000);
                 if (build.Code != 0) { SendSource("MCP rebuild failed.", CleanError(build), "bad", "BUILD FAILED", .62, false, "Retry", "checkSource"); Toast("MCP rebuild failed", "error", "error"); return; }
                 SendSource("MCP update complete.", "Source downloaded and bridge build refreshed", "good", "UPDATED", 1, false, "Check again", "checkSource");
@@ -784,7 +784,12 @@ namespace RobloxMcpWebManager
                     if (!String.IsNullOrWhiteSpace(name)) d.FileName = name;
                 }
                 if (d.ShowDialog(this) == DialogResult.OK)
-                    Send(new Dictionary<string, object>{{"type","path"},{"target","antigravityConfig"},{"value",d.FileName}});
+                {
+                    config["antigravityConfig"] = d.FileName;
+                    SaveConfig();
+                    SendConfig();
+                    _ = ApplyAntigravityConfigAsync();
+                }
             }
         }
 
@@ -792,6 +797,31 @@ namespace RobloxMcpWebManager
         {
             foreach (string k in new[] {"repository","address","tunnelClient","profile","tunnelId","antigravityConfig"}) if (msg.ContainsKey(k)) config[k] = Convert.ToString(msg[k]);
             SaveConfig(); SendConfig(); SendStatus(); _ = CheckSourceAsync(true); Toast("Manager configuration saved", "success", "ok");
+            _ = ApplyAntigravityConfigAsync();
+        }
+
+        private async Task ApplyAntigravityConfigAsync()
+        {
+            string configPath = GetConfig("antigravityConfig");
+            if (String.IsNullOrWhiteSpace(configPath)) return;
+            string repo = GetConfig("repository");
+            string installer = Path.Combine(repo, "scripts", "install-harnesses.mjs");
+            string serverEntry = Path.Combine(repo, "dist", "index.js");
+            if (!File.Exists(installer) || !File.Exists(serverEntry))
+            {
+                Toast("Antigravity path saved. Build or repair the MCP before applying its config.", "info", "info");
+                return;
+            }
+            await Task.Run(() => {
+                string args = Quote(installer)
+                    + " --yes --plain --no-manager --server-root " + Quote(repo)
+                    + " --configure-harness antigravity --antigravity-config " + Quote(configPath);
+                var result = Run("node.exe", args, repo, 30000);
+                if (result.Code != 0)
+                    Toast("Antigravity MCP config update failed: " + CleanError(result), "error", "error");
+                else
+                    Toast("Antigravity MCP config updated with this bridge's dist/index.js", "success", "ok");
+            });
         }
 
         private static int NodeMajorVersion(string value)
@@ -879,7 +909,7 @@ namespace RobloxMcpWebManager
                     string installArgs = Quote(installer) + " --yes --plain --no-manager --server-root " + Quote(repo);
                     string antigravityConfig = GetConfig("antigravityConfig");
                     if (!String.IsNullOrWhiteSpace(antigravityConfig))
-                        installArgs += " --antigravity-config " + Quote(antigravityConfig);
+                        installArgs += " --harness antigravity --antigravity-config " + Quote(antigravityConfig);
                     var install = Run("node.exe", installArgs, repo, 180000);
                     if (install.Code != 0) { Toast("MCP install / repair failed: " + CleanError(install), "error", "error"); return; }
                     Toast("MCP dependencies and build are ready", "success", "ok");

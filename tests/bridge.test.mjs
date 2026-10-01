@@ -254,6 +254,9 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(host, /NodeMajorVersion/);
   assert.match(host, /--yes --plain --no-manager --server-root/);
   assert.match(host, /--antigravity-config/);
+  assert.match(host, /--harness antigravity/);
+  assert.match(host, /--configure-harness antigravity/);
+  assert.match(host, /ApplyAntigravityConfigAsync/);
   assert.match(host, /antigravityConfig/);
   assert.doesNotMatch(host, /Run\("npm\.cmd", "install --ignore-scripts"/);
   assert.match(host, /RestartAsAdministrator/);
@@ -298,6 +301,9 @@ test("the Node updater bypasses broken global npm shims before trying pnpm", () 
   assert.match(updater, /npm-cli\.js/);
   assert.match(updater, /commandExists\("bun"\).*bundledNpmCli.*commandExists\("npm"\).*commandExists\("pnpm"\)/s);
   assert.match(updater, /getArgValue\("--antigravity-config"\)/);
+  assert.match(updater, /getArgValue\("--configure-harness"\)/);
+  assert.match(updater, /getArgValue\("--harness"\)/);
+  assert.match(updater, /configureRequestedHarnesses/);
   assert.match(updater, /ROBLOX_MCP_ANTIGRAVITY_CONFIG/);
 });
 
