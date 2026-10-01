@@ -1919,8 +1919,12 @@ async function writeVibeToml(filePath, serverEntry) {
   await writeText(filePath, text);
 }
 
+function mcpNodeCommand() {
+  return process.platform === "win32" ? process.execPath : "node";
+}
+
 function mcpServerConfig(serverEntry) {
-  return { command: "node", args: mcpServerArgs(serverEntry) };
+  return { command: mcpNodeCommand(), args: mcpServerArgs(serverEntry) };
 }
 
 function mcpServerArgs(serverEntry) {

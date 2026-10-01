@@ -301,6 +301,7 @@ test("the Node updater bypasses broken global npm shims before trying pnpm", () 
   assert.match(updater, /npm-cli\.js/);
   assert.match(updater, /commandExists\("bun"\).*bundledNpmCli.*commandExists\("npm"\).*commandExists\("pnpm"\)/s);
   assert.match(updater, /getArgValue\("--antigravity-config"\)/);
+  assert.match(updater, /process\.platform === "win32" \? process\.execPath : "node"/);
   assert.match(updater, /getArgValue\("--configure-harness"\)/);
   assert.match(updater, /getArgValue\("--harness"\)/);
   assert.match(updater, /configureRequestedHarnesses/);
