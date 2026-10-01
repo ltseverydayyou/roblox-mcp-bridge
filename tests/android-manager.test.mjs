@@ -212,8 +212,8 @@ test("Android manager detects refreshed same-version APKs by installed APK diges
   assert.match(updateChecker, /String updateKey\(\)/);
   assert.match(mainActivity, /result\.updateKey\(\)/);
   assert.match(bridgeService, /ManagerUpdateChecker\.isUpdateAvailable\(this, result\)/);
-  assert.match(gradle, /versionCode 34/);
-  assert.match(gradle, /versionName "0\.5\.6"/);
+  assert.match(gradle, /versionCode 35/);
+  assert.match(gradle, /versionName "0\.5\.7"/);
 });
 
 test("Android manager chooses the highest published APK version instead of the first release asset", () => {

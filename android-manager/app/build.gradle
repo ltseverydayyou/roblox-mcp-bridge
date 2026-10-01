@@ -13,8 +13,8 @@ android {
         applicationId "com.ltseverydayyou.robloxmcpmanager"
         minSdk 26
         targetSdk 35
-        versionCode 34
-        versionName "0.5.6"
+        versionCode 35
+        versionName "0.5.7"
         buildConfigField "String", "MCP_VERSION", "\"${rootMcpVersion}\""
 
         ndk {

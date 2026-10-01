@@ -41,7 +41,7 @@ When the dashboard detects the injected `AndroidManager` JavaScript interface, t
 
 ## Snapshot support
 
-Android manager v0.5.6 includes the **Snapshot support** card for the `screenshot-window` MCP tool. On Android 11 or newer, tap **Enable snapshot support** to open the manager's accessibility-service settings, then enable **Roblox MCP screenshot capture**. Returning to the manager refreshes the card to **SNAPSHOT SUPPORT: ENABLED**. On Android 13 and newer, sideloaded APKs may first require **App settings → Allow restricted settings** before Android permits the accessibility service to be enabled.
+Android manager v0.5.7 includes the **Snapshot support** card for the `screenshot-window` MCP tool. On Android 11 or newer, tap **Enable snapshot support** to open the manager's accessibility-service settings, then enable **Roblox MCP screenshot capture**. Returning to the manager refreshes the card to **SNAPSHOT SUPPORT: ENABLED**. On Android 13 and newer, sideloaded APKs may first require **App settings → Allow restricted settings** before Android permits the accessibility service to be enabled.
 
 The accessibility service exposes its screenshot endpoint only on `127.0.0.1` and uses Android's `takeScreenshot` API. It does not require Termux or root. Android captures the current device display rather than a desktop-style Roblox window, so the `pid` argument is ignored on Android.
 
