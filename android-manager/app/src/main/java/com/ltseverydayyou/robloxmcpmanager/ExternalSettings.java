@@ -22,10 +22,12 @@ final class ExternalSettings {
     private static final String LEGACY_PREFS = "manager_settings";
 
     private final Context context;
+    private final SharedPreferences fallbackPreferences;
     private JSONObject data = new JSONObject();
 
     ExternalSettings(Context context) {
         this.context = context.getApplicationContext();
+        this.fallbackPreferences = this.context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE);
         reload();
     }
 
@@ -47,20 +49,29 @@ final class ExternalSettings {
 
     synchronized void reload() {
         data = new JSONObject();
-        if (!hasStorageAccess(context)) return;
-        File target = file();
-        if (!target.isFile()) {
-            migrateLegacySettings();
-            return;
+        boolean externalLoaded = false;
+
+        if (hasStorageAccess(context)) {
+            File target = file();
+            if (target.isFile()) {
+                try (FileInputStream input = new FileInputStream(target); ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+                    byte[] chunk = new byte[8192];
+                    int read;
+                    while ((read = input.read(chunk)) >= 0) buffer.write(chunk, 0, read);
+                    byte[] bytes = buffer.toByteArray();
+                    if (bytes.length > 0) data = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+                    externalLoaded = true;
+                } catch (Exception ignored) {
+                    data = new JSONObject();
+                }
+            }
         }
-        try (FileInputStream input = new FileInputStream(target); ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
-            byte[] chunk = new byte[8192];
-            int read;
-            while ((read = input.read(chunk)) >= 0) buffer.write(chunk, 0, read);
-            byte[] bytes = buffer.toByteArray();
-            if (bytes.length > 0) data = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-        } catch (Exception ignored) {
-            data = new JSONObject();
+
+        if (externalLoaded) {
+            mirrorFallbackSettings();
+        } else {
+            loadFallbackSettings();
+            persist();
         }
     }
 
@@ -88,7 +99,8 @@ final class ExternalSettings {
     }
 
     private synchronized boolean persist() {
-        if (!hasStorageAccess(context)) return false;
+        mirrorFallbackSettings();
+        if (!hasStorageAccess(context)) return true;
         try {
             File directory = directory();
             if (!directory.isDirectory() && !directory.mkdirs()) return false;
@@ -105,13 +117,8 @@ final class ExternalSettings {
         }
     }
 
-    private synchronized void migrateLegacySettings() {
-        SharedPreferences legacy = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE);
-        Map<String, ?> values = legacy.getAll();
-        if (values.isEmpty()) {
-            persist();
-            return;
-        }
+    private synchronized void loadFallbackSettings() {
+        Map<String, ?> values = fallbackPreferences.getAll();
         try {
             for (Map.Entry<String, ?> entry : values.entrySet()) {
                 Object value = entry.getValue();
@@ -119,9 +126,22 @@ final class ExternalSettings {
                     data.put(entry.getKey(), value);
                 }
             }
-            if (persist()) legacy.edit().clear().apply();
         } catch (Exception ignored) {
         }
+    }
+
+    private synchronized void mirrorFallbackSettings() {
+        SharedPreferences.Editor editor = fallbackPreferences.edit().clear();
+        java.util.Iterator<String> keys = data.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            Object value = data.opt(key);
+            if (value instanceof String) editor.putString(key, (String) value);
+            else if (value instanceof Boolean) editor.putBoolean(key, (Boolean) value);
+            else if (value instanceof Integer) editor.putInt(key, (Integer) value);
+            else if (value instanceof Number) editor.putString(key, String.valueOf(value));
+        }
+        editor.apply();
     }
 
     static final class Editor {

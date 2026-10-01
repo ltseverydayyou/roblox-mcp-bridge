@@ -238,6 +238,10 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(host, /InstallManagerUpdateAsync/);
   assert.match(host, /latestManagerSha256/);
   assert.match(host, /sameVersionAssetRefresh/);
+  assert.match(host, /\["managerVersion"\]="v" \+ GetInstalledVersion\(\)/);
+  assert.match(host, /\["mcpVersion"\]=version/);
+  assert.doesNotMatch(host, /Path\.Combine\(GetConfig\("repository"\), "package\.json"\)/);
+  assert.match(host, /LastIndexOf\("-v", StringComparison\.OrdinalIgnoreCase\)/);
   assert.match(host, /RequestCacheLevel\.NoCacheNoStore/);
   assert.match(host, /manager_check=/);
   assert.match(host, /CacheControl.*no-cache, no-store, max-age=0/s);
@@ -283,6 +287,9 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(managerHtml, /class="sidebar"/);
   assert.match(managerHtml, /dashboard-density-compact/);
   assert.match(managerHtml, /id="sourceProgress"/);
+  assert.match(managerHtml, /const mcpVersion=m\.mcpVersion\|\|m\.version\|\|'-'/);
+  assert.match(managerHtml, /const managerVersion=m\.managerVersion\|\|'v-'/);
+  assert.match(managerHtml, /\$\('topVersion'\)\.textContent=managerVersion/);
   assert.match(managerHtml, /id="appearanceDensity"/);
   assert.match(managerHtml, /id="appearanceMotion"/);
   assert.match(managerHtml, /Manager appearance/);

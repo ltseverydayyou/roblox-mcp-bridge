@@ -5254,8 +5254,8 @@ window.refreshAndroidManagerState = function refreshAndroidManagerState() {
 
     const hint = androidField('dashboardPreferencesStorageHint');
     if (hint) hint.textContent = storageReady
-        ? 'Saved to /storage/emulated/0/Android MCP/settings.json on Android.'
-        : 'Grant Android MCP storage access to persist these settings outside app data.';
+        ? 'Saved in the app and mirrored to /storage/emulated/0/Android MCP/settings.json.'
+        : 'Saved in the app. Grant Android MCP storage access to also preserve these settings across reinstall.';
 };
 
 function initAndroidManagerUi() {

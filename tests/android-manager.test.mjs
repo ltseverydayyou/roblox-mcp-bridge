@@ -66,12 +66,17 @@ test("Android manager persists user settings in shared Android MCP storage", () 
   assert.match(externalSettings, /Environment\.getExternalStorageDirectory\(\)/);
   assert.match(externalSettings, /DIRECTORY_NAME = "Android MCP"/);
   assert.match(externalSettings, /FILE_NAME = "settings\.json"/);
+  assert.match(externalSettings, /fallbackPreferences/);
+  assert.match(externalSettings, /loadFallbackSettings/);
+  assert.match(externalSettings, /mirrorFallbackSettings/);
+  assert.match(externalSettings, /if \(!hasStorageAccess\(context\)\) return true/);
   assert.match(mainActivity, /ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION/);
   assert.match(mainActivity, /new ExternalSettings\(this\)/);
   assert.match(bridgeService, /new ExternalSettings\(this\)/);
   assert.doesNotMatch(bridgeService, /bridge_service_settings/);
   assert.match(dashboardJs, /window\.AndroidManager\.getSetting/);
   assert.match(dashboardJs, /window\.AndroidManager\.putSetting/);
+  assert.match(dashboardJs, /Saved in the app\. Grant Android MCP storage access to also preserve these settings across reinstall\./);
   assert.match(configDir, /"Android MCP"/);
   assert.match(semanticSettings, /getRobloxMcpConfigDir\(\)/);
   assert.match(decompilerSettings, /getRobloxMcpConfigDir\(\)/);
@@ -134,7 +139,8 @@ test("embedded Node runtime is pinned to ARM64 and checksum verified", () => {
   assert.match(gradle, /assets\/nodejs-project\/connector\.luau/);
   assert.match(mainActivity, /Node\.js: EMBEDDED 18\.17\.1/);
   assert.match(mainActivity, /Git: NOT REQUIRED/);
-  assert.match(mainActivity, new RegExp(`Repository: MCP v${packageVersion.replaceAll(".", "\\.")}`));
+  assert.match(gradle, /buildConfigField "String", "MCP_VERSION"/);
+  assert.match(mainActivity, /Repository: MCP v" \+ BuildConfig\.MCP_VERSION/);
 });
 
 test("runtime asset activation preserves the previous working bundle", () => {

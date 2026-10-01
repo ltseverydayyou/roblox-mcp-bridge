@@ -450,8 +450,9 @@ namespace RobloxMcpWebManager
                 bool buildReady = File.Exists(Path.Combine(repo, "dist", "index.js"));
                 bool bridgeRunning = IsPortOpen(GetPort(), 180);
                 Send(new Dictionary<string, object> {
-                    ["type"]="status", ["version"]=version, ["git"]=git, ["node"]=node, ["branch"]=branch,
-                    ["commit"]=commit, ["buildReady"]=buildReady, ["bridgeRunning"]=bridgeRunning, ["address"]=GetConfig("address")
+                    ["type"]="status", ["version"]=version, ["mcpVersion"]=version, ["managerVersion"]="v" + GetInstalledVersion(),
+                    ["git"]=git, ["node"]=node, ["branch"]=branch, ["commit"]=commit,
+                    ["buildReady"]=buildReady, ["bridgeRunning"]=bridgeRunning, ["address"]=GetConfig("address")
                 });
                 Send(new Dictionary<string, object> { ["type"]="bridge", ["running"]=bridgeRunning });
                 Send(new Dictionary<string, object> { ["type"]="tunnel", ["running"]=IsConfiguredTunnelRunning() });
@@ -621,13 +622,16 @@ namespace RobloxMcpWebManager
         {
             string env = Environment.GetEnvironmentVariable("ROBLOX_MCP_MANAGER_VERSION");
             if (!String.IsNullOrWhiteSpace(env)) return env.TrimStart('v', 'V');
-            try
+
+            string name = Path.GetFileNameWithoutExtension(GetManagerExecutablePath()) ?? "";
+            int marker = name.LastIndexOf("-v", StringComparison.OrdinalIgnoreCase);
+            if (marker >= 0 && marker + 2 < name.Length)
             {
-                string package = File.ReadAllText(Path.Combine(GetConfig("repository"), "package.json"));
-                var parsed = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(package);
-                if (parsed.ContainsKey("version")) return Convert.ToString(parsed["version"]).TrimStart('v', 'V');
+                string fromName = name.Substring(marker + 2).Trim();
+                Version parsed;
+                if (Version.TryParse(fromName, out parsed)) return fromName;
             }
-            catch { }
+
             return "0.0.0";
         }
 

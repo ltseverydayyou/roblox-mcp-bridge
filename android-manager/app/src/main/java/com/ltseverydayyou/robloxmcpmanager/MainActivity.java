@@ -1606,7 +1606,7 @@ public final class MainActivity extends Activity {
     private static String healthBase() {
         return "Node.js: EMBEDDED 18.17.1 ✓\n"
             + "Git: NOT REQUIRED — verified source updates\n"
-            + "Repository: MCP v2.5.0\n"
+            + "Repository: MCP v" + BuildConfig.MCP_VERSION + "\n"
             + "Tunnel: OFFICIAL OPENAI " + TunnelClient.VERSION + " ARM64 ✓";
     }
 
