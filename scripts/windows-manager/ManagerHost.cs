@@ -542,12 +542,109 @@ namespace RobloxMcpWebManager
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    managerUpdateChecked = false;
-                    if (manual) Toast("Manager update check failed: " + ex.Message, "error", "error");
+                    try
+                    {
+                        CheckManagerUpdateFromPublicRelease(manual);
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        managerUpdateChecked = false;
+                        if (manual) Toast("Manager update check failed: " + fallbackEx.Message, "error", "error");
+                    }
                 }
             });
+        }
+
+        private void CheckManagerUpdateFromPublicRelease(bool manual)
+        {
+            string installed = GetInstalledVersion();
+            string latest = ResolveLatestManagerVersionFromPublicRelease();
+            if (String.IsNullOrWhiteSpace(latest)) throw new InvalidOperationException("GitHub did not return a latest manager release.");
+
+            latestManagerVersion = latest;
+            string expectedName = "RobloxMcpManager-v" + latest + ".exe";
+            string releaseBase = "https://github.com/ltseverydayyou/roblox-mcp-bridge/releases/download/v" + latest + "/";
+            latestManagerDownloadUrl = releaseBase + expectedName;
+            latestManagerSha256 = DownloadManagerSha256(releaseBase + expectedName + ".sha256");
+            latestManagerSize = 0;
+
+            bool newerVersion = IsVersionNewer(latest, installed);
+            bool sameVersionAssetRefresh = false;
+            if (String.Equals(latest, installed, StringComparison.OrdinalIgnoreCase))
+            {
+                string localHash = Sha256File(GetManagerExecutablePath());
+                sameVersionAssetRefresh = !String.IsNullOrWhiteSpace(localHash)
+                    && !String.Equals(latestManagerSha256, localHash, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (newerVersion || sameVersionAssetRefresh)
+            {
+                string notificationKey = latest + ":" + latestManagerSha256;
+                string title = "Roblox MCP Manager update available";
+                string message = newerVersion ? "Manager v" + latest + " is available." : "A refreshed v" + installed + " manager build is available.";
+                if (manual)
+                {
+                    lastManagerNotificationKey = notificationKey;
+                    Toast(message, "info", "warn", "Update app", "updateManager");
+                }
+                else if (!String.Equals(lastManagerNotificationKey, notificationKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    lastManagerNotificationKey = notificationKey;
+                    DeliverUpdateNotification(title, message, "Update app", "updateManager");
+                }
+            }
+            else
+            {
+                lastManagerNotificationKey = "";
+                if (manual) Toast("Roblox MCP Manager v" + installed + " is up to date.", "success", "ok");
+            }
+        }
+
+        private string ResolveLatestManagerVersionFromPublicRelease()
+        {
+            var request = (HttpWebRequest)WebRequest.Create("https://github.com/ltseverydayyou/roblox-mcp-bridge/releases/latest");
+            request.Method = "HEAD";
+            request.AllowAutoRedirect = false;
+            request.UserAgent = "RobloxMcpManager/" + GetInstalledVersion();
+            request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
+            request.Headers[HttpRequestHeader.CacheControl] = "no-cache, no-store, max-age=0";
+            request.Headers[HttpRequestHeader.Pragma] = "no-cache";
+
+            using (var response = (HttpWebResponse)request.GetResponse())
+            {
+                string location = response.Headers[HttpResponseHeader.Location] ?? "";
+                const string marker = "/releases/tag/";
+                int index = location.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (index < 0) throw new InvalidOperationException("GitHub latest-release redirect did not include a release tag.");
+                string tag = location.Substring(index + marker.Length).Trim().TrimEnd('/');
+                return Uri.UnescapeDataString(tag).TrimStart('v', 'V');
+            }
+        }
+
+        private string DownloadManagerSha256(string checksumUrl)
+        {
+            using (var client = new WebClient())
+            {
+                client.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
+                client.Headers[HttpRequestHeader.UserAgent] = "RobloxMcpManager/" + GetInstalledVersion();
+                client.Headers[HttpRequestHeader.CacheControl] = "no-cache, no-store, max-age=0";
+                client.Headers[HttpRequestHeader.Pragma] = "no-cache";
+                string separator = checksumUrl.IndexOf('?') >= 0 ? "&" : "?";
+                string text = client.DownloadString(checksumUrl + separator + "manager_check=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                string[] parts = text.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                string hash = parts.Length > 0 ? parts[0].Trim().ToLowerInvariant() : "";
+                if (!IsSha256(hash)) throw new InvalidOperationException("The manager release checksum is missing or invalid.");
+                return hash;
+            }
+        }
+
+        private static bool IsSha256(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value) || value.Length != 64) return false;
+            foreach (char c in value) if (!Uri.IsHexDigit(c)) return false;
+            return true;
         }
 
         private async Task InstallManagerUpdateAsync()

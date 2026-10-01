@@ -243,6 +243,11 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.doesNotMatch(host, /Path\.Combine\(GetConfig\("repository"\), "package\.json"\)/);
   assert.match(host, /LastIndexOf\("-v", StringComparison\.OrdinalIgnoreCase\)/);
   assert.match(host, /RequestCacheLevel\.NoCacheNoStore/);
+  assert.match(host, /CheckManagerUpdateFromPublicRelease/);
+  assert.match(host, /ResolveLatestManagerVersionFromPublicRelease/);
+  assert.match(host, /releases\/latest/);
+  assert.match(host, /DownloadManagerSha256/);
+  assert.match(host, /expectedName \+ "\.sha256"/);
   assert.match(host, /manager_check=/);
   assert.match(host, /CacheControl.*no-cache, no-store, max-age=0/s);
   assert.match(host, /Sha256File\(download\)/);
@@ -323,6 +328,7 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   const releaseBuilder = readFileSync(new URL("../scripts/build-manager-release.ps1", import.meta.url), "utf8");
   assert.match(releaseBuilder, /RobloxMcpManager-v\$version\.exe/);
   assert.match(releaseBuilder, /Get-FileHash.*SHA256/);
+  assert.match(releaseBuilder, /\.sha256/);
 });
 
 test("the ChatGPT tunnel setup uses one explicit profile directory and verifies its YAML", () => {

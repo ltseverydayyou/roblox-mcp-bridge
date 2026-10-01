@@ -75,6 +75,8 @@ if (-not (Test-Path -LiteralPath $plainExe -PathType Leaf)) {
 
 Move-Item -LiteralPath $plainExe -Destination $releaseExe -Force
 $hash = (Get-FileHash -LiteralPath $releaseExe -Algorithm SHA256).Hash.ToLowerInvariant()
+$checksumPath = "$releaseExe.sha256"
+[IO.File]::WriteAllText($checksumPath, "$hash  $([IO.Path]::GetFileName($releaseExe))`r`n", [Text.UTF8Encoding]::new($false))
 $size = (Get-Item -LiteralPath $releaseExe).Length
 
 Write-Host ""
@@ -83,6 +85,7 @@ Write-Host "  $releaseExe"
 Write-Host "Version: v$version"
 Write-Host "Size: $size bytes"
 Write-Host "SHA-256: $hash"
+Write-Host "Checksum: $checksumPath"
 Write-Host ""
 Write-Host "Upload this exact EXE as the v$version GitHub release asset." -ForegroundColor Cyan
 Write-Host "Replacing the same-version release asset is supported: installed managers compare their own SHA-256 with GitHub's published asset digest."
