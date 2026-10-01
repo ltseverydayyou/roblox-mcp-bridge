@@ -8,6 +8,8 @@ In Antigravity, open the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and se
 - **Windows:** `%USERPROFILE%\.gemini\config\mcp_config.json`
 - **Linux:** `~/.gemini/antigravity/mcp_config.json`
 
+The Windows manager exposes this as **Antigravity MCP config** in Setup. The default Windows value is `%USERPROFILE%\.gemini\config\mcp_config.json`, but you can browse to a different JSON file and the manager passes that path to the harness installer. For scripted installs, use `--antigravity-config <path>` or the `ROBLOX_MCP_ANTIGRAVITY_CONFIG` environment variable.
+
 ## 2. Add the MCP server
 
 Clock on "View raw config" button and add or merge the following:

@@ -3635,6 +3635,8 @@ function homePath(...parts) {
 }
 
 function antigravityConfigPath() {
+  const configured = getArgValue("--antigravity-config") || process.env.ROBLOX_MCP_ANTIGRAVITY_CONFIG;
+  if (configured) return path.resolve(expandHome(configured));
   if (process.platform === "win32") {
     return homePath(".gemini", "config", "mcp_config.json");
   }

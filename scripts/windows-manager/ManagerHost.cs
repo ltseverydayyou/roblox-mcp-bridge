@@ -163,6 +163,7 @@ namespace RobloxMcpWebManager
             config["tunnelClient"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAI", "TunnelClient", "tunnel-client.exe");
             config["profile"] = "roblox-executor";
             config["tunnelId"] = "";
+            config["antigravityConfig"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini", "config", "mcp_config.json");
 
             try
             {
@@ -236,7 +237,9 @@ namespace RobloxMcpWebManager
                     case "updateManager": _ = InstallManagerUpdateAsync(); break;
                     case "browseRepository": BrowseRepository(); break;
                     case "browseTunnel": BrowseTunnel(); break;
+                    case "browseAntigravityConfig": BrowseAntigravityConfig(); break;
                     case "saveConfig": SaveConfigFromMessage(msg); break;
+                    case "installNode": _ = InstallNodeAsync(); break;
                     case "installEverything": _ = InstallRepairAsync(); break;
                     case "installTunnelClient": _ = InstallTunnelClientAsync(); break;
                     case "restartAdmin": RestartAsAdministrator(); break;
@@ -344,7 +347,8 @@ namespace RobloxMcpWebManager
         {
             Send(new Dictionary<string, object> {
                 ["type"]="config", ["repository"]=GetConfig("repository"), ["address"]=GetConfig("address"),
-                ["tunnelClient"]=GetConfig("tunnelClient"), ["profile"]=GetConfig("profile"), ["tunnelId"]=GetConfig("tunnelId")
+                ["tunnelClient"]=GetConfig("tunnelClient"), ["profile"]=GetConfig("profile"), ["tunnelId"]=GetConfig("tunnelId"),
+                ["antigravityConfig"]=GetConfig("antigravityConfig")
             });
         }
 
@@ -615,7 +619,11 @@ namespace RobloxMcpWebManager
                 if (pull.Code != 0) { SendSource("MCP update failed.", CleanError(pull), "bad", "UPDATE FAILED", 0, false, "Retry", "checkSource"); Toast("MCP source update failed", "error", "error"); return; }
                 SendSource("Updating MCP source...", "Source downloaded; rebuilding bridge", "busy", "BUILDING", .62, true, "Building...", "updateSource");
                 string updater = Path.Combine(repo, "scripts", "install-harnesses.mjs");
-                var build = Run("node.exe", Quote(updater) + " --update --yes --plain --server-root " + Quote(repo), repo, 180000);
+                string updateArgs = Quote(updater) + " --update --yes --plain --server-root " + Quote(repo);
+                string antigravityConfig = GetConfig("antigravityConfig");
+                if (!String.IsNullOrWhiteSpace(antigravityConfig))
+                    updateArgs += " --antigravity-config " + Quote(antigravityConfig);
+                var build = Run("node.exe", updateArgs, repo, 180000);
                 if (build.Code != 0) { SendSource("MCP rebuild failed.", CleanError(build), "bad", "BUILD FAILED", .62, false, "Retry", "checkSource"); Toast("MCP rebuild failed", "error", "error"); return; }
                 SendSource("MCP update complete.", "Source downloaded and bridge build refreshed", "good", "UPDATED", 1, false, "Check again", "checkSource");
                 Toast("MCP source updated successfully", "success", "ok");
@@ -761,10 +769,73 @@ namespace RobloxMcpWebManager
             using (var d = new OpenFileDialog()) { d.Filter="Tunnel client (tunnel-client.exe)|tunnel-client.exe|Executables (*.exe)|*.exe"; if (File.Exists(GetConfig("tunnelClient"))) d.FileName=GetConfig("tunnelClient"); if (d.ShowDialog(this)==DialogResult.OK) Send(new Dictionary<string, object>{{"type","path"},{"target","tunnel"},{"value",d.FileName}}); }
         }
 
+        private void BrowseAntigravityConfig()
+        {
+            using (var d = new SaveFileDialog())
+            {
+                d.Filter = "JSON config (mcp_config.json)|mcp_config.json|JSON files (*.json)|*.json|All files (*.*)|*.*";
+                d.FileName = "mcp_config.json";
+                string current = GetConfig("antigravityConfig");
+                if (!String.IsNullOrWhiteSpace(current))
+                {
+                    string directory = Path.GetDirectoryName(current);
+                    if (!String.IsNullOrWhiteSpace(directory) && Directory.Exists(directory)) d.InitialDirectory = directory;
+                    string name = Path.GetFileName(current);
+                    if (!String.IsNullOrWhiteSpace(name)) d.FileName = name;
+                }
+                if (d.ShowDialog(this) == DialogResult.OK)
+                    Send(new Dictionary<string, object>{{"type","path"},{"target","antigravityConfig"},{"value",d.FileName}});
+            }
+        }
+
         private void SaveConfigFromMessage(Dictionary<string, object> msg)
         {
-            foreach (string k in new[] {"repository","address","tunnelClient","profile","tunnelId"}) if (msg.ContainsKey(k)) config[k] = Convert.ToString(msg[k]);
+            foreach (string k in new[] {"repository","address","tunnelClient","profile","tunnelId","antigravityConfig"}) if (msg.ContainsKey(k)) config[k] = Convert.ToString(msg[k]);
             SaveConfig(); SendConfig(); SendStatus(); _ = CheckSourceAsync(true); Toast("Manager configuration saved", "success", "ok");
+        }
+
+        private static int NodeMajorVersion(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return 0;
+            string text = value.Trim();
+            if (text.StartsWith("v", StringComparison.OrdinalIgnoreCase)) text = text.Substring(1);
+            int dot = text.IndexOf('.');
+            if (dot >= 0) text = text.Substring(0, dot);
+            int major;
+            return Int32.TryParse(text, out major) ? major : 0;
+        }
+
+        private async Task InstallNodeAsync()
+        {
+            Toast("Checking the latest Node.js LTS release...", "info", "info");
+            await Task.Run(() => {
+                try
+                {
+                    RefreshProcessPath();
+                    var current = Run("node.exe", "--version", Environment.CurrentDirectory, 5000);
+                    bool nodePresent = current.Code == 0;
+                    bool usableBefore = nodePresent && NodeMajorVersion(current.Out) >= 18;
+                    string args = nodePresent
+                        ? "upgrade --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements --accept-package-agreements --silent"
+                        : "install --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements --accept-package-agreements --silent";
+                    var result = Run("winget.exe", args, Environment.CurrentDirectory, 180000);
+                    RefreshProcessPath();
+                    var verified = Run("node.exe", "--version", Environment.CurrentDirectory, 5000);
+                    int major = NodeMajorVersion(verified.Out);
+                    if (verified.Code != 0 || major < 18)
+                    {
+                        string detail = result.Code == 0 ? "Node.js 18 or newer was not available after installation." : CleanError(result);
+                        Toast("Node.js installation failed: " + detail, "error", "error");
+                        return;
+                    }
+                    if (result.Code != 0 && usableBefore)
+                        Toast("Node.js " + verified.Out.Trim() + " is already usable; winget did not apply a newer LTS build.", "info", "info");
+                    else
+                        Toast("Node.js " + verified.Out.Trim() + " is ready", "success", "ok");
+                    SendStatus();
+                }
+                catch (Exception ex) { Toast("Node.js installation failed: " + ex.Message, "error", "error"); }
+            });
         }
 
         private async Task InstallRepairAsync()
@@ -781,9 +852,10 @@ namespace RobloxMcpWebManager
                         if (gitInstall.Code != 0) { Toast("Git installation failed: " + CleanError(gitInstall), "error", "error"); return; }
                         RefreshProcessPath();
                     }
-                    if (Run("node.exe", "--version", Environment.CurrentDirectory, 5000).Code != 0)
+                    var nodeCheck = Run("node.exe", "--version", Environment.CurrentDirectory, 5000);
+                    if (nodeCheck.Code != 0 || NodeMajorVersion(nodeCheck.Out) < 18)
                     {
-                        Toast("Node.js LTS is missing. Installing it with Windows Package Manager...", "info", "info");
+                        Toast("Node.js 18+ is missing. Installing the latest Node.js LTS with Windows Package Manager...", "info", "info");
                         var nodeInstall = Run("winget.exe", "install --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements --accept-package-agreements --silent", Environment.CurrentDirectory, 180000);
                         if (nodeInstall.Code != 0) { Toast("Node.js installation failed: " + CleanError(nodeInstall), "error", "error"); return; }
                         RefreshProcessPath();
@@ -804,7 +876,11 @@ namespace RobloxMcpWebManager
                     string installer = Path.Combine(repo, "scripts", "install-harnesses.mjs");
                     if (!File.Exists(installer)) { Toast("MCP installer script is missing. Re-clone or repair the repository first.", "error", "error"); return; }
                     Toast("Installing dependencies and rebuilding the MCP...", "info", "info");
-                    var install = Run("node.exe", Quote(installer) + " --yes --plain --no-manager --server-root " + Quote(repo), repo, 180000);
+                    string installArgs = Quote(installer) + " --yes --plain --no-manager --server-root " + Quote(repo);
+                    string antigravityConfig = GetConfig("antigravityConfig");
+                    if (!String.IsNullOrWhiteSpace(antigravityConfig))
+                        installArgs += " --antigravity-config " + Quote(antigravityConfig);
+                    var install = Run("node.exe", installArgs, repo, 180000);
                     if (install.Code != 0) { Toast("MCP install / repair failed: " + CleanError(install), "error", "error"); return; }
                     Toast("MCP dependencies and build are ready", "success", "ok");
                     SendStatus();

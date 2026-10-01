@@ -249,7 +249,12 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(host, /RedirectStandardOutput=true/);
   assert.match(host, /RedirectStandardError=true/);
   assert.match(host, /InstallTunnelClientAsync/);
+  assert.match(host, /InstallNodeAsync/);
+  assert.match(host, /OpenJS\.NodeJS\.LTS/);
+  assert.match(host, /NodeMajorVersion/);
   assert.match(host, /--yes --plain --no-manager --server-root/);
+  assert.match(host, /--antigravity-config/);
+  assert.match(host, /antigravityConfig/);
   assert.doesNotMatch(host, /Run\("npm\.cmd", "install --ignore-scripts"/);
   assert.match(host, /RestartAsAdministrator/);
   assert.match(host, /winget\.exe/);
@@ -265,6 +270,10 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(managerHtml, /accentContrast/);
   assert.match(managerHtml, /previewAppearance/);
   assert.match(managerHtml, /id="tunnelOutput"/);
+  assert.match(managerHtml, /data-action="installNode"/);
+  assert.match(managerHtml, /Install \/ update Node\.js/);
+  assert.match(managerHtml, /id="antigravityConfig"/);
+  assert.match(managerHtml, /data-action="browseAntigravityConfig"/);
   assert.match(managerHtml, /data-action="installTunnelClient"/);
   assert.match(managerHtml, /data-action="restartAdmin"/);
 
@@ -288,6 +297,8 @@ test("the Node updater bypasses broken global npm shims before trying pnpm", () 
   const updater = readFileSync(new URL("../scripts/install-harnesses.mjs", import.meta.url), "utf8");
   assert.match(updater, /npm-cli\.js/);
   assert.match(updater, /commandExists\("bun"\).*bundledNpmCli.*commandExists\("npm"\).*commandExists\("pnpm"\)/s);
+  assert.match(updater, /getArgValue\("--antigravity-config"\)/);
+  assert.match(updater, /ROBLOX_MCP_ANTIGRAVITY_CONFIG/);
 });
 
 test("implicit routing sends a command to exactly one client", () => {
