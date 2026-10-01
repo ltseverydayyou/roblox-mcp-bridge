@@ -32,6 +32,7 @@ namespace RobloxMcpWebManager
         private readonly string configDir;
         private readonly string configPath;
         private Dictionary<string, object> config = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        private string runtimeApiKeyMemory = "";
         private Process tunnelProcess;
         private Process bridgeProcess;
         private IntPtr bridgeJob = IntPtr.Zero;
@@ -157,13 +158,14 @@ namespace RobloxMcpWebManager
 
         private void LoadConfig()
         {
-            string repo = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "GitHub", "roblox-mcp-bridge");
+            string repo = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "roblox-mcp-bridge");
             config["repository"] = repo;
             config["address"] = "localhost:16384";
             config["tunnelClient"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAI", "TunnelClient", "tunnel-client.exe");
             config["profile"] = "roblox-executor";
             config["tunnelId"] = "";
             config["antigravityConfig"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini", "config", "mcp_config.json");
+            config["saveRuntimeApiKey"] = false;
 
             try
             {
@@ -171,6 +173,7 @@ namespace RobloxMcpWebManager
                 {
                     var saved = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(configPath, Encoding.UTF8));
                     foreach (var kv in saved) config[kv.Key] = kv.Value;
+                    RestorePersistedRuntimeApiKey();
                     return;
                 }
 
@@ -194,12 +197,86 @@ namespace RobloxMcpWebManager
 
             if (Directory.Exists(repo) && File.Exists(Path.Combine(repo, "package.json"))) config["repository"] = repo;
             else if (!Directory.Exists(GetConfig("repository"))) config["repository"] = repo;
+            RestorePersistedRuntimeApiKey();
         }
 
         private string GetConfig(string key)
         {
             object v;
             return config.TryGetValue(key, out v) ? Convert.ToString(v) ?? "" : "";
+        }
+
+        private bool GetConfigBool(string key)
+        {
+            object v;
+            if (!config.TryGetValue(key, out v) || v == null) return false;
+            bool parsed;
+            if (Boolean.TryParse(Convert.ToString(v), out parsed)) return parsed;
+            try { return Convert.ToBoolean(v); } catch { return false; }
+        }
+
+        private string ProtectRuntimeApiKey(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return "";
+            byte[] clear = Encoding.UTF8.GetBytes(value);
+            byte[] protectedBytes = ProtectedData.Protect(clear, null, DataProtectionScope.CurrentUser);
+            return Convert.ToBase64String(protectedBytes);
+        }
+
+        private string UnprotectRuntimeApiKey(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return "";
+            try
+            {
+                byte[] protectedBytes = Convert.FromBase64String(value);
+                byte[] clear = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(clear);
+            }
+            catch { return ""; }
+        }
+
+        private void RestorePersistedRuntimeApiKey()
+        {
+            if (!GetConfigBool("saveRuntimeApiKey"))
+            {
+                config.Remove("runtimeApiKeyProtected");
+                runtimeApiKeyMemory = "";
+                return;
+            }
+            runtimeApiKeyMemory = UnprotectRuntimeApiKey(GetConfig("runtimeApiKeyProtected"));
+            if (String.IsNullOrWhiteSpace(runtimeApiKeyMemory))
+            {
+                config["saveRuntimeApiKey"] = false;
+                config.Remove("runtimeApiKeyProtected");
+            }
+        }
+
+        private string CaptureRuntimeApiKeyFromMessage(Dictionary<string, object> msg)
+        {
+            object value;
+            if (msg != null && msg.TryGetValue("runtimeKey", out value))
+                runtimeApiKeyMemory = Convert.ToString(value) ?? "";
+
+            bool save = GetConfigBool("saveRuntimeApiKey");
+            if (msg != null && msg.TryGetValue("saveRuntimeApiKey", out value))
+            {
+                try { save = Convert.ToBoolean(value); } catch { save = false; }
+            }
+
+            config["saveRuntimeApiKey"] = save;
+            if (save && !String.IsNullOrWhiteSpace(runtimeApiKeyMemory))
+                config["runtimeApiKeyProtected"] = ProtectRuntimeApiKey(runtimeApiKeyMemory);
+            else
+                config.Remove("runtimeApiKeyProtected");
+
+            return runtimeApiKeyMemory;
+        }
+
+        private string CaptureAndPersistRuntimeApiKey(Dictionary<string, object> msg)
+        {
+            string key = CaptureRuntimeApiKeyFromMessage(msg);
+            SaveConfig();
+            return key;
         }
 
         private void SaveConfig()
@@ -240,7 +317,7 @@ namespace RobloxMcpWebManager
                     case "browseAntigravityConfig": BrowseAntigravityConfig(); break;
                     case "saveConfig": SaveConfigFromMessage(msg); break;
                     case "installNode": _ = InstallNodeAsync(); break;
-                    case "installEverything": _ = InstallRepairAsync(); break;
+                    case "installEverything": SaveConfigValuesFromMessage(msg); _ = InstallRepairAsync(); break;
                     case "installTunnelClient": _ = InstallTunnelClientAsync(); break;
                     case "restartAdmin": RestartAsAdministrator(); break;
                     case "startTunnel": _ = StartTunnelAsync(msg); break;
@@ -348,7 +425,9 @@ namespace RobloxMcpWebManager
             Send(new Dictionary<string, object> {
                 ["type"]="config", ["repository"]=GetConfig("repository"), ["address"]=GetConfig("address"),
                 ["tunnelClient"]=GetConfig("tunnelClient"), ["profile"]=GetConfig("profile"), ["tunnelId"]=GetConfig("tunnelId"),
-                ["antigravityConfig"]=GetConfig("antigravityConfig")
+                ["antigravityConfig"]=GetConfig("antigravityConfig"),
+                ["saveRuntimeApiKey"]=GetConfigBool("saveRuntimeApiKey"),
+                ["runtimeKey"]=GetConfigBool("saveRuntimeApiKey") ? runtimeApiKeyMemory : ""
             });
         }
 
@@ -392,9 +471,13 @@ namespace RobloxMcpWebManager
                     using (var client = new WebClient())
                     {
                         string installed = GetInstalledVersion();
+                        client.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
                         client.Headers[HttpRequestHeader.UserAgent] = "RobloxMcpManager/" + installed;
                         client.Headers[HttpRequestHeader.Accept] = "application/vnd.github+json";
-                        string releaseJson = client.DownloadString("https://api.github.com/repos/ltseverydayyou/roblox-mcp-bridge/releases/latest");
+                        client.Headers[HttpRequestHeader.CacheControl] = "no-cache, no-store, max-age=0";
+                        client.Headers[HttpRequestHeader.Pragma] = "no-cache";
+                        string releaseUrl = "https://api.github.com/repos/ltseverydayyou/roblox-mcp-bridge/releases/latest?manager_check=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                        string releaseJson = client.DownloadString(releaseUrl);
                         var release = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(releaseJson);
                         string tag = release.ContainsKey("tag_name") ? Convert.ToString(release["tag_name"]) : "";
                         string latest = tag.TrimStart('v', 'V');
@@ -486,7 +569,10 @@ namespace RobloxMcpWebManager
                     ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
                     using (var client = new WebClient())
                     {
+                        client.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
                         client.Headers[HttpRequestHeader.UserAgent] = "RobloxMcpManager/" + GetInstalledVersion();
+                        client.Headers[HttpRequestHeader.CacheControl] = "no-cache, no-store, max-age=0";
+                        client.Headers[HttpRequestHeader.Pragma] = "no-cache";
                         client.DownloadFile(latestManagerDownloadUrl, download);
                     }
                     var info = new FileInfo(download);
@@ -762,7 +848,7 @@ namespace RobloxMcpWebManager
 
         private void BrowseRepository()
         {
-            using (var d = new FolderBrowserDialog()) { d.SelectedPath = Directory.Exists(GetConfig("repository")) ? GetConfig("repository") : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); if (d.ShowDialog(this) == DialogResult.OK) Send(new Dictionary<string, object>{{"type","path"},{"target","repository"},{"value",d.SelectedPath}}); }
+            using (var d = new FolderBrowserDialog()) { d.SelectedPath = Directory.Exists(GetConfig("repository")) ? GetConfig("repository") : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile); if (d.ShowDialog(this) == DialogResult.OK) Send(new Dictionary<string, object>{{"type","path"},{"target","repository"},{"value",d.SelectedPath}}); }
         }
         private void BrowseTunnel()
         {
@@ -793,11 +879,21 @@ namespace RobloxMcpWebManager
             }
         }
 
+        private void SaveConfigValuesFromMessage(Dictionary<string, object> msg)
+        {
+            foreach (string k in new[] {"repository","address","tunnelClient","profile","tunnelId","antigravityConfig"})
+                if (msg.ContainsKey(k)) config[k] = Convert.ToString(msg[k]);
+            CaptureRuntimeApiKeyFromMessage(msg);
+            SaveConfig();
+            SendConfig();
+        }
+
         private void SaveConfigFromMessage(Dictionary<string, object> msg)
         {
-            foreach (string k in new[] {"repository","address","tunnelClient","profile","tunnelId","antigravityConfig"}) if (msg.ContainsKey(k)) config[k] = Convert.ToString(msg[k]);
-            SaveConfig(); SendConfig(); SendStatus(); _ = CheckSourceAsync(true); Toast("Manager configuration saved", "success", "ok");
+            SaveConfigValuesFromMessage(msg);
+            SendStatus(); _ = CheckSourceAsync(true); Toast("Manager configuration saved", "success", "ok");
             _ = ApplyAntigravityConfigAsync();
+            _ = ApplyTunnelProfileAsync();
         }
 
         private async Task ApplyAntigravityConfigAsync()
@@ -821,6 +917,53 @@ namespace RobloxMcpWebManager
                     Toast("Antigravity MCP config update failed: " + CleanError(result), "error", "error");
                 else
                     Toast("Antigravity MCP config updated with this bridge's dist/index.js", "success", "ok");
+            });
+        }
+
+        private async Task ApplyTunnelProfileAsync()
+        {
+            string tunnelId = GetConfig("tunnelId");
+            if (String.IsNullOrWhiteSpace(tunnelId)) return;
+
+            string repo = GetConfig("repository");
+            string script = Path.Combine(repo, "scripts", "setup-chatgpt-tunnel.ps1");
+            string executable = GetConfig("tunnelClient");
+            if (!File.Exists(executable))
+            {
+                Toast("Tunnel settings saved. Install tunnel-client before the profile can be written.", "info", "info");
+                return;
+            }
+            if (!File.Exists(script))
+            {
+                Toast("Tunnel settings saved, but setup-chatgpt-tunnel.ps1 is missing from the selected repository.", "error", "error");
+                return;
+            }
+
+            string profileDirectory = GetTunnelProfileDirectory();
+            Directory.CreateDirectory(profileDirectory);
+            Toast("Applying tunnel-client profile...", "info", "info");
+            await Task.Run(() => {
+                string args = "-NoProfile -ExecutionPolicy Bypass -File " + Quote(script)
+                    + " -SkipProjectSetup -NoPathPrompts -NoStartPrompt -ConfigureOnly"
+                    + " -RepositoryDirectory " + Quote(repo)
+                    + " -TunnelClientExecutable " + Quote(executable)
+                    + " -TunnelProfileDirectory " + Quote(profileDirectory)
+                    + " -BridgeAddress " + Quote(GetConfig("address"))
+                    + " -ProfileName " + Quote(GetConfig("profile"))
+                    + " -TunnelId " + Quote(tunnelId);
+                var result = Run("powershell.exe", args, repo, 60000);
+                if (result.Code != 0)
+                {
+                    Toast("Tunnel profile update failed: " + CleanError(result), "error", "error");
+                    return;
+                }
+                string profilePath = GetTunnelProfilePath();
+                if (!File.Exists(profilePath))
+                {
+                    Toast("Tunnel profile command completed, but no YAML was found in " + profileDirectory, "error", "error");
+                    return;
+                }
+                Toast("Tunnel profile saved: " + profilePath, "success", "ok");
             });
         }
 
@@ -937,6 +1080,8 @@ namespace RobloxMcpWebManager
                 SendConfig();
                 Toast("OpenAI tunnel client is ready", "success", "ok");
             });
+            if (File.Exists(GetConfig("tunnelClient")) && !String.IsNullOrWhiteSpace(GetConfig("tunnelId")))
+                await ApplyTunnelProfileAsync();
         }
 
         private void RestartAsAdministrator()
@@ -957,13 +1102,31 @@ namespace RobloxMcpWebManager
             Environment.SetEnvironmentVariable("Path", machine + ";" + user, EnvironmentVariableTarget.Process);
         }
 
+        private string GetTunnelProfileDirectory()
+        {
+            string executable = GetConfig("tunnelClient");
+            string directory = String.IsNullOrWhiteSpace(executable) ? "" : Path.GetDirectoryName(executable);
+            if (String.IsNullOrWhiteSpace(directory))
+                directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAI", "TunnelClient");
+            return Path.GetFullPath(directory);
+        }
+
+        private string GetTunnelProfilePath()
+        {
+            string directory = GetTunnelProfileDirectory();
+            string profile = GetConfig("profile");
+            string yaml = Path.Combine(directory, profile + ".yaml");
+            if (File.Exists(yaml)) return yaml;
+            string yml = Path.Combine(directory, profile + ".yml");
+            return File.Exists(yml) ? yml : yaml;
+        }
+
         private bool TryGetConfiguredTunnelHealthPort(out int port)
         {
             port = 0;
             try
             {
-                string profile = GetConfig("profile");
-                string profilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "tunnel-client", profile + ".yaml");
+                string profilePath = GetTunnelProfilePath();
                 if (!File.Exists(profilePath)) return false;
                 foreach (string raw in File.ReadAllLines(profilePath))
                 {
@@ -1006,6 +1169,8 @@ namespace RobloxMcpWebManager
 
         private async Task StartTunnelAsync(Dictionary<string, object> msg)
         {
+            SaveConfigValuesFromMessage(msg);
+            RefreshProcessPath();
             if (IsConfiguredTunnelRunning())
             {
                 Send(new Dictionary<string,object>{{"type","tunnel"},{"running",true}});
@@ -1022,10 +1187,11 @@ namespace RobloxMcpWebManager
                 return;
             }
             string exe=GetConfig("tunnelClient"); if(!File.Exists(exe)){Toast("tunnel-client.exe was not found","error","error");return;}
-            string key=msg.ContainsKey("runtimeKey")?Convert.ToString(msg["runtimeKey"]):""; string profile=GetConfig("profile");
+            if(!File.Exists(GetTunnelProfilePath())){Toast("Tunnel profile YAML is missing. Save configuration or configure the tunnel first.","error","warn");return;}
+            string key=runtimeApiKeyMemory; string profile=GetConfig("profile");
             await Task.Run(()=>{
                 try {
-                    var psi=new ProcessStartInfo(exe,"run --profile "+Quote(profile)){WorkingDirectory=GetConfig("repository"),UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+                    var psi=new ProcessStartInfo(exe,"run --profile-dir "+Quote(GetTunnelProfileDirectory())+" --profile "+Quote(profile)){WorkingDirectory=GetConfig("repository"),UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
                     if(!String.IsNullOrWhiteSpace(key)) psi.EnvironmentVariables["CONTROL_PLANE_API_KEY"]=key;
                     tunnelProcess=new Process{StartInfo=psi,EnableRaisingEvents=true};
                     tunnelProcess.OutputDataReceived+=(s,e)=>{if(!String.IsNullOrWhiteSpace(e.Data))Send(new Dictionary<string,object>{{"type","tunnelLog"},{"line",e.Data}});};
@@ -1051,14 +1217,15 @@ namespace RobloxMcpWebManager
 
         private async Task ConfigureTunnelAsync(Dictionary<string, object> msg)
         {
+            SaveConfigValuesFromMessage(msg);
             string repo=GetConfig("repository"), script=Path.Combine(repo,"scripts","setup-chatgpt-tunnel.ps1");
             if(!File.Exists(script)){Toast("Tunnel setup script is missing","error","error");return;}
             if(String.IsNullOrWhiteSpace(GetConfig("tunnelId"))){Toast("Enter a tunnel ID in Setup first","error","warn");return;}
-            string key=msg.ContainsKey("runtimeKey")?Convert.ToString(msg["runtimeKey"]):"";
+            string key=runtimeApiKeyMemory;
             if(String.IsNullOrWhiteSpace(key)){Toast("Enter the runtime API key in Setup first","error","warn");return;}
             Toast("Configuring ChatGPT tunnel profile...","info","info");
             await Task.Run(()=>{
-                string args="-NoProfile -ExecutionPolicy Bypass -File "+Quote(script)+" -SkipProjectSetup -NoPathPrompts -NoStartPrompt -RepositoryDirectory "+Quote(repo)+" -TunnelClientExecutable "+Quote(GetConfig("tunnelClient"))+" -BridgeAddress "+Quote(GetConfig("address"))+" -ProfileName "+Quote(GetConfig("profile"))+" -TunnelId "+Quote(GetConfig("tunnelId"));
+                string args="-NoProfile -ExecutionPolicy Bypass -File "+Quote(script)+" -SkipProjectSetup -NoPathPrompts -NoStartPrompt -RepositoryDirectory "+Quote(repo)+" -TunnelClientExecutable "+Quote(GetConfig("tunnelClient"))+" -TunnelProfileDirectory "+Quote(GetTunnelProfileDirectory())+" -BridgeAddress "+Quote(GetConfig("address"))+" -ProfileName "+Quote(GetConfig("profile"))+" -TunnelId "+Quote(GetConfig("tunnelId"));
                 var env=new Dictionary<string,string>{{"CONTROL_PLANE_API_KEY",key}}; var r=Run("powershell.exe",args,repo,120000,env); if(r.Code!=0)Toast("Tunnel configuration failed: "+CleanError(r),"error","error");else Toast("ChatGPT tunnel profile configured","success","ok");
             });
         }

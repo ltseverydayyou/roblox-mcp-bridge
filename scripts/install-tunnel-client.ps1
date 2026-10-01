@@ -107,10 +107,16 @@ try {
     Write-Step "Finding the latest official tunnel-client release"
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases/latest" -Headers $apiHeaders
 
-    $assetPattern = "^tunnel-client-.*-windows-$([regex]::Escape($targetArchitecture))\.zip$"
-    $matchingAssets = @($release.assets | Where-Object { $_.name -match $assetPattern })
+    $expectedAssetName = "tunnel-client-$($release.tag_name)-windows-$targetArchitecture.zip"
+    $matchingAssets = @($release.assets | Where-Object { $_.name -eq $expectedAssetName })
     if ($matchingAssets.Count -ne 1) {
-        throw "Expected one Windows $targetArchitecture release asset, found $($matchingAssets.Count)."
+        $availableWindowsAssets = @(
+            $release.assets |
+                Where-Object { $_.name -match "windows-$([regex]::Escape($targetArchitecture))\.zip$" } |
+                Select-Object -ExpandProperty name
+        )
+        $availableText = if ($availableWindowsAssets.Count) { $availableWindowsAssets -join ", " } else { "none" }
+        throw "Expected release asset '$expectedAssetName', found $($matchingAssets.Count). Windows $targetArchitecture ZIP assets: $availableText"
     }
 
     $checksumAssets = @($release.assets | Where-Object { $_.name -eq "SHA256SUMS.txt" })

@@ -238,6 +238,9 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(host, /InstallManagerUpdateAsync/);
   assert.match(host, /latestManagerSha256/);
   assert.match(host, /sameVersionAssetRefresh/);
+  assert.match(host, /RequestCacheLevel\.NoCacheNoStore/);
+  assert.match(host, /manager_check=/);
+  assert.match(host, /CacheControl.*no-cache, no-store, max-age=0/s);
   assert.match(host, /Sha256File\(download\)/);
   assert.match(host, /header\[0\] != 0x4D/);
   assert.match(host, /ROBLOX_MCP_MANAGER_PARENT_PID/);
@@ -249,7 +252,20 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(host, /RedirectStandardOutput=true/);
   assert.match(host, /RedirectStandardError=true/);
   assert.match(host, /InstallTunnelClientAsync/);
+  assert.match(host, /GetTunnelProfileDirectory/);
+  assert.match(host, /GetTunnelProfilePath/);
+  assert.match(host, /ApplyTunnelProfileAsync/);
+  assert.match(host, /run --profile-dir/);
+  assert.match(host, /TunnelProfileDirectory/);
   assert.match(host, /InstallNodeAsync/);
+  assert.match(host, /ProtectedData\.Protect/);
+  assert.match(host, /ProtectedData\.Unprotect/);
+  assert.match(host, /runtimeApiKeyProtected/);
+  assert.match(host, /saveRuntimeApiKey/);
+  assert.match(host, /CaptureAndPersistRuntimeApiKey/);
+  assert.match(host, /SpecialFolder\.UserProfile\), "roblox-mcp-bridge"/);
+  assert.doesNotMatch(host, /SpecialFolder\.MyDocuments\), "GitHub", "roblox-mcp-bridge"/);
+  assert.match(host, /SaveConfigValuesFromMessage\(msg\); _ = InstallRepairAsync\(\)/);
   assert.match(host, /OpenJS\.NodeJS\.LTS/);
   assert.match(host, /NodeMajorVersion/);
   assert.match(host, /--yes --plain --no-manager --server-root/);
@@ -274,6 +290,12 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(managerHtml, /previewAppearance/);
   assert.match(managerHtml, /id="tunnelOutput"/);
   assert.match(managerHtml, /data-action="installNode"/);
+  assert.match(managerHtml, /id="saveRuntimeKey"/);
+  assert.match(managerHtml, /Save runtime API key for next usage/);
+  assert.match(managerHtml, /saveRuntimeApiKey/);
+  assert.match(managerHtml, /managerConfigPayload/);
+  assert.match(managerHtml, /action==='startTunnel'\|\|action==='configureTunnel'\|\|action==='installEverything'/);
+  assert.match(managerHtml, /send\(action,managerConfigPayload\(\)\)/);
   assert.match(managerHtml, /Install \/ update Node\.js/);
   assert.match(managerHtml, /id="antigravityConfig"/);
   assert.match(managerHtml, /data-action="browseAntigravityConfig"/);
@@ -294,6 +316,24 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   const releaseBuilder = readFileSync(new URL("../scripts/build-manager-release.ps1", import.meta.url), "utf8");
   assert.match(releaseBuilder, /RobloxMcpManager-v\$version\.exe/);
   assert.match(releaseBuilder, /Get-FileHash.*SHA256/);
+});
+
+test("the ChatGPT tunnel setup uses one explicit profile directory and verifies its YAML", () => {
+  const setup = readFileSync(new URL("../scripts/setup-chatgpt-tunnel.ps1", import.meta.url), "utf8");
+  assert.match(setup, /\[string\]\$TunnelProfileDirectory/);
+  assert.match(setup, /"--profile-dir", \(Get-TunnelProfileDirectory\)/);
+  assert.match(setup, /Get-TunnelProfileFile -Name \$ProfileName/);
+  assert.match(setup, /expected profile was not created/);
+  assert.match(setup, /\$mcpCommand = 'node "/);
+  assert.match(setup, /Arguments = @\("doctor", "--profile-dir"/);
+  assert.match(setup, /Arguments = @\("run", "--profile-dir"/);
+});
+
+test("the tunnel installer selects the exact release-tagged Windows client asset", () => {
+  const installer = readFileSync(new URL("../scripts/install-tunnel-client.ps1", import.meta.url), "utf8");
+  assert.match(installer, /tunnel-client-\$\(\$release\.tag_name\)-windows-\$targetArchitecture\.zip/);
+  assert.doesNotMatch(installer, /\^tunnel-client-\.\*-windows-/);
+  assert.match(installer, /SHA256SUMS\.txt/);
 });
 
 test("the Node updater bypasses broken global npm shims before trying pnpm", () => {

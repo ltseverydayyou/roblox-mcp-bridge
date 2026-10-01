@@ -128,7 +128,7 @@ try {
     $hostExe = Join-Path $tempRoot "RobloxMcpManager.Host.exe"
     $hostArgs = @(
         "/nologo", "/target:winexe", "/optimize+", "/win32icon:`"$iconIco`"", "/out:`"$hostExe`"",
-        "/reference:System.dll", "/reference:System.Core.dll", "/reference:System.Drawing.dll", "/reference:System.Windows.Forms.dll", "/reference:System.Web.Extensions.dll",
+        "/reference:System.dll", "/reference:System.Core.dll", "/reference:System.Drawing.dll", "/reference:System.Security.dll", "/reference:System.Windows.Forms.dll", "/reference:System.Web.Extensions.dll",
         "/reference:`"$coreDll`"", "/reference:`"$formsDll`"", "`"$hostSource`""
     )
     & $csc $hostArgs

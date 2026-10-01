@@ -10,6 +10,8 @@ param(
 
     [string]$TunnelClientExecutable = "",
 
+    [string]$TunnelProfileDirectory = "",
+
     [string]$RepositoryDirectory = (Split-Path -Parent $PSScriptRoot),
 
     [string]$BridgeAddress = "localhost:16384",
@@ -55,6 +57,9 @@ function Invoke-CheckedCommand {
 
 
 function Get-TunnelProfileDirectory {
+    if (-not [string]::IsNullOrWhiteSpace($TunnelProfileDirectory)) {
+        return [IO.Path]::GetFullPath($TunnelProfileDirectory)
+    }
     $explicit = [Environment]::GetEnvironmentVariable("TUNNEL_CLIENT_PROFILE_DIR", "Process")
     if (-not [string]::IsNullOrWhiteSpace($explicit)) { return [IO.Path]::GetFullPath($explicit) }
     $xdg = [Environment]::GetEnvironmentVariable("XDG_CONFIG_HOME", "Process")
@@ -83,6 +88,7 @@ function Invoke-TunnelProfileInit {
         "init",
         "--force",
         "--sample", "sample_mcp_stdio_local",
+        "--profile-dir", (Get-TunnelProfileDirectory),
         "--profile", $Name,
         "--tunnel-id", $TunnelId,
         "--mcp-command", $McpCommand
@@ -303,6 +309,11 @@ if ($bridgeUri.Port -ne 16384) {
 
 Write-Step "Configuring tunnel profile '$ProfileName'"
 Invoke-TunnelProfileInit -TunnelExecutable $tunnelExecutable -Name $ProfileName -TunnelId $TunnelId -McpCommand $mcpCommand
+$profileFile = Get-TunnelProfileFile -Name $ProfileName
+if (-not (Test-Path -LiteralPath $profileFile -PathType Leaf)) {
+    throw "tunnel-client init completed, but the expected profile was not created at $profileFile"
+}
+Write-Host "Tunnel profile written to: $profileFile" -ForegroundColor Green
 
 if ($ConfigureOnly) {
     Write-Host "Tunnel profile '$ProfileName' was updated for bridge address $BridgeAddress." -ForegroundColor Green
@@ -340,7 +351,7 @@ try {
     Write-Step "Validating the tunnel profile"
     $doctorCommand = @{
         FilePath = $tunnelExecutable
-        Arguments = @("doctor", "--profile", $ProfileName, "--explain")
+        Arguments = @("doctor", "--profile-dir", (Get-TunnelProfileDirectory), "--profile", $ProfileName, "--explain")
         FailureMessage = "tunnel-client doctor failed"
     }
     Invoke-CheckedCommand @doctorCommand
@@ -363,7 +374,7 @@ try {
         Write-Step "Starting tunnel profile '$ProfileName'"
         $runCommand = @{
             FilePath = $tunnelExecutable
-            Arguments = @("run", "--profile", $ProfileName)
+            Arguments = @("run", "--profile-dir", (Get-TunnelProfileDirectory), "--profile", $ProfileName)
             FailureMessage = "The tunnel runtime stopped with an error"
         }
         Invoke-CheckedCommand @runCommand
