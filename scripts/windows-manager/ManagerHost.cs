@@ -111,6 +111,12 @@ namespace RobloxMcpWebManager
             configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RobloxMcpManager");
             configPath = Path.Combine(configDir, "web-manager-config.json");
             LoadConfig();
+            string packagedManager = Environment.GetEnvironmentVariable("ROBLOX_MCP_MANAGER_EXE");
+            if (!String.IsNullOrWhiteSpace(packagedManager) && File.Exists(packagedManager))
+            {
+                config["managerExecutable"] = packagedManager;
+                try { SaveConfig(); } catch { }
+            }
 
             Text = "Roblox MCP Manager";
             Width = 1080;
@@ -511,7 +517,7 @@ namespace RobloxMcpWebManager
                                 latestManagerDownloadUrl = chosen.ContainsKey("browser_download_url") ? Convert.ToString(chosen["browser_download_url"]) : "";
                                 latestManagerSize = chosen.ContainsKey("size") ? Convert.ToInt64(chosen["size"]) : 0;
                                 if (digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) latestManagerSha256 = digest.Substring(7).Trim().ToLowerInvariant();
-                                if (String.Equals(latest, installed, StringComparison.OrdinalIgnoreCase) && latestManagerSha256.Length == 64)
+                                if (String.Equals(latest, installed, StringComparison.OrdinalIgnoreCase) && latestManagerSha256.Length == 64 && !IsStandaloneHost())
                                 {
                                     string localHash = Sha256File(GetManagerExecutablePath());
                                     if (!String.IsNullOrWhiteSpace(localHash) && !String.Equals(latestManagerSha256, localHash, StringComparison.OrdinalIgnoreCase)) sameVersionAssetRefresh = true;
@@ -572,7 +578,7 @@ namespace RobloxMcpWebManager
 
             bool newerVersion = IsVersionNewer(latest, installed);
             bool sameVersionAssetRefresh = false;
-            if (String.Equals(latest, installed, StringComparison.OrdinalIgnoreCase))
+            if (String.Equals(latest, installed, StringComparison.OrdinalIgnoreCase) && !IsStandaloneHost())
             {
                 string localHash = Sha256File(GetManagerExecutablePath());
                 sameVersionAssetRefresh = !String.IsNullOrWhiteSpace(localHash)
@@ -650,6 +656,11 @@ namespace RobloxMcpWebManager
         private async Task InstallManagerUpdateAsync()
         {
             string target = GetManagerExecutablePath();
+            if (IsStandaloneHost() && String.Equals(Path.GetFullPath(target), Path.GetFullPath(Application.ExecutablePath), StringComparison.OrdinalIgnoreCase))
+            {
+                Toast("Open the packaged RobloxMcpManager.exe once before updating from a pinned host.", "error", "warn");
+                return;
+            }
             if (String.IsNullOrWhiteSpace(latestManagerDownloadUrl) || latestManagerSha256.Length != 64 || !File.Exists(target))
             {
                 managerUpdateChecked = false;
@@ -707,7 +718,18 @@ namespace RobloxMcpWebManager
         private string GetManagerExecutablePath()
         {
             string p = Environment.GetEnvironmentVariable("ROBLOX_MCP_MANAGER_EXE");
-            return !String.IsNullOrWhiteSpace(p) ? p : Application.ExecutablePath;
+            if (!String.IsNullOrWhiteSpace(p) && File.Exists(p)) return p;
+
+            string saved = GetConfig("managerExecutable");
+            if (!String.IsNullOrWhiteSpace(saved) && File.Exists(saved)) return saved;
+
+            return Application.ExecutablePath;
+        }
+
+        private static bool IsStandaloneHost()
+        {
+            return String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ROBLOX_MCP_MANAGER_EXE"))
+                && String.Equals(Path.GetFileName(Application.ExecutablePath), "RobloxMcpManager.Host.exe", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string PsQuote(string value)
@@ -719,6 +741,15 @@ namespace RobloxMcpWebManager
         {
             string env = Environment.GetEnvironmentVariable("ROBLOX_MCP_MANAGER_VERSION");
             if (!String.IsNullOrWhiteSpace(env)) return env.TrimStart('v', 'V');
+
+            string runtimeName = new DirectoryInfo(appDir).Name;
+            if (runtimeName.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            {
+                int dash = runtimeName.IndexOf('-');
+                string fromRuntime = dash > 1 ? runtimeName.Substring(1, dash - 1) : runtimeName.Substring(1);
+                Version runtimeVersion;
+                if (Version.TryParse(fromRuntime, out runtimeVersion)) return fromRuntime;
+            }
 
             string name = Path.GetFileNameWithoutExtension(GetManagerExecutablePath()) ?? "";
             int marker = name.LastIndexOf("-v", StringComparison.OrdinalIgnoreCase);
