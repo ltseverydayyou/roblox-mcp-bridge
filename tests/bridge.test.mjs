@@ -322,6 +322,10 @@ test("the Windows manager uses the dashboard WebView UI and verified native upda
   assert.match(launcher, /ROBLOX_MCP_MANAGER_EXE/);
   assert.match(launcher, /ROBLOX_MCP_MANAGER_VERSION/);
   assert.match(launcher, /ROBLOX_MCP_MANAGER_PARENT_PID/);
+  assert.match(launcher, /CleanupOldRuntimes\(runtimeRoot, runtime\)/);
+  assert.match(launcher, /Process\.GetProcessesByName\("RobloxMcpManager\.Host"\)/);
+  assert.match(launcher, /Directory\.GetDirectories\(runtimeRoot, "v\*", SearchOption\.TopDirectoryOnly\)/);
+  assert.match(launcher, /Directory\.Delete\(full, true\)/);
   assert.match(launcher, /\/target:winexe/);
   assert.doesNotMatch(launcher, /PowerShell\.Create\(\)/);
 

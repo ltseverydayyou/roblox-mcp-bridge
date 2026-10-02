@@ -161,6 +161,7 @@ try {
 
     $bootstrapSource = @"
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -180,8 +181,10 @@ internal static class RobloxMcpManagerBootstrap
     {
         try
         {
-            string runtime = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RobloxMcpManager", "Runtime", "v$managerVersion-$runtimeBuildId");
+            string runtimeRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RobloxMcpManager", "Runtime");
+            string runtime = Path.Combine(runtimeRoot, "v$managerVersion-$runtimeBuildId");
             Directory.CreateDirectory(runtime);
+            CleanupOldRuntimes(runtimeRoot, runtime);
 $($payloadAssignments.ToString())
             string host = Path.Combine(runtime, "RobloxMcpManager.Host.exe");
             string sidecar = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "RobloxMcpManager.config.json");
@@ -202,6 +205,34 @@ $($payloadAssignments.ToString())
         {
             MessageBox.Show(error.Message, "Roblox MCP Manager", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private static void CleanupOldRuntimes(string runtimeRoot, string currentRuntime)
+    {
+        try
+        {
+            string current = Path.GetFullPath(currentRuntime).TrimEnd(Path.DirectorySeparatorChar);
+            var inUse = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Process process in Process.GetProcessesByName("RobloxMcpManager.Host"))
+            {
+                try
+                {
+                    string executable = process.MainModule.FileName;
+                    string directory = Path.GetDirectoryName(executable);
+                    if (!String.IsNullOrWhiteSpace(directory)) inUse.Add(Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar));
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+
+            foreach (string directory in Directory.GetDirectories(runtimeRoot, "v*", SearchOption.TopDirectoryOnly))
+            {
+                string full = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
+                if (String.Equals(full, current, StringComparison.OrdinalIgnoreCase) || inUse.Contains(full)) continue;
+                try { Directory.Delete(full, true); } catch { }
+            }
+        }
+        catch { }
     }
 
     private static void WritePayload(string path, string base64)
